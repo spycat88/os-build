@@ -14,7 +14,7 @@ post-install hook rsyncs `/var` across on update
 
 | File | Purpose |
 |---|---|
-| `genbundle.sh [version]` | Wrap the root image into a signed RAUC bundle (`.raucb`) for OTA. Dev builds mint an ephemeral cert; release builds pass `RAUC_CERT`/`RAUC_KEY`. |
+| `genbundle.sh [version]` | Wrap the root image into a signed RAUC bundle (`.raucb`) for OTA. Without a key it mints an ephemeral cert whose bundle no device will install; to install on hardware pass `PKIDIR=` (or `RAUC_CERT`/`RAUC_KEY`). Checks the result against the device keyring. |
 | `rauc/manifest.raucm.in` | RAUC update-manifest template (`@VERSION@`; `compatible=retroforge`). |
 | `rauc/verify-signing.sh` | The signing self-test. Every case is a negative — it feeds a deliberately broken config or cert profile through the shipped `system.conf` and asserts the verification refuses it. `make test-signing` (container-only: it signs real bundles, so it needs rauc). Covered in turn by `tests/test-verify-signing.sh`, which proves those negatives still bite. |
 | `rauc/release.cert.pem`, `release.ext` | The release signing profile. Note the `.gitignore` carve-out: every PEM under `rauc/` is asserted to carry no PRIVATE KEY by `tests/test-verify-signing.sh`, so the exception is policed by a test rather than by care. |

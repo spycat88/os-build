@@ -7,8 +7,9 @@
 #
 #   RAUC_CERT=cert.pem RAUC_KEY=key.pem ota/genbundle.sh
 #
-# For local/dev builds, omit the keys to mint an ephemeral self-signed cert (NOT for
-# release — production bundles must be signed with the release key, see ota/gen-signing-ca.sh).
+# Omit the keys to mint an ephemeral self-signed cert. That bundle is NOT installable on any
+# device, dev images included: every image trusts only the CA, so anything you mean to
+# `rauc install` must be signed with the release key (see ota/gen-signing-ca.sh).
 #
 # Run inside the build image (needs rauc + openssl):
 #   docker run --rm -v "$PWD":/src -w /src retroforge-build ota/genbundle.sh
@@ -80,8 +81,14 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 CERT="${RAUC_CERT:-}"; KEY="${RAUC_KEY:-}"
+DEVCERT=0
 if [ -z "$CERT" ] || [ -z "$KEY" ]; then
-  echo "[retroforge] no RAUC_CERT/RAUC_KEY — minting an ephemeral dev cert (NOT for release)"
+  # A device trusts ONLY the CA in ota/rauc/retroforge-ca.pem (its /etc/rauc/keyring.pem), dev
+  # image or not. A self-signed cert minted here chains to nothing in that keyring, so `rauc install`
+  # rejects the result with "Verify error: self-signed certificate". It is good for `rauc info
+  # --no-verify` and CI smoke tests, never for a device.
+  DEVCERT=1
+  echo "[retroforge] no RAUC_CERT/RAUC_KEY — minting an ephemeral dev cert (NOT installable on a device)"
   CERT="$work/dev-cert.pem"; KEY="$work/dev-key.pem"
   openssl req -x509 -newkey rsa:2048 -nodes -keyout "$KEY" -out "$CERT" \
     -days 7 -subj "/O=retroforge/CN=retroforge-dev" >/dev/null 2>&1
@@ -119,5 +126,32 @@ fi
 
 rauc bundle --cert="$CERT" --key="$KEY" "${bundle_args[@]}" "$content" "$BUNDLE"
 
-echo "  ok   $(du -h "$BUNDLE" | cut -f1)  $(basename "$BUNDLE")"
-echo "Verify with:  rauc info --no-verify ${BUNDLE#"$ROOT"/}"
+# Check the result the way the device will: against the keyring every image ships, through the
+# shipped system.conf (it supplies check-purpose=codesign; without --conf a correctly signed bundle
+# is a false red -- see ota/publish-bundle.sh). Building a bundle no device will accept, and only
+# finding out after an scp and a `rauc install`, is the failure this exists to catch.
+CONF_REL="rootfs/overlay/etc/rauc/system.conf"
+KEYRING_REL="ota/rauc/retroforge-ca.pem"
+if verify_out="$(cd "$ROOT" && rauc info --conf="$CONF_REL" --keyring="$KEYRING_REL" "$BUNDLE" 2>&1)"; then
+  echo "  ok   $(du -h "$BUNDLE" | cut -f1)  $(basename "$BUNDLE")  (verifies against $KEYRING_REL)"
+elif [ "$DEVCERT" = 1 ]; then
+  echo "  ok   $(du -h "$BUNDLE" | cut -f1)  $(basename "$BUNDLE")"
+  cat >&2 <<EOF
+
+  !!   THIS BUNDLE WILL NOT INSTALL ON A DEVICE. It is signed with a throwaway self-signed cert, and
+       devices trust only the retroforge CA ($KEYRING_REL), so rauc install fails with
+       "signature verification failed: Verify error: self-signed certificate".
+       For an installable bundle, sign it with the release key from ota/gen-signing-ca.sh:
+
+         PKIDIR=\$HOME/retroforge-pki make bundle      # wherever your PKI directory lives
+
+EOF
+else
+  printf '%s\n' "$verify_out" | sed 's/^/         /' >&2
+  rm -f "$BUNDLE"
+  echo "REFUSED: the bundle signed with $CERT does not verify against $KEYRING_REL," >&2
+  echo "  the keyring every device carries, so rauc install would reject it. Either the cert was" >&2
+  echo "  not issued by that CA, or the CA was re-minted after the image was built." >&2
+  exit 1
+fi
+echo "Inspect with:  rauc info --no-verify ${BUNDLE#"$ROOT"/}"

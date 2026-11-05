@@ -874,7 +874,8 @@ $(VARIMG_B): $(ROOTFS)
 $(SDCARD): $(ROOTFS) $(VARIMG) $(VARIMG_B) $(GRUB) boot/esp-dtbs.sh $(IMAGE_DIR)/make-sdcard.sh | $(BUILD_STAMP)
 	$(DOCKER) -e RETROFORGE_DEV -e RETROFORGE_SLOT_B $(BUILD_IMG) $(IMAGE_DIR)/make-sdcard.sh
 
-# Signed RAUC OTA bundle (Phase 4). Dev builds mint an ephemeral cert. For a real signature use
+# Signed RAUC OTA bundle (Phase 4). Without PKIDIR it mints an ephemeral cert that NO device accepts
+# (devices trust only the CA, dev images too). For an installable bundle use
 # PKIDIR=~/retroforge-pki (mounts the PKI at /pki and points RAUC_CERT/RAUC_KEY at it), or set
 # RAUC_CERT/RAUC_KEY yourself to paths the CONTAINER can see -- repo-relative ones resolve under
 # /src, anything else needs PKIDIR or a mount of your own.
