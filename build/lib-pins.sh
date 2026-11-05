@@ -104,21 +104,36 @@ pins_builder_ensure() {
     ctr run --privileged --rm docker.io/tonistiigi/binfmt --install arm64 >&2
   fi
 
+  # The check reports WHICH step failed, by exit status, so a builder that cannot reach the
+  # snapshot is not reported as one that does not match it:
+  #   10  the snapshot host does not resolve inside the container (container DNS, not the pin)
+  #   11  pacman -Sy failed for another reason (network, proxy, TLS, server)
+  #   12  an installed package is absent from the snapshot
+  #   13  an installed package is at a version the snapshot does not carry
+  local host rc=0
+  host="${snap#https://}"; host="${host%%/*}"
   cname="retroforge-builder-import-${sha:0:12}"
   ctr rm -f "$cname" >/dev/null 2>&1 || true
-  if ! ctr run --name "$cname" --platform linux/arm64 -e SNAPSHOT="$snap" "$tmp" \
+  ctr run --name "$cname" --platform linux/arm64 -e SNAPSHOT="$snap" -e SNAPHOST="$host" "$tmp" \
       bash -euo pipefail -c '
+        getent hosts "$SNAPHOST" >/dev/null || exit 10
         printf "Server = %s/\$repo/os/\$arch\n" "$SNAPSHOT" > /etc/pacman.d/mirrorlist
-        pacman -Sy --noconfirm >&2
+        pacman -Sy --noconfirm >&2 || exit 11
         foreign="$(pacman -Qmq || true)"
-        [ -z "$foreign" ] || { printf "installed but absent from the snapshot:\n%s\n" "$foreign" >&2; exit 1; }
+        [ -z "$foreign" ] || { printf "installed but absent from the snapshot:\n%s\n" "$foreign" >&2; exit 12; }
         drift="$(pacman -Sl | grep -F "[installed: " || true)"
-        [ -z "$drift" ] || { printf "installed at a version the snapshot does not carry:\n%s\n" "$drift" >&2; exit 1; }
+        [ -z "$drift" ] || { printf "installed at a version the snapshot does not carry:\n%s\n" "$drift" >&2; exit 13; }
         rm -rf /var/lib/pacman/sync/*
-      ' >&2; then
+      ' >&2 || rc=$?
+  if [ "$rc" != 0 ]; then
     ctr rm -f "$cname" >/dev/null 2>&1 || true
     ctr rmi "$tmp" >/dev/null 2>&1 || true
-    die "builder rootfs does not match the pinned snapshot $snap"
+    case "$rc" in
+      10) die "$host does not resolve inside a $RETROFORGE_CONTAINER container (it may resolve on the host): fix the container runtime's DNS, then re-run. Check with: $(ctr_run_cmdline) --rm docker.io/library/busybox nslookup $host" ;;
+      11) die "pacman could not sync the pinned snapshot $snap from inside the builder (network, proxy or server); the pin was not checked" ;;
+      12|13) die "builder rootfs does not match the pinned snapshot $snap" ;;
+      *) die "builder check failed (exit $rc) before comparing it to the pinned snapshot $snap" ;;
+    esac
   fi
   ctr commit "$cname" "$ref" >/dev/null
   ctr rm "$cname" >/dev/null
