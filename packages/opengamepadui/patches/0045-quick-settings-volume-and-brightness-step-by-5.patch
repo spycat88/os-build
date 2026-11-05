@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: retroforge <retroforge@invalid>
+Date: Thu, 5 Nov 2026 22:50:00 +0000
+Subject: [PATCH] feat(QuickSettings): volume and brightness step by 5
+
+The quick settings Volume slider moved 1% per step and Brightness 3%,
+so the D-pad took 20-33 presses across the range. Both step by 5 now,
+the same as the Saturation slider.
+
+---
+ core/ui/common/quick_bar/quick_settings_menu.tscn | 3 ++-
+ 1 file changed
+
+diff --git a/core/ui/common/quick_bar/quick_settings_menu.tscn b/core/ui/common/quick_bar/quick_settings_menu.tscn
+index 3bc7162..d88d00f 100644
+--- a/core/ui/common/quick_bar/quick_settings_menu.tscn
++++ b/core/ui/common/quick_bar/quick_settings_menu.tscn
+@@ -33,12 +33,13 @@ focus_stack = ExtResource("3_ljj2w")
+ unique_name_in_owner = true
+ layout_mode = 2
+ text = "Volume"
++step = 5.0
+ 
+ [node name="BrightnessSlider" parent="QuickVBoxContainer" unique_id=2142893004 instance=ExtResource("2_v67rd")]
+ unique_name_in_owner = true
+ layout_mode = 2
+ text = "Brightness"
+-step = 3.0
++step = 5.0
+ 
+ [node name="SaturationSlider" parent="QuickVBoxContainer" unique_id=1840954089 instance=ExtResource("2_v67rd")]
+ unique_name_in_owner = true
