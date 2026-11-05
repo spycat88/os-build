@@ -146,6 +146,24 @@ once.
 conservative pick across the big.LITTLE clusters is `cortex-a78`, which stays valid with A77 in
 the fleet.
 
+## Shared libraries, not static
+
+Every from-source package builds and links **shared** libraries. The meson recipes say
+`default_library=shared` explicitly rather than inheriting it, the autotools ones pass
+`--enable-shared --disable-static`, and the release trim (`rootfs/conf/trim.list`) removes any `.a`
+that still reaches the image. These are build flags, so they live in each `PKGBUILD` for the
+inputhash reason below. The places that stay static are deliberate:
+
+| Where | What is static | Why |
+|---|---|---|
+| `gamescope` | vendored wlroots, libliftoff, libdisplay-info, vkroots | `package()` installs with `--skip-subprojects`, so a shared copy would be linked and never shipped; they are patched private copies that must not shadow a system soname |
+| `mangohud` | imgui / implot wraps (not installed) | the overlay is a layer loaded into every game; a private `libimgui.so` would have to ship and could clash with a game's own |
+| `scx-scheds` | libbpf (via `libbpf-sys`' default `vendored-libbpf`) | `libbpf-rs` enables it by default in every crate of the vendored workspace; going shared means patching vendored crates (and their checksums) to `default-features = false` and building against the image's libbpf 1.7 |
+| Rust packages (`inputplumber`, `powerstation`, `scx-scheds`) | crate dependencies | Rust has no stable ABI, so crates always link statically; C libraries they use from the system (libudev, libelf, libz, …) are shared |
+| `mesa`, `mesa-x86` | internal convenience archives | mesa's build links its own `static_library()` pieces into the shared drivers; nothing static is installed |
+| `apps/retroforge-splash` | the whole binary, glibc included | the cross toolchain's glibc is newer than the image's, and the splash runs from the initramfs; see its Makefile |
+| `boot/` (steamcl, GRUB) | EFI binaries | UEFI has no dynamic loader |
+
 ## From-source overlay packages (`source.pin`)
 
 Holo packages that need a retroforge **code** patch are rebuilt from source instead of pulled as

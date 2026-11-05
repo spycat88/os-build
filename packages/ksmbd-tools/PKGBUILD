@@ -24,7 +24,8 @@ build() {
     --sbindir=bin \
     -Drundir=/run \
     -Dsystemdsystemunitdir=/usr/lib/systemd/system \
-    -Dkrb5=disabled
+    -Dkrb5=disabled \
+    -Ddefault_library=shared
   meson compile -C build
 }
 

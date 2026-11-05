@@ -30,6 +30,7 @@ build() {
       --disable-music-flac-drflac \
       --disable-music-mp3-drmp3 \
       --disable-music-midi-fluidsynth \
+      --enable-shared \
       --disable-static \
       --prefix=/usr
   make

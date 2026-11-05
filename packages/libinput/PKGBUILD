@@ -64,6 +64,7 @@ build() {
     -D documentation=false
     -D debug-gui=false
     -D tests=false
+    -D default_library=shared   # retroforge: shared libraries only, stated rather than inherited
   )
 
   arch-meson libinput build "${meson_options[@]}"

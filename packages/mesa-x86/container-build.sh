@@ -109,6 +109,7 @@ EOF
 common=(
   --prefix=/usr --sysconfdir=/etc --localstatedir=/var
   --buildtype=plain --wrap-mode=nofallback
+  -Ddefault_library=shared
   -Db_ndebug=true
   -Dplatforms=x11,wayland
   -Dvulkan-drivers=freedreno

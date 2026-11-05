@@ -71,7 +71,7 @@ build() {
 
   # 2. libqrtr + qrtr-cfg/qrtr-lookup. No qrtr-ns (the kernel runs the name service) and no unit.
   meson setup "qrtr-${_qrtr}/build" "qrtr-${_qrtr}" --prefix=/usr \
-    -Dqrtr-ns=disabled -Dsystemd-service=disabled
+    -Dqrtr-ns=disabled -Dsystemd-service=disabled -Ddefault_library=shared
   meson compile -C "qrtr-${_qrtr}/build"
   DESTDIR="${_stage}" meson install -C "qrtr-${_qrtr}/build" --quiet
   export PKG_CONFIG_SYSROOT_DIR="${_stage}"
@@ -88,7 +88,7 @@ build() {
 
   # 4. tqftpserv (meson; finds qrtr through the sysroot'ed pkg-config).
   meson setup "tqftpserv-${_tqftpserv}/build" "tqftpserv-${_tqftpserv}" --prefix=/usr \
-    -Dsystemd-unit-prefix=/usr/lib/systemd/system
+    -Dsystemd-unit-prefix=/usr/lib/systemd/system -Ddefault_library=shared
   meson compile -C "tqftpserv-${_tqftpserv}/build"
 }
 

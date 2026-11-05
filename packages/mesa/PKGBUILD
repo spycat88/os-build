@@ -149,6 +149,7 @@ build() {
   local meson_options=(
     -D android-libbacktrace=disabled
     -D b_ndebug=true
+    -D default_library=shared                 # retroforge: shared libraries only, stated rather than inherited
     -D gallium-drivers=freedreno              # retroforge: Adreno only (upstream builds every vendor)
     -D gallium-extra-hud=true
     -D gallium-mediafoundation=disabled
