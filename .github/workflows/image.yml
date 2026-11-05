@@ -1,9 +1,10 @@
 # retroforge image builder — the shared rootfs stage behind every RELEASE artifact.
 #
-# workflow_call only: this builds nothing on its own schedule. .github/workflows/release-sdcard.yml
-# and release-bundle.yml call it on their own triggers, which is the whole reason it exists — the two
-# artifacts are wanted at different cadences (a card is for flashing a device from scratch, a bundle
-# is for updating one already in the field) and neither should have to wait on the other.
+# workflow_call only: this builds nothing on its own schedule. .github/workflows/release.yml (the card
+# and the installer, cut together) and release-bundle.yml call it on their own triggers, which is the
+# whole reason it exists — the images are wanted at different cadences (a card or installer is for
+# bringing a device up from scratch, a bundle is for updating one already in the field) and neither
+# should have to wait on the other.
 #
 # WHAT MAKES CI THE PRODUCER OF A RELEASE IMAGE is the CREDENTIALS, not a build gate. Signing a
 # bundle needs the release key in a protected environment, and publishing either artifact needs a
@@ -15,7 +16,7 @@
 # .github/workflows/overlay.yml for the measurements behind that.
 #
 # THE TWO ARTIFACTS SHIP TO DIFFERENT PLACES, AND NEITHER SHIPS FROM HERE. A CARD goes to the
-# `card/v*` GitHub Release a person downloads and flashes from (524 MiB compressed, measured
+# `v*` GitHub Release (`RetroForge vX.Y.Z`, next to the installer) a person downloads and flashes from (524 MiB compressed, measured
 # 2026-10-13, against a 2 GiB per-asset cap). A BUNDLE goes to the R2 bucket
 # devices fetch their OTAs from — a different host, different credentials, different audience. Both
 # paths stop at a workflow artifact here and are handed off to a publishing job in the caller.
@@ -161,7 +162,7 @@ jobs:
       # could disagree, and the OTA client's update check compares exactly those two strings. It was
       # removed 2026-08-03. A plain `VERSION` workflow variable outlived it as the old publish-card.sh's
       # first argument and went with the upload in 2026-08-11; the release tag is now named in
-      # release-sdcard.yml's release job, from the same prep output that feeds this input.
+      # release.yml's release job, from the same prep output that feeds this input.
       RETROFORGE_VERSION: ${{ inputs.version }}
       ARTIFACT: ${{ inputs.artifact }}
     steps:
@@ -225,8 +226,7 @@ jobs:
       # The key below only picks WHICH repo to start from: an exact hit is a full set built from
       # these sources; a restore-keys fallback is the previous set, and the stamps sort it out.
       #
-      # WHY ONLY main's. Caches are scoped by ref. A release runs on a TAG (card/v*, ota/v*,
-      # installer/v*), which can read main's caches but saves into its own scope, where the next
+      # WHY ONLY main's. Caches are scoped by ref. A release runs on a TAG (v*, ota/v*), which can read main's caches but saves into its own scope, where the next
       # tag can never see it. So main warms it (overlay.yml `warm`), tags and dispatches read it,
       # and PR caches — fork PRs included — stay invisible to every release.
       - name: restore the overlay repo

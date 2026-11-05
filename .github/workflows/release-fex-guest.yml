@@ -104,7 +104,7 @@ jobs:
           # Already zstd inside; deflating it again costs minutes and saves nothing.
           compression-level: 0
 
-  # The publish half, split out for the same reasons as release-sdcard.yml's: `contents: write`
+  # The publish half, split out for the same reasons as release.yml's: `contents: write`
   # only here, the reviewer approves a finished build, and a failed upload is a re-run, not a
   # rebuild.
   release:
@@ -137,7 +137,7 @@ jobs:
           fi
 
       # The tag is created here, on the commit that was built. If it already exists it must be that
-      # commit (the release API ignores --target for an existing tag; see release-sdcard.yml), and
+      # commit (the release API ignores --target for an existing tag; see release.yml), and
       # an existing release with this tag fails `gh release create` -- bump guest.pin's revision
       # rather than replace bytes a device may already have pinned by sha256.
       - name: cut the release

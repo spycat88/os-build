@@ -1,6 +1,6 @@
 # retroforge CI — the offline suites. See also .github/workflows/overlay.yml (the package pipeline).
 #
-# WHERE THE IMAGE BUILD LIVES: .github/workflows/image.yml, called by release-sdcard.yml and
+# WHERE THE IMAGE BUILD LIVES: .github/workflows/image.yml, called by release.yml and
 # release-bundle.yml. It used to be listed here as impossible, then as merely unwired; both old
 # blockers are gone (the lock pins overlay rows to their SOURCES rather than to bytes no clean runner
 # could reproduce, and an overlay build turned out to cost ~34 minutes on a native aarch64 runner

@@ -97,7 +97,7 @@ publishes to `stable`, `ota/v0.3.0-beta.1` to `beta`. Not a separate tag namespa
 version string then records the channel and duplicate detection turns on that string: two channels
 publishing the same `0.3.0` would leave a device switching stable → beta believing it is already up
 to date. A beta bundle is signed with the same release key and gated exactly as hard; the channel
-decides who is offered it, not whether it is trustworthy. `card/` and `installer/` tags refuse a
+decides who is offered it, not whether it is trustworthy. The bare `v*` image-release tags refuse a
 pre-release suffix outright — there is no beta card, and a medium installs the latest `stable`
 whatever its own version says.
 
@@ -259,7 +259,7 @@ keeps reading it forever. `retroforge-update status` names the file it came from
 protects `stable` from a test image reaching the fleet; hand-placing a bundle in a channel of your
 own is you doing something explicit. The gate is on publishing, not installing.
 
-Only once that passes: tag `card/vX.Y.Z`, then `ota/vX.Y.Z`.
+Only once that passes: tag `vX.Y.Z` (card + installer), then `ota/vX.Y.Z`.
 
 **`ota/vX.Y.Z` publishes by itself.** `release-bundle.yml` builds the rootfs, signs the bundle with
 the release cert (`sign`), and `publish` runs `ota/publish-bundle.sh` against the bucket with the

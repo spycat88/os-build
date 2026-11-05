@@ -72,14 +72,14 @@ dead card. That is a setting, not a fault.
 sdcard` on a dev box (no `RETROFORGE_DEV`) builds the same kind of image, which is how a release image's first boot gets
 tested on hardware without waiting for a run.
 
-The card is an asset of the `card/v*` GitHub Release, next to its checksums and the package lock it
-was built from. A release card compresses to 524 MiB (gz -6, measured 2026-10-13), well inside
-GitHub's 2 GiB per-asset cap; `release-sdcard.yml` refuses to publish one that has grown past it.
+The card is an asset of the `vX.Y.Z` GitHub Release (`RetroForge vX.Y.Z`), next to the installer
+medium and a `.sha256` for each. A release card compresses to 524 MiB (gz -6, measured 2026-10-13), well inside
+GitHub's 2 GiB per-asset cap; `release.yml` refuses to publish one that has grown past it.
 The repo is private, so downloading needs a GitHub login with access to it:
 
 ```sh
-gh release download card/v1.3.0 -R retroforge-linux/os-build -p sdcard.img.gz -p sha256sums.txt
-sha256sum -c sha256sums.txt                   # do this BEFORE writing the image to a card
+gh release download v1.3.0 -R retroforge-linux/os-build -p sdcard.img.gz -p sdcard.img.gz.sha256
+sha256sum -c sdcard.img.gz.sha256             # do this BEFORE writing the image to a card
 gzip -dc sdcard.img.gz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
@@ -87,8 +87,8 @@ gzip -dc sdcard.img.gz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 `compress=zstd`), so every wrapper lands at about the same size and the choice is a compatibility
 one, not a size one, and `.gz` is what balenaEtcher and Raspberry Pi Imager open.
 
-To cut a card: tag `card/vX.Y.Z`. To cut an update instead, tag `ota/vX.Y.Z` — the two ship on
-independent cadences and a bundle is expected far more often than a card. There is nothing to line
+To cut a card and installer: tag `vX.Y.Z`. To cut an update instead, tag `ota/vX.Y.Z` — the two ship
+on independent cadences and a bundle is expected far more often than a card. There is nothing to line
 up first: the release run compiles the overlay from the sources in the commit it is building
 (~34 min on top of the image), so a tag is never waiting on a separate pipeline to have published
 anything.

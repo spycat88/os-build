@@ -1,7 +1,7 @@
 # retroforge release update bundle — builds a RAUC bundle for a device already in the field.
 #
-# Separate from release-sdcard.yml on purpose: an update ships on its own cadence, and coupling it to
-# card builds would mean either cutting cards nobody asked for or delaying updates until someone did.
+# Separate from release.yml (the card + installer) on purpose: an update ships on its own cadence,
+# and coupling it to card builds would mean either cutting cards nobody asked for or delaying updates until someone did.
 # Both delegate to image.yml so the rootfs recipe exists once.
 #
 # ============================================================================================
@@ -42,7 +42,7 @@
 #      `build` job below passes it only on a tag.
 #
 # VERIFIED 2026-08-11: `environment: ''` means "no environment" rather than an error. Every card run
-# has taken that path since release-sdcard.yml was written, and the `build` job below now takes it
+# has taken that path since the card's release workflow was written, and the `build` job below now takes it
 # unconditionally — a build that names no environment is the entire point of the split. (Recorded
 # here as UNVERIFIED until the split made it load-bearing for bundles too. Had it failed, the fix
 # would have been two jobs in image.yml picked with an `if:`, not a change to the model.)
@@ -75,11 +75,11 @@
 # with no workflow change — at which point move the secrets into it.
 name: release bundle
 
-# TAG NAMESPACE: `ota/v*`. Bundles and cards ship on independent cadences — an update goes out far
-# more often than a card — so each gets its own namespace instead of sharing a bare `v*`. Until this
-# trigger existed, release-sdcard.yml owned `v*` alone, so tagging a release built a CARD and never
-# a bundle: exactly backwards. `ota/v1.3.0` and `card/v1.3.0` on one commit are the same OS shipped
-# two ways; a run of ota tags with no card between them is the normal state.
+# TAG NAMESPACE: `ota/v*`. Bundles and images ship on independent cadences — an update goes out far
+# more often than a card — so the bundle has its own namespace. The bare `v*` belongs to release.yml,
+# which cuts the card and installer as one `RetroForge vX.Y.Z` release; a glob `*` stops at `/`, so
+# `v*` never matches `ota/v1.3.0`. `ota/v1.3.0` and `v1.3.0` on one commit are the same OS shipped
+# two ways; a run of ota tags with no image release between them is the normal state.
 on:
   workflow_dispatch:
     inputs:
@@ -96,7 +96,7 @@ permissions:
   contents: read
 
 jobs:
-  # Same reason release-sdcard.yml has one: GitHub expressions cannot strip the `ota/` prefix, so the
+  # Like release.yml's prep job, and needed more here: GitHub expressions cannot strip the `ota/` prefix, so the
   # version is derived in a shell step and image.yml keeps taking a bare version string.
   prep:
     runs-on: ubuntu-latest

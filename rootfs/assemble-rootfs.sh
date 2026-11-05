@@ -141,7 +141,7 @@ fi
 # anything wanting to know which image is running should look"), so the release name belongs here
 # rather than churning the static os-release on every build.
 #
-# RETROFORGE_VERSION is set by CI from the release tag (`card/v1.3.0` -> `1.3.0`, likewise `ota/`), and
+# RETROFORGE_VERSION is set by CI from the release tag (`v1.3.0`, or `ota/v1.3.0` with its `ota/` stripped), and
 # is empty for a local build — rendered `dev`, which is the honest answer for bytes that came off
 # someone's box. Without these two fields the only per-build identity was a timestamp, which cannot
 # answer "is this device on the card I flashed, or an OTA past it?".

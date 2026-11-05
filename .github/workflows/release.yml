@@ -1,0 +1,289 @@
+# retroforge release — the two flashable images, the SD card and the installer medium, cut together
+# as ONE GitHub Release named `RetroForge <version>` under the bare version tag (`v1.3.0`).
+#
+# Replaces release-sdcard.yml (`card/v*`) and release-installer.yml (`installer/v*`), which cut the
+# two images as separate releases on separate tags. One release per version means one place to point
+# someone at, whichever way they are bringing a device up: flash the card to run from SD, or flash
+# the installer to put RetroForge on internal storage.
+#
+# The OTA bundle is NOT part of this. release-bundle.yml keeps its own `ota/v*` namespace and its own
+# cadence: an update ships far more often than a fresh image. `v*` does not match `ota/v1.3.0` (a
+# glob `*` stops at `/`), so the two triggers cannot collide. `v1.3.0` and `ota/v1.3.0` on one
+# commit mean the same OS delivered two ways.
+#
+# ASSETS, and nothing else:
+#   sdcard.img.gz          sdcard.img.gz.sha256
+#   installer.img.gz       installer.img.gz.sha256
+# Each .sha256 is one `sha256sum` line naming its image by basename, so `sha256sum -c <file>.sha256`
+# works in whatever directory the two were downloaded into. manifest.lock is still produced by
+# image/card-meta.sh and kept in the run's metadata artifacts for provenance; it is not attached.
+#
+# NEEDS NO SIGNING KEY AND NO R2 CREDENTIAL. Nothing here is signed — both images are flashed over
+# USB by someone holding the device, so there is no signature for anything to verify. The only
+# credential is the release job's job-scoped GITHUB_TOKEN. Both images sit well inside GitHub's
+# 2 GiB per-asset cap (card 524 MiB, medium 404 MiB under gz -6, measured 2026-10-13), and the release
+# job checks the cap before uploading.
+#
+# THE REPO IS PRIVATE, so a Release asset needs a GitHub login with access to os-build to download.
+#
+# THE `release-cards` ENVIRONMENT GATES THE RELEASE JOB, for its reviewer rather than its secrets: a
+# Release is the record people flash from, so a person signs off on finished builds before one is
+# cut. Its deployment policy has to allow the `v*` tags AND `main` (a dispatch with publish:true is a
+# supported way to cut a release, and a tag-only policy would reject it at the gate).
+#
+# THE INSTALLER IS NOT PINNED TO AN OS BUNDLE. It resolves <channel>/latest.json at install time, so
+# any medium installs the current release — shipping it beside a card of the same version does not
+# tie the two together.
+name: release
+
+on:
+  # Manual by default: a release is cut when someone wants one, not on every push.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version for this release, with its v (e.g. v1.3.0 -> tag v1.3.0; default: v<date>.<shortsha>)'
+        required: false
+        type: string
+        default: ''
+      publish:
+        description: 'Cut a GitHub Release carrying both images (off for a plain test build)'
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  # The version is computed in a shell step, not an expression, so image.yml's contract stays simple:
+  # it takes a bare version string and knows nothing about the tag scheme.
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            v="$INPUT_VERSION"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            v="$REF_NAME"
+          else
+            # A dispatch with no version still needs to name itself, or the release tag and the
+            # image's own /etc/retroforge-release would both say "unset". A DOT, not a dash: the
+            # pre-release check below refuses any `-`.
+            v="v$(date -u +%Y%m%d).$(echo "$GITHUB_SHA" | cut -c1-7)"
+          fi
+          # This becomes a tag and a URL path segment; refuse anything that could escape it here
+          # rather than discovering it after a multi-hour build.
+          case "$v" in
+            *[!A-Za-z0-9._-]*) echo "::error::version '$v' has characters that do not belong in a URL path"; exit 1 ;;
+          esac
+          case "$v" in
+            v*) ;;
+            *) echo "::error::version '$v' must start with v (e.g. v1.3.0)"; exit 1 ;;
+          esac
+          # NO PRE-RELEASE IMAGES. release-bundle.yml reads a semver pre-release suffix as "publish
+          # to the beta channel", so `v0.3.0-beta.1` would LOOK like it selects something and
+          # cannot: every card lands a device on `stable` (a release image ships no
+          # /etc/retroforge/ota.conf, so retroforge-update falls through to DEFAULT_CHANNEL), and a
+          # medium installs the latest stable release whatever its own version says (asserted in
+          # installer/verify-image.sh). Refused rather than silently accepted, because the failure
+          # is otherwise invisible.
+          case "$v" in
+            *-*) echo "::error::version '$v' carries a pre-release suffix, which on an ota/ tag means the beta channel. There is no beta card or installer: both land on stable. Tag the release without the suffix."; exit 1 ;;
+          esac
+          # A tag always publishes. A dispatch publishes only when asked, so the common case —
+          # "does this still build?" — cannot cut a Release nobody asked for.
+          if [ "$GITHUB_REF_TYPE" = tag ] || [ "${INPUT_PUBLISH:-false}" = true ]; then
+            p=true
+          else
+            p=false
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "publish=$p" >> "$GITHUB_OUTPUT"
+          echo "version=$v publish=$p" >> "$GITHUB_STEP_SUMMARY"
+
+  # NO SECRETS AND NO ENVIRONMENT on either build. Nothing in them is signed and nothing in them is
+  # uploaded, so the long jobs — bootstrapping a rootfs and compiling the overlay from third-party
+  # sources as uid 0 — have no credential in scope at all. Each ends at a workflow artifact.
+  #
+  # Do not hand them `secrets: inherit` or an environment to "simplify" publishing. A job that calls a
+  # reusable workflow cannot declare an environment, so an environment-scoped secret mapped here
+  # resolves to the EMPTY STRING with no warning. Anything that needs a credential or an approval
+  # belongs in an ordinary job after these.
+  #
+  # The two run in parallel on separate runners; their artifact names (retroforge-sdcard*,
+  # retroforge-installer*) do not overlap, and only the card path builds the x86 Mesa.
+  sdcard:
+    needs: prep
+    uses: ./.github/workflows/image.yml
+    with:
+      artifact: sdcard
+      version: ${{ needs.prep.outputs.version }}
+      environment: ''
+
+  installer:
+    needs: prep
+    uses: ./.github/workflows/image.yml
+    with:
+      artifact: installer
+      version: ${{ needs.prep.outputs.version }}
+      environment: ''
+
+  # The publish half: both images and their checksums, as one GitHub Release. Split from the builds so
+  # the reviewer's approval lands on finished images rather than before the builds, so `contents:
+  # write` is scoped to this job alone, and so a failed upload is "Re-run failed jobs" rather than a
+  # rebuild. It needs BOTH builds: a release with only one of its two images is not cut.
+  #
+  # PUBLISH IS NOT THE SAME AS TAG: a `workflow_dispatch` with publish:true creates the `<version>`
+  # tag itself, on the commit that was built, so a dispatch of `v1.3.0` and a push of tag `v1.3.0`
+  # produce the same tag and the same version string in both images.
+  release:
+    needs: [prep, sdcard, installer]
+    if: needs.prep.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # For the reviewer, not for secrets — see the header.
+    environment: ${{ vars.CARDS_ENVIRONMENT || 'release-cards' }}
+    steps:
+      # download-artifact v8 ERRORS on a digest mismatch rather than warning, and that default is
+      # deliberately left alone: the alternative is attaching a corrupted image next to a checksum
+      # that describes the good bytes.
+      - name: fetch the card
+        uses: actions/download-artifact@v8
+        with:
+          name: retroforge-sdcard
+          path: upload
+
+      - name: fetch the installer
+        uses: actions/download-artifact@v8
+        with:
+          name: retroforge-installer
+          path: upload
+
+      - name: fetch the card metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: retroforge-sdcard-meta
+          path: meta/sdcard
+
+      - name: fetch the installer metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: retroforge-installer-meta
+          path: meta/installer
+
+      # GitHub refuses an asset over 2 GiB, but only once the upload is under way. Check first, so an
+      # image that has grown says so in plain words rather than as an HTTP error from gh.
+      - name: check both images fit a release asset
+        run: |
+          set -euo pipefail
+          limit=$((2 * 1024 * 1024 * 1024))
+          for f in sdcard.img.gz installer.img.gz; do
+            size="$(stat -c %s "upload/$f")"
+            echo "$f: $((size / 1048576)) MiB of a $((limit / 1048576)) MiB asset cap" | tee -a "$GITHUB_STEP_SUMMARY"
+            if [ "$size" -ge "$limit" ]; then
+              echo "::error::$f is $size bytes, over GitHub's 2 GiB per-asset cap. Shrink the image, or move it to a host without the cap."
+              exit 1
+            fi
+          done
+
+      # One .sha256 per image, taken from the sums the BUILD job computed (image/card-meta.sh) and
+      # checked against the bytes in hand before anything is attached — so the published checksum is
+      # the build's, and a file that changed in transit fails here rather than on someone's desk.
+      # card-meta.sh names the file by basename, so the line is already what `sha256sum -c` wants.
+      - name: write per-image checksums
+        run: |
+          set -euo pipefail
+          for a in sdcard installer; do
+            f="$a.img.gz"
+            sums="meta/$a/sha256sums.txt"
+            [ "$(wc -l < "$sums")" = 1 ] && grep -q "  $f\$" "$sums" \
+              || { echo "::error::$sums does not describe exactly $f"; cat "$sums"; exit 1; }
+            cp "$sums" "upload/$f.sha256"
+            ( cd upload && sha256sum -c "$f.sha256" )
+          done
+
+      # A TAG THAT ALREADY EXISTS MUST BE THIS COMMIT. When the tag is missing, the release API
+      # creates it on --target; when it exists, the API uses it as-is and IGNORES --target. So a
+      # dispatch reusing a version whose tag sits on an older commit would hang these images on that
+      # commit, under a tag that says they were built from there. Checked against the API, not a
+      # checkout: matching-refs is a prefix match, hence the exact-ref filter, and a missing ref
+      # answers the commits endpoint with 422 rather than 404, hence asking existence first. The
+      # commits endpoint peels an annotated tag to its commit.
+      - name: cut the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.prep.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$VERSION"
+          fi
+          exists="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" \
+            --jq "map(select(.ref == \"refs/tags/$tag\")) | length")"
+          if [ "$exists" != 0 ]; then
+            at="$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$tag" --jq .sha)"
+            if [ "$at" != "$GITHUB_SHA" ]; then
+              echo "::error::tag $tag already exists on $at, but these images were built from $GITHUB_SHA. Pick a new version, or run from the tag itself."
+              exit 1
+            fi
+          fi
+          {
+            echo "## RetroForge \`$VERSION\`"
+            echo
+            echo 'Two ways to bring a device up. Download one image and its `.sha256`, check it, then'
+            echo 'flash it to an SD card.'
+            echo
+            echo '### SD card — run RetroForge from the card'
+            echo
+            echo '```bash'
+            echo "gh release download '$tag' -R '$GITHUB_REPOSITORY' -p sdcard.img.gz -p sdcard.img.gz.sha256"
+            echo 'sha256sum -c sdcard.img.gz.sha256   # BEFORE writing the image to a card'
+            echo 'gzip -dc sdcard.img.gz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress'
+            echo '```'
+            echo
+            echo '### Installer — put RetroForge on internal storage, alongside Android'
+            echo
+            echo '```bash'
+            echo "gh release download '$tag' -R '$GITHUB_REPOSITORY' -p installer.img.gz -p installer.img.gz.sha256"
+            echo 'sha256sum -c installer.img.gz.sha256   # BEFORE writing the image to a card'
+            echo 'gzip -dc installer.img.gz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress'
+            echo '```'
+            echo
+            echo 'Boot the device from it and follow the screens.'
+            echo
+            echo '**Before you boot it:** the medium'"'"'s first partition is a plain FAT volume that'
+            echo 'Windows and macOS both show. Copy `retroforge/wifi.conf.example` to'
+            echo '`retroforge/wifi.conf` and put your network name and password in it — the installer'
+            echo 'downloads RetroForge over the network and has no way to ask you for them. A USB-C'
+            echo 'Ethernet adapter needs no file at all. If an install fails, that same partition is'
+            echo 'where `retroforge-install.log` comes out.'
+            echo
+            echo '**What it destroys:** Android'"'"'s user data on the target device. Android itself'
+            echo 'still boots, factory-reset, with the space you choose on screen. The installer'
+            echo 'says all of this and takes a per-run button sequence as consent before it writes.'
+            echo
+            echo 'The installer installs the current OS release from the update channel — it is not'
+            echo 'pinned to one; the OS itself is the only download during an install.'
+          } > notes.md
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "RetroForge $VERSION" \
+            --notes-file notes.md \
+            upload/sdcard.img.gz upload/sdcard.img.gz.sha256 \
+            upload/installer.img.gz upload/installer.img.gz.sha256

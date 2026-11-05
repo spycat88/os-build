@@ -64,7 +64,7 @@ curl -LO https://<the URL from the release>/installer.img.gz
 gzip -dc installer.img.gz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-Check it against the release's `sha256sums.txt` first. The medium is sized to its content rather
+Check it against the release's `installer.img.gz.sha256` first (`sha256sum -c installer.img.gz.sha256`). The medium is sized to its content rather
 than to a card, so the card only has to be big enough to hold it.
 
 ### 2. Put your Wi-Fi on it — this is the mechanism, not a fallback
@@ -179,14 +179,15 @@ cannot keep), so a second run is designed to be the answer.
 
 ## Cutting a release (maintainers)
 
-**One workflow: `release installer`.** Tag `installer/v1.2.3`, or dispatch it with `publish: false`
-for a test build.
+**One workflow: `release`.** Tag `v1.2.3`, or dispatch it with `publish: false` for a test build. It
+builds the installer and the SD card side by side and cuts them as one `RetroForge v1.2.3` release.
 
 ```
-prep  ->  build  ->  release
-          |         |
-          |         GitHub Release installer/<version>: installer.img.gz + sums + lock
-          make installer + make verify-image
+prep  ->  installer + sdcard  ->  release
+          |                       |
+          |                       GitHub Release <version> ("RetroForge <version>"):
+          |                       installer.img.gz + .sha256, sdcard.img.gz + .sha256
+          make installer + make verify-image (and make sdcard, in parallel)
 ```
 
 **A new OS release does not need a new medium.** The bundle is resolved from the channel at install
