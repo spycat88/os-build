@@ -55,8 +55,10 @@ path usr/share/aclocal
 # is its source, consumed by g-ir-compiler and by bindings generators at build time.
 path usr/share/gir-1.0
 # Static libraries — 100M, of which Qt6's libQt6QmlDom.a + libQt6QmlLS.a (QML tooling for an IDE)
-# are 41M. Nothing links a .a at runtime, by definition.
-glob usr/lib/*.a
+# are 41M. Nothing links a .a at runtime, by definition. Recursive, not just usr/lib/*.a: holo's
+# packages also drop archives in subdirectories (python's config-3.x/libpython3.x.a, binutils'
+# gprofng/), and every one of these libraries is on the image as a .so already.
+glob usr/lib/**/*.a
 
 # ------------------------------------------------------------------------------------------
 # Documentation. None of it is reachable from the Deck shell: there is no terminal in the
