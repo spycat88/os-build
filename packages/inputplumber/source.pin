@@ -20,7 +20,12 @@
 #         the lost ui_quick release made the DBus target drop the next press as a duplicate (quick
 #         bar and OSK opened every other time). Upstream PR #771. Drop with 0001 once upstream
 #         carries it.
+#   0003  ours, build time only: main.rs declared the whole module tree again with its own `mod`
+#         items instead of using lib.rs (which the `generate` schema tool needs), so cargo
+#         compiled every module twice, once into the library and once into the daemon. The
+#         daemon now `use`s the library. Same code, same log targets (both crates are named
+#         inputplumber). Worth sending upstream; drop once a release does the same.
 name: inputplumber
 pkgbuild_local: PKGBUILD
-patches: 0001-feat-Input-Layers-add-input-layers-to-map-button-com.patch 0002-feat-Input-Layers-a-held-activator-taps-its-other-outputs.patch
+patches: 0001-feat-Input-Layers-add-input-layers-to-map-button-com.patch 0002-feat-Input-Layers-a-held-activator-taps-its-other-outputs.patch 0003-fix-build-the-daemon-from-the-library-instead-of-compiling-twice.patch
 pkgrel_suffix: 1

@@ -47,7 +47,10 @@ makedepends=(
 # bundled hid.c into GCC slim-LTO bytecode (.gnu.lto_* sections, no machine code). rustc links
 # through ld.lld, which cannot read GIMPLE — the final link dies with undefined hid_open_path /
 # hid_* although `nm` (GCC plugin) lists them in libhidapi.a. Same failure class as scx-scheds.
-options=(!lto)
+# !debug: with makepkg's debug option on, it appends DEBUG_RUSTFLAGS (-C debuginfo=2) to
+# RUSTFLAGS, so full debuginfo would be carried through LTO and codegen for a binary whose
+# release profile has strip = true anyway. Pure build cost, nothing shipped.
+options=(!lto !debug)
 source=("$pkgname-$_tag.tar.gz::$url/archive/refs/tags/$_tag.tar.gz")
 sha256sums=('aaee9b65b47a21756169eb1c49eb258ecdd1896fb8dd4996c2b50d11af049d21')
 
@@ -67,11 +70,23 @@ prepare() {
 build() {
   cd "InputPlumber-$pkgver"
   export CARGO_TARGET_DIR=target
+  # BUILD-TIME OVERRIDES of upstream's [profile.release] (lto = true, codegen-units = 1). Fat LTO
+  # with one codegen unit makes the final optimise+link of all ~344 crates a single-threaded
+  # LLVM job, the long tail of this build and far longer under arm64 qemu. Thin LTO over 16
+  # units keeps cross-crate inlining and spreads that work over every core; the cost is a
+  # slightly larger binary, which an input daemon does not notice. Env vars beat Cargo.toml,
+  # so no patch. Kept here, in the hashed PKGBUILD, so changing them rebuilds the package.
+  export CARGO_PROFILE_RELEASE_LTO=thin
+  export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
   # NATIVE build, no --target (the powerstation precedent). Without it the binary lands at
   # target/release/, not the Makefile's
   # target/<TARGET_ARCH>/release/; package() bridges that with TARGET_ARCH=. so upstream's
   # install target still owns the file list.
-  cargo build --frozen --release
+  #
+  # --bin inputplumber: the package also has a `generate` bin (a dev tool that rewrites the
+  # capability-map JSON schema in the source tree). make install never ships it, and a plain
+  # `cargo build` would LTO-link it as a second full binary.
+  cargo build --frozen --release --bin inputplumber
 }
 
 package() {

@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: spycat88 <spycat88@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 22:48:28 +0000
+Subject: [PATCH] fix(build): build the daemon from the library instead of
+ compiling every module twice
+
+main.rs declared the whole module tree with its own `mod` items while
+lib.rs declares the same tree for the generate binary, so cargo compiled
+every module twice: once into the library and once into the daemon binary.
+Make the binary a thin entry point over the library so the code is compiled
+once. Log targets do not change, because the library and the binary are
+both named inputplumber.
+---
+ src/main.rs | 21 +++++----------------
+ 1 file changed, 5 insertions(+), 16 deletions(-)
+
+diff --git a/src/main.rs b/src/main.rs
+index 20c6b95..a6ba154 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -6,22 +6,11 @@ use tokio::signal::unix::SignalKind;
+ use zbus::fdo::ObjectManager;
+ use zbus::Connection;
+ 
+-use crate::constants::BUS_NAME;
+-use crate::constants::BUS_PREFIX;
+-use crate::input::manager::Manager;
+-use crate::udev::unhide_all;
+-
+-mod bluetooth;
+-mod cli;
+-mod config;
+-mod constants;
+-mod dbus;
+-mod dmi;
+-mod drivers;
+-mod input;
+-mod sync;
+-mod udev;
+-mod watcher;
++use inputplumber::cli;
++use inputplumber::constants::BUS_NAME;
++use inputplumber::constants::BUS_PREFIX;
++use inputplumber::input::manager::Manager;
++use inputplumber::udev::unhide_all;
+ 
+ #[tokio::main]
+ async fn main() -> Result<(), Box<dyn Error>> {
