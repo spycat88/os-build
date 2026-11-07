@@ -666,7 +666,7 @@ writers="$(grep -nE '(>|>>|install -|cp |mv |tee |mkdir -p|touch|ln -s)[^|#]*/et
 
 # /var is the other half and is handled on the cmdline, not here — assert the two stay paired, since
 # a squashfs root with a writable /etc plan and no /var plan still cannot run journald or NM.
-grep -q 'systemd.volatile=state' "$ROOT/installer/gen-grub-cfg.sh" \
+grep -q 'systemd.volatile=state' "$ROOT/installer/gen-bls-entry.sh" \
   && ok "/var is a tmpfs via systemd.volatile=state on the kernel line" \
   || bad "nothing makes /var writable — journald and NM state have nowhere to go"
 

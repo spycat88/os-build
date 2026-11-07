@@ -5,31 +5,21 @@
 #
 # Host-only: no docker, no root, no built tree, no network. Run via `make test`. Peer of
 # tests/test-mkroot.sh, which covers the ROOT; this covers what gets written around it — the
-# two-partition table, the boot chain and the generated grub.cfg.
-#
-# THE ONE THAT EARNS ITS KEEP IS THE DTB PARITY CHECK. installer/gen-grub-cfg.sh and
-# boot/gen-grub-cfg.sh read the SAME board catalog (boot/boards.map) but emit different configs,
-# and the derivation rule for a catalog-less .dts is subtle: the parent is found by stripping the
-# literal `-top-dpad` suffix, not by dropping the last dash-segment, and the menu title comes from
-# the .dts `model =` line. I hand-copied that wrong while writing the installer generator and it
-# failed on the single board it exists for. A divergence that does NOT fail the build is worse: a
-# board that boots from a card and not from the installer, found on hardware, on the tool you reach
-# for when the device is already broken. So the two generators are required to name the same DTBs.
+# two-partition table, the boot chain and the generated BLS entry (loader/entries/retroforge.conf).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TABLE="$ROOT/installer/medium-table.txt"
-GENCFG="$ROOT/installer/gen-grub-cfg.sh"
+GENENTRY="$ROOT/installer/gen-bls-entry.sh"
 MKIMAGE="$ROOT/installer/mkimage.sh"
 SHIPPED_GENCFG="$ROOT/boot/gen-grub-cfg.sh"
-DTS="$ROOT/kernel/dts/qcom"
 
 PASS=0; FAIL=0; SKIP=0; CASE=""
 ok()   { PASS=$((PASS+1)); printf '  ok   %s -- %s\n' "$CASE" "$1"; }
 bad()  { FAIL=$((FAIL+1)); printf '  FAIL %s -- %s\n' "$CASE" "$1"; }
 skip() { SKIP=$((SKIP+1)); printf '  skip %s -- %s\n' "$CASE" "$1"; }
 
-for f in "$TABLE" "$GENCFG" "$MKIMAGE" "$SHIPPED_GENCFG"; do
+for f in "$TABLE" "$GENENTRY" "$MKIMAGE" "$SHIPPED_GENCFG"; do
   [ -e "$f" ] || { echo "missing input: $f" >&2; exit 1; }
 done
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
@@ -74,79 +64,36 @@ grep -q 'RFINSTALLER' "$ROOT/installer/mkroot.sh" \
   || bad "mkroot.sh does not mention RFINSTALLER — /esp would never mount"
 
 # ---------------------------------------------------------------------------------------------
-CASE="grub.cfg"
+CASE="BLS entries"
 UUID=deadbeef-0000-1111-2222-333344445555
-if ! "$GENCFG" "$UUID" "$T/installer.cfg" >/dev/null 2>"$T/err"; then
+VER=v9.9.9
+shipped_cmdline=$(sed -n 's/^BOOT_CMDLINE="\(.*\)"$/\1/p' "$SHIPPED_GENCFG" | head -1)
+base_opts="$shipped_cmdline gpt root=PARTUUID=$UUID rootfstype=squashfs rootwait ro systemd.volatile=state systemd.firstboot=off"
+if ! "$GENENTRY" "$UUID" "$VER" "$T/entries" >/dev/null 2>"$T/err"; then
   bad "the generator failed: $(head -1 "$T/err")"
 else
-  ok "generates against a partition uuid"
-  cfg="$T/installer.cfg"
-  entries=$(grep -c '^menuentry ' "$cfg")
-  [ "$entries" -gt 0 ] && ok "emits $entries menuentries" || bad "emits no menuentries"
-
-  # Every board gets a normal entry and a debug twin, so the count is even and the halves match.
-  normal=$(grep -c "^menuentry .* --id [a-z0-9-]*[^g] {$" "$cfg")
-  debug=$(grep -c -- '--id .*-debug {$' "$cfg")
-  [ "$debug" -gt 0 ] && ok "$debug debug-console entries" || bad "no debug entries"
-  [ $((entries % 2)) -eq 0 ] && [ "$debug" -eq $((entries / 2)) ] \
-    && ok "every board has exactly one debug twin" \
-    || bad "$entries entries but $debug debug ones — the halves do not match"
-
-  # The debug arg is what hands the panel to a getty instead of gamescope. It must be on the debug
-  # entries and on NOTHING else, or every boot skips the GUI.
-  d_with=$(grep -c 'retroforge.install.debug' "$cfg")
-  [ "$d_with" -eq "$debug" ] \
-    && ok "retroforge.install.debug appears on exactly the debug entries" \
-    || bad "$d_with lines carry retroforge.install.debug but there are $debug debug entries"
-
-  for want in "rootfstype=squashfs" "systemd.volatile=state" "root=PARTUUID=$UUID" "rootwait" " ro "; do
-    grep -q -- "$want" "$cfg" && ok "the kernel line carries '$want'" \
-      || bad "the kernel line is missing '$want'"
-  done
-  # Slot machinery must NOT leak in from the shipped generator: there is one root here, and a
-  # retroforge.slot= on the cmdline would have the OS looking for a slot that does not exist.
-  for unwanted in "retroforge.slot=" "retroforge.var=" "retroforge.efi=" "rootfstype=btrfs" "slotroot"; do
-    grep -q -- "$unwanted" "$cfg" \
-      && bad "the config carries '$unwanted' — that is slot machinery, and this medium has no slots" \
-      || ok "no '$unwanted'"
-  done
-  # Boot-attempt counting demotes a slot that cannot boot. There is nothing to demote to here, so
-  # it could only ever stop the recovery medium from starting.
-  grep -q 'retroforge_bootattempts' "$cfg" \
-    && bad "the config counts boot attempts — the medium would refuse itself" \
-    || ok "no boot-attempt counting"
-
-  # rotation is read ONCE, when the video driver builds the render target. Set after
-  # terminal_output it is a silent no-op and the menu paints sideways on every board.
-  rot=$(grep -n '^set rotation=' "$cfg" | head -1 | cut -d: -f1)
-  tout=$(grep -n '^terminal_output gfxterm' "$cfg" | head -1 | cut -d: -f1)
-  if [ -n "$rot" ] && [ -n "$tout" ] && [ "$rot" -lt "$tout" ]; then
-    ok "rotation is set before terminal_output (line $rot < $tout)"
-  else
-    bad "rotation must be set BEFORE terminal_output (rotation=$rot terminal_output=$tout)"
-  fi
-  # THE MEDIUM REMEMBERS NOTHING, and that is the opposite of the shipped card on purpose. This one
-  # travels between boards, so a saved choice means a card that installed a Pocket S2 preselecting
-  # the S2 devicetree when it is next booted on an ACE — and booting a wrong DTB after a 3s timeout
-  # is a worse outcome than making the operator pick.
-  # Comments stripped first. The config EXPLAINS that it saves nothing, naming each of these, and a
-  # plain grep matched that prose and failed on correct code — the second time in this session that
-  # a "this string must be absent" assertion caught a comment instead of a line of config.
-  grep -vE '^[[:space:]]*#' "$cfg" >"$T/cfg.code"
-  for leftover in savedefault save_env load_env grubenv saved_entry; do
-    grep -q "$leftover" "$T/cfg.code" \
-      && bad "the config still references '$leftover' — the medium would remember a board" \
-      || ok "no '$leftover' in the config"
-  done
-  grep -q '^set timeout=-1' "$cfg" && ok "the menu waits indefinitely, every boot" \
-    || bad "the menu has a timeout — it would auto-boot a board nobody chose"
-
-  # Every dtb the config names must exist as a source .dts, or the entry is unbootable.
-  missing=0
-  while read -r d; do
-    [ -f "$DTS/$d.dts" ] || { bad "menuentry references $d.dtb, which has no .dts"; missing=1; }
-  done < <(grep -o 'devicetree /dtbs/[^ ]*\.dtb' "$cfg" | sed 's|.*/||; s|\.dtb$||' | sort -u)
-  [ "$missing" -eq 0 ] && ok "every referenced dtb has a source .dts"
+  ok "generates against a partition uuid and a version"
+  n=$(find "$T/entries" -type f | wc -l)
+  [ "$n" -eq 2 ] && ok "emits exactly 2 entries" || bad "emits $n entries, want 2 (normal + debug)"
+  check() {  # <file> <title> <options>
+    local e="$T/entries/$1" keys
+    [ -f "$e" ] || { bad "$1 was not written"; return; }
+    keys=$(awk '{print $1}' "$e" | tr '\n' ' ')
+    [ "$keys" = "title version linux options " ] && ok "$1: keys are title, version, linux, options" \
+      || bad "$1: unexpected keys '$keys'"
+    grep -qxF "title      $2" "$e" && ok "$1: title $2" || bad "$1: wrong title: $(sed -n 1p "$e")"
+    grep -qx "version    $VER" "$e" && ok "$1: version is the one passed in" || bad "$1: wrong version: $(sed -n 2p "$e")"
+    grep -qx 'linux      /vmlinuz.efi' "$e" && ok "$1: linux /vmlinuz.efi" || bad "$1: wrong linux line: $(sed -n 3p "$e")"
+    grep -qxF -- "options    $3" "$e" && ok "$1: options line is exactly the expected command line" \
+      || bad "$1: options line differs: $(sed -n 4p "$e")"
+    for unwanted in "retroforge.slot=" "retroforge.var=" "retroforge.efi=" "rootfstype=btrfs"; do
+      grep -q -- "$unwanted" "$e" \
+        && bad "$1 carries '$unwanted' — that is slot machinery, and this medium has no slots" \
+        || ok "$1: no '$unwanted'"
+    done
+  }
+  check retroforge.conf       "RetroForge Installer"         "$base_opts"
+  check retroforge-debug.conf "RetroForge Installer (Debug)" "$base_opts retroforge.install.debug"
 fi
 
 # ---------------------------------------------------------------------------------------------
@@ -159,7 +106,7 @@ CASE="boot cmdline parity with the shipped generator"
 # Compared as the assigned VALUE, not as a source line, so a comment or reflow above either one
 # does not make this fail for no reason.
 shipped_cmdline=$(sed -n 's/^BOOT_CMDLINE="\(.*\)"$/\1/p' "$SHIPPED_GENCFG" | head -1)
-installer_cmdline=$(sed -n 's/^BOOT_CMDLINE="\(.*\)"$/\1/p' "$GENCFG" | head -1)
+installer_cmdline=$(sed -n 's/^BOOT_CMDLINE="\(.*\)"$/\1/p' "$GENENTRY" | head -1)
 if [[ -z $shipped_cmdline || -z $installer_cmdline ]]; then
     bad "could not read BOOT_CMDLINE from both generators (shipped='$shipped_cmdline' installer='$installer_cmdline')"
 elif [[ $shipped_cmdline == "$installer_cmdline" ]]; then
@@ -171,9 +118,7 @@ fi
 # loglevel=3 is called out by name because `quiet` reads like it already covers this and does not:
 # it gates the console to 4, so drm/msm's *ERROR* lines still print over whatever is on screen.
 CASE="the console is quiet enough for a UI to be readable"
-for gen in "$SHIPPED_GENCFG" "$GENCFG"; do
-    # Repo-relative, not basename: both files are called gen-grub-cfg.sh, so a basename here
-    # would report a failure without saying which of the two it is.
+for gen in "$SHIPPED_GENCFG" "$GENENTRY"; do
     rel="${gen#"$ROOT"/}"
     if grep -q 'BOOT_CMDLINE=.*loglevel=3' "$gen"; then
         ok "$rel sets loglevel=3 (quiet alone only gates to 4)"
@@ -181,22 +126,6 @@ for gen in "$SHIPPED_GENCFG" "$GENCFG"; do
         bad "$rel has no loglevel=3 -- KERN_ERR will print over the splash/installer UI"
     fi
 done
-
-CASE="dtb parity with the shipped generator"
-# See the header: the catalog is shared data, the derivation rule is subtle, and a divergence is a
-# board that boots from a card but not from the installer.
-if "$SHIPPED_GENCFG" A "$T/shipped.cfg" >/dev/null 2>"$T/err2"; then
-  grep -o 'devicetree [^ ]*/dtbs/[^ ]*\.dtb' "$T/shipped.cfg"   | sed 's|.*/||; s|\.dtb$||' | sort -u >"$T/shipped.dtbs"
-  grep -o 'devicetree /dtbs/[^ ]*\.dtb' "$T/installer.cfg" | sed 's|.*/||; s|\.dtb$||' | sort -u >"$T/installer.dtbs"
-  s=$(wc -l <"$T/shipped.dtbs"); i=$(wc -l <"$T/installer.dtbs")
-  if diff -q "$T/shipped.dtbs" "$T/installer.dtbs" >/dev/null; then
-    ok "both generators name the same $i DTBs"
-  else
-    bad "DTB sets differ (shipped $s, installer $i): $(diff "$T/shipped.dtbs" "$T/installer.dtbs" | tr '\n' ' ')"
-  fi
-else
-  skip "the shipped generator did not run here: $(head -1 "$T/err2")"
-fi
 
 # ---------------------------------------------------------------------------------------------
 CASE="mkimage guards"
@@ -211,20 +140,18 @@ grep -q 'usr/lib/retroforge/pkgs' "$MKIMAGE" \
 grep -q 'RETROFORGE_PARTITION_TABLE' "$MKIMAGE" \
   && ok "points genpart.sh at the medium table, not the shipped one" \
   || bad "mkimage.sh does not override the partition table — it would lay the 8-partition layout"
-# steamcl is the A/B slot chooser. On a one-root medium its conf files would be fiction.
-grep -qi 'steamcl' "$MKIMAGE" && grep -q 'mcopy.*steamcl' "$MKIMAGE" \
-  && bad "mkimage.sh installs steamcl — there are no slots for it to choose between" \
-  || ok "no steamcl on the medium (GRUB goes straight in at bootaa64.efi)"
-grep -q 'EFI/BOOT/bootaa64.efi' "$MKIMAGE" \
-  && ok "GRUB is at the removable-media path ABL loads" \
-  || bad "nothing is written to /EFI/BOOT/bootaa64.efi — ABL would find nothing to boot"
-# GRUB's prefix is baked in at build time as /EFI/steamos, relative to the partition it loads from.
-grep -q 'EFI/steamos/grub.cfg' "$MKIMAGE" \
-  && ok "the config is at \$prefix (/EFI/steamos/grub.cfg)" \
-  || bad "the config is not at the prefix boot/grub.sh builds in"
-grep -q 'grubenv' "$MKIMAGE" && grep -qE '^[^#]*mcopy.*grubenv' "$MKIMAGE" \
-  && bad "mkimage writes a grubenv — this medium is meant to remember nothing" \
-  || ok "no grubenv on the medium (nothing here saves state between boots)"
+# The medium boots from a BLS entry: no GRUB, no steamcl, no /EFI tree at all.
+grep -qE '^[^#]*(grubaa64|bootaa64|steamcl|EFI/)' "$MKIMAGE" \
+  && bad "mkimage.sh still writes GRUB/EFI files — the medium boots via BLS and carries no /EFI" \
+  || ok "no GRUB, steamcl or /EFI on the medium"
+for f in retroforge.conf retroforge-debug.conf; do
+  grep -q "::/loader/entries/$f" "$MKIMAGE" \
+    && ok "the BLS entry is written to loader/entries/$f" \
+    || bad "nothing is written to loader/entries/$f"
+done
+grep -q '"$GENENTRY" "$ROOT_UUID" "$IMG_VERSION"' "$MKIMAGE" \
+  && ok "the entries are generated from p2's PARTUUID and the stamped version" \
+  || bad "the entry is not generated from ROOT_UUID and IMG_VERSION"
 
 CASE="the Wi-Fi template is on the medium"
 # The no-Wi-Fi screen tells the operator to copy wifi.conf.example, and until 2026-08-24 nothing

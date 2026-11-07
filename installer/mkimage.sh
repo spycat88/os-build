@@ -6,7 +6,7 @@
 # Writes out/images/installer.img — a flashable two-partition medium that boots on the handheld,
 # draws the consent screen on the panel, and installs RetroForge to the device's internal disk.
 #
-# RUN INSIDE THE BUILD IMAGE. It needs mksquashfs, sgdisk, mkfs.vfat, mtools and grub-editenv, and
+# RUN INSIDE THE BUILD IMAGE. It needs mksquashfs, sgdisk, mkfs.vfat and mtools, and
 # it must run as root to preserve the ownership pacman gave work/installer-base — a squashfs built
 # by the host user would put every file on the medium under uid 1000, and the installer runs as
 # root against a stranger's disk. installer/mkroot.sh is the host-side half (its only container is
@@ -19,28 +19,23 @@
 # partition at the offset sgdisk assigned it. That is image/make-sdcard.sh's technique, and it is
 # what lets the whole medium be assembled in a container with no privileged flags.
 #
-# THE BOOT CHAIN IS SHORTER THAN THE CARD'S, BY ONE LINK. The shipped card is
-# ABL -> the ESP GRUB -> stage-2 grub.cfg on the slot's efi partition -> kernel in the slot root.
-# The ESP GRUB is the A/B SLOT CHOOSER: it reads RAUC's state from the grubenv and picks. This
-# medium has one root, so there is nothing for it to choose and a slot state would be fiction.
-# GRUB goes straight in at \EFI\BOOT\bootaa64.efi, which is the path ABL loads by CONTENT (not by
-# partition type) — see [[abl-internal-efi-path-works]]. boot/grub.sh builds the binary with
-# `-p /EFI/steamos`, and that prefix is relative to the partition it was loaded FROM, so the config
-# it reads is /EFI/steamos/grub.cfg on this same ESP.
+# THE MEDIUM BOOTS FROM A BLS ENTRY, NOT GRUB. There is no /EFI tree on it at all: the bootloader
+# reads /loader/entries/retroforge.conf (+ retroforge-debug.conf) (BLS) off the boot partition and
+# boots /vmlinuz.efi from the same FAT filesystem. The shipped card's A/B chain (ESP GRUB -> stage-2
+# grub.cfg -> slot root) exists to choose a slot; this medium has one root, so there is nothing to
+# choose. installer/gen-bls-entry.sh writes the entry against the root PARTUUID sgdisk assigns below
+# and the RETROFORGE_VERSION stamped in section 0.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE="${1:-${INSTALLER_ROOTFS:-$ROOT/work/installer-base}}"
 OUT="$ROOT/out/images"
-BOOT="$ROOT/out/boot"
 IMG="$OUT/installer.img"
 TABLE="$ROOT/installer/medium-table.txt"
 GENPART="$ROOT/image/genpart.sh"
-GENCFG="$ROOT/installer/gen-grub-cfg.sh"
+GENENTRY="$ROOT/installer/gen-bls-entry.sh"
 KERNEL="$ROOT/out/vmlinuz.efi"
 DTBDIR="$ROOT/out/dtbs"
-GRUB_EFI="$BOOT/grubaa64.efi"
-GRUB_FONT="$BOOT/fonts/dejavu-mono.pf2"
 WIFI_EXAMPLE="$ROOT/installer/wifi.conf.example"
 WORK="$ROOT/work/installer-image"
 
@@ -50,7 +45,7 @@ die() { echo "$*" >&2; exit 1; }
 for t in mksquashfs sgdisk mkfs.vfat mcopy mmd; do
   command -v "$t" >/dev/null 2>&1 || die "$t not found — run this inside the build image"
 done
-for f in "$TABLE" "$GENPART" "$GENCFG" "$KERNEL" "$GRUB_EFI" "$GRUB_FONT"; do
+for f in "$TABLE" "$GENPART" "$GENENTRY" "$KERNEL"; do
   [ -e "$f" ] || die "missing input: ${f#"$ROOT"/}"
 done
 [ -d "$DTBDIR" ] || die "missing input: ${DTBDIR#"$ROOT"/}"
@@ -171,8 +166,7 @@ fatdir() {  # <img> <msdos path, no leading '::'>
   local IFS=/
   for c in $path; do p="${p:+$p/}$c"; mmd -i "$img" "::$p" >/dev/null 2>&1 || true; done
 }
-fatdir "$esp" EFI/BOOT
-fatdir "$esp" EFI/steamos/fonts
+fatdir "$esp" loader/entries
 fatdir "$esp" dtbs
 fatdir "$esp" retroforge
 
@@ -184,24 +178,15 @@ fatdir "$esp" retroforge
 [ -f "$WIFI_EXAMPLE" ] || die "missing ${WIFI_EXAMPLE#"$ROOT"/} — the no-Wi-Fi screen tells the user to copy it"
 mcopy -i "$esp" "$WIFI_EXAMPLE" ::/retroforge/wifi.conf.example
 
-# GRUB itself, at the removable-media path ABL loads. No steamcl: see the header.
-mcopy -i "$esp" "$GRUB_EFI" ::/EFI/BOOT/bootaa64.efi
-mcopy -i "$esp" "$GRUB_FONT" ::/EFI/steamos/fonts/dejavu-mono.pf2
+# The BLS entries (normal + debug), generated against the partition uuid sgdisk just assigned. Generated AFTER the GPT
+# exists, not before: the uuid is an output of laying the table, and an entry written first would
+# have to guess it. NO /EFI directory: nothing on this medium is a UEFI application but the kernel.
+entries="$WORK/entries"
+"$GENENTRY" "$ROOT_UUID" "$IMG_VERSION" "$entries"
+mcopy -i "$esp" "$entries/retroforge.conf" ::/loader/entries/retroforge.conf
+mcopy -i "$esp" "$entries/retroforge-debug.conf" ::/loader/entries/retroforge-debug.conf
 
-# The config, generated against the partition uuid sgdisk just assigned. Generated AFTER the GPT
-# exists, not before: the uuid is an output of laying the table, and a config written first would
-# have to guess it.
-cfg="$WORK/grub.cfg"
-"$GENCFG" "$ROOT_UUID" "$cfg"
-mcopy -i "$esp" "$cfg" ::/EFI/steamos/grub.cfg
-
-# NO grubenv. The medium remembers nothing on purpose (installer/gen-grub-cfg.sh's header): it travels
-# between boards, so a saved board choice is a card that installed one device preselecting its
-# devicetree on the next, different one — and a wrong DTB is worse than re-picking. Nothing else on
-# this medium needs an environment block either; there is no boot-attempt counting on a medium with
-# nothing to fall back to.
-
-# The kernel and every dtb, at the FAT root. GRUB reads them from the partition it booted from.
+# The kernel and every dtb, at the FAT root. The loader reads them from the partition it booted from.
 mcopy -i "$esp" "$KERNEL" ::/vmlinuz.efi
 dtb_n=0
 for dtb in "$DTBDIR"/*.dtb; do
@@ -209,12 +194,8 @@ for dtb in "$DTBDIR"/*.dtb; do
   mcopy -i "$esp" "$dtb" "::/dtbs/$(basename "$dtb")"
   dtb_n=$((dtb_n + 1))
 done
-[ "$dtb_n" -gt 0 ] || die "no dtbs copied from ${DTBDIR#"$ROOT"/} — every menuentry would fail"
-# NOT "grub + grubenv + ...", which is what this line said until 2026-08-25 — twenty lines below the
-# block explaining why this medium deliberately writes NO grubenv, and contradicting it. A build log
-# is read by someone diagnosing a medium that did not boot, and a file named there that is not on
-# the partition sends them looking for a fault in the wrong half.
-log "ESP: grub + wifi.conf.example + vmlinuz.efi + $dtb_n dtbs (no grubenv: this medium remembers nothing)"
+[ "$dtb_n" -gt 0 ] || die "no dtbs copied from ${DTBDIR#"$ROOT"/}"
+log "ESP: loader/entries/retroforge{,-debug}.conf + wifi.conf.example + vmlinuz.efi + $dtb_n dtbs (no /EFI)"
 
 # --- 4. write the filesystems into their partitions ---------------------------------------------------
 # Every populated filesystem must fit the slot the table gave it. A silently truncated dd produces a

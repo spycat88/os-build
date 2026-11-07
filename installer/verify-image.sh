@@ -12,7 +12,7 @@
 # WHY IT MATTERS MORE HERE THAN FOR A CARD. A card is flashed by someone holding the device, who
 # finds out within a minute. This medium is downloaded by a stranger, booted on a handheld with no
 # serial console, and asked to repartition the disk their Android install lives on. Its two failure
-# modes are silent: a grub.cfg naming a PARTUUID the GPT does not carry (an unbootable medium, and
+# modes are silent: a boot entry naming a PARTUUID the GPT does not carry (an unbootable medium, and
 # the panel says nothing), and a root that boots fine and then cannot install — a missing tool, a
 # missing component, a dev medium published by accident.
 #
@@ -27,7 +27,6 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMG="${1:-$ROOT/out/images/installer.img}"
 TABLE="$ROOT/installer/medium-table.txt"
-GENCFG="$ROOT/installer/gen-grub-cfg.sh"
 # A DEV medium bakes sshd with a root key and a Wi-Fi profile carrying a PSK. That is correct for the
 # builder's own hardware and must never be published, so it FAILS here unless the caller says it is
 # what they asked for — the same shape as ota/publish-bundle.sh's mode gate, which exists because a
@@ -122,21 +121,14 @@ case "$label" in
   *) bad "p1's label is '$label', not RFINSTALLER — installer/units mounts it by LABEL" ;;
 esac
 
-# The byte ABL actually loads, and the three files the boot depends on.
-for f in ::/EFI/BOOT/bootaa64.efi ::/EFI/steamos/grub.cfg ::/EFI/steamos/fonts/dejavu-mono.pf2 ::/vmlinuz.efi; do
+# The BLS entry and the kernel it names: the two files the boot depends on.
+for f in ::/loader/entries/retroforge.conf ::/loader/entries/retroforge-debug.conf ::/vmlinuz.efi; do
   mtype -i "$IMG@@$ESP_OFF" "$f" >/dev/null 2>&1 && ok "$f present" || bad "$f MISSING"
 done
-# No steamcl: it is the A/B slot chooser and this medium has one root, so its conf files would be
-# fiction. A steamcl here means the card's ESP layout was copied onto a medium that cannot use it.
-mtype -i "$IMG@@$ESP_OFF" ::/EFI/BOOT/steamcl.efi >/dev/null 2>&1 \
-  && bad "steamcl.efi on a single-root medium — there is nothing for it to choose" \
-  || ok "no steamcl (one root, no slot to choose)"
-# NOTHING REMEMBERED. The medium travels between boards, so a saved board choice is a card that
-# installed a Pocket S2 preselecting its devicetree on an ACE — and a wrong DTB is worse than
-# re-picking.
-mtype -i "$IMG@@$ESP_OFF" ::/EFI/steamos/grubenv >/dev/null 2>&1 \
-  && bad "a grubenv is on the medium — it would remember a board choice between boards" \
-  || ok "no grubenv (this medium remembers nothing)"
+# NO /EFI TREE. The medium boots from the BLS entry; a leftover /EFI means GRUB's layout crept back.
+mdir -i "$IMG@@$ESP_OFF" ::/EFI >/dev/null 2>&1 \
+  && bad "an /EFI directory is on the medium — it boots via BLS and should carry none" \
+  || ok "no /EFI directory (the medium boots via loader/entries/retroforge.conf)"
 # The file the no-Wi-Fi screen tells the operator to copy. It told them to for weeks while no such
 # file existed anywhere (HW 2026-08-24), which reads as a fault in the person following it.
 mtype -i "$IMG@@$ESP_OFF" ::/retroforge/wifi.conf.example >"$T/wifi.example" 2>/dev/null \
@@ -148,29 +140,40 @@ grep -q '^#*[[:space:]]*SSID=' "$T/wifi.example" 2>/dev/null && grep -q 'PSK=' "
 
 # ----------------------------------------------------------------------------------------------
 echo "  3. the boot config addresses THIS image"
-# THE SILENT BRICK. installer/gen-grub-cfg.sh is handed the partition uuid sgdisk assigned moments
-# earlier, so a mismatch here means the config was generated against a different image — a medium
-# that reaches GRUB, times out on rootwait and sits at a black panel with nothing to read.
-mtype -i "$IMG@@$ESP_OFF" ::/EFI/steamos/grub.cfg >"$T/grub.cfg" 2>/dev/null || true
-grep -q "root=PARTUUID=$ROOT_UUID" "$T/grub.cfg" \
-  && ok "root=PARTUUID=$ROOT_UUID matches p2's own GUID" \
-  || bad "the config's root=PARTUUID is not p2's ($ROOT_UUID) — this medium would not find its root"
-grep -q 'rootfstype=squashfs' "$T/grub.cfg" \
-  && ok "rootfstype=squashfs" || bad "the kernel is not told the root is a squashfs"
-grep -q 'systemd.volatile=state' "$T/grub.cfg" \
-  && ok "systemd.volatile=state (a tmpfs /var over the read-only root)" \
-  || bad "no systemd.volatile=state — journald and NetworkManager have nowhere to write"
-# Every menuentry names a dtb, and every one of those has to be ON the medium. A missing dtb is a
-# board that picks itself out of the menu and then fails to boot, on the tool someone reaches for
-# when their device is already broken.
-entries=$(grep -c '^menuentry ' "$T/grub.cfg")
-[ "$entries" -gt 0 ] && ok "$entries board entries" || bad "the config has no menu entries"
-missing=""
-while read -r dtb; do
-  mtype -i "$IMG@@$ESP_OFF" "::/dtbs/$dtb" >/dev/null 2>&1 || missing="$missing $dtb"
-done < <(sed -n 's|^[[:space:]]*devicetree /dtbs/\(.*\)$|\1|p' "$T/grub.cfg" | sort -u)
-[ -z "$missing" ] && ok "every devicetree the menu names is on the medium" \
-  || bad "the menu names dtbs that are not there:$missing"
+# THE SILENT BRICK. installer/gen-bls-entry.sh is handed the partition uuid sgdisk assigned moments
+# earlier, so a mismatch here means the entries were generated against a different image — a medium
+# that reaches the kernel, times out on rootwait and sits at a black panel with nothing to read.
+check_entry() {  # <file> <title>  — sets e_ver
+  local f="$1" title="$2" c="$T/$1"
+  echo "    $f"
+  mtype -i "$IMG@@$ESP_OFF" "::/loader/entries/$f" >"$c" 2>/dev/null || true
+  grep -qx "title[[:space:]]\+$title" "$c" \
+    && ok "title $title" || bad "$f's title is not '$title'"
+  grep -q '^linux[[:space:]]\+/vmlinuz.efi$' "$c" \
+    && ok "linux /vmlinuz.efi" || bad "$f does not boot /vmlinuz.efi"
+  grep -q "root=PARTUUID=$ROOT_UUID" "$c" \
+    && ok "root=PARTUUID=$ROOT_UUID matches p2's own GUID" \
+    || bad "$f's root=PARTUUID is not p2's ($ROOT_UUID) — this medium would not find its root"
+  grep -q 'rootfstype=squashfs' "$c" \
+    && ok "rootfstype=squashfs" || bad "the kernel is not told the root is a squashfs"
+  grep -q 'systemd.volatile=state' "$c" \
+    && ok "systemd.volatile=state (a tmpfs /var over the read-only root)" \
+    || bad "no systemd.volatile=state — journald and NetworkManager have nowhere to write"
+  e_ver=$(sed -n 's/^version[[:space:]]\+//p' "$c")
+  [ -n "$e_ver" ] && ok "version $e_ver" || bad "$f has no version line"
+}
+check_entry retroforge-debug.conf "RetroForge Installer (Debug)"
+dbg_ver=$e_ver
+# The debug arg hands the panel to a getty instead of gamescope: on the debug entry ONLY.
+grep -q 'retroforge.install.debug' "$T/retroforge-debug.conf" \
+  && ok "the debug entry carries retroforge.install.debug" \
+  || bad "the debug entry has no retroforge.install.debug — it would boot the GUI like the normal one"
+check_entry retroforge.conf "RetroForge Installer"
+grep -q 'retroforge.install.debug' "$T/retroforge.conf" \
+  && bad "the normal entry carries retroforge.install.debug — every boot would skip the GUI" \
+  || ok "the normal entry does not carry retroforge.install.debug"
+[ "$dbg_ver" = "$e_ver" ] && ok "both entries name the same version" \
+  || bad "the entries disagree on version ('$e_ver' vs '$dbg_ver')"
 
 # ----------------------------------------------------------------------------------------------
 echo "  4. the root filesystem"
@@ -209,6 +212,9 @@ o_ver=$(sed -n 's/^VERSION_ID=//p' "$T/os-release")
 [ -n "$r_ver" ] && [ "$r_ver" = "$o_ver" ] \
   && ok "retroforge-release and os-release name the same version ($r_ver)" \
   || bad "version mismatch: retroforge-release says '$r_ver', os-release says '$o_ver'"
+[ -n "$r_ver" ] && [ "$r_ver" = "${e_ver:-}" ] \
+  && ok "the boot entry's version matches the medium's ($r_ver)" \
+  || bad "version mismatch: retroforge-release says '$r_ver', loader/entries/retroforge.conf says '${e_ver:-}'"
 # The sidecar a publisher reads instead of opening a squashfs out of the middle of a GPT.
 side="$(dirname "$IMG")/installer.release"
 if [ -f "$side" ]; then

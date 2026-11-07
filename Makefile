@@ -752,14 +752,15 @@ installer-root: verify-lock $(KERNEL) $(if $(OVERLAY_PINS),$(OVERLAY_STAMP)) ## 
 # The medium itself. Host-side mkroot.sh produces the tree; this compresses it and lays the two
 # partitions, and it runs IN THE CONTAINER because the tree is root-owned — a squashfs built by the
 # build user would put every file on the medium under uid 1000, and the installer runs as root
-# against a stranger's disk. $(KERNEL) and $(GRUB) are real prerequisites: the kernel, the dtbs and
-# the stage-2 GRUB all land on the medium's ESP, since there is no slot root for them to live in.
+# against a stranger's disk. $(KERNEL) is a real prerequisite: the kernel and the dtbs land on the
+# medium's boot partition beside the BLS entry (loader/entries/retroforge.conf). No GRUB: the medium
+# boots via BLS and carries no /EFI tree.
 #
 # $(ID_ENV) because installer/mkimage.sh stamps the medium's identity (see its section 0): without it
 # every installer image ever built calls itself the same thing, which is the first question asked at
 # the fallback console. NOT $(DEV_ENV): the dev/release mode is read back out of the ROOT's own
 # reuse marker, so it cannot disagree with what was actually baked in.
-installer: installer-root $(KERNEL) $(GRUB) | $(BUILD_STAMP) ## Build the flashable installer medium -> out/images/installer.img
+installer: installer-root $(KERNEL) | $(BUILD_STAMP) ## Build the flashable installer medium -> out/images/installer.img
 	$(DOCKER) $(ID_ENV) $(BUILD_IMG) installer/mkimage.sh
 
 # Asserts the BUILT medium, the way verify-card.sh asserts the built card. The suites in `make test`
