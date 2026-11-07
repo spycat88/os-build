@@ -940,8 +940,8 @@ clean-base: ## Remove the (root-owned) bootstrapped root tree
 	$(CTR_RUN) --rm -v $(CURDIR)/work:/wb $(BUSYBOX) rm -rf /wb/base
 	rm -f $(BASE_STAMP) work/.base-mode-*   # drop the recency + mode markers too, else the next build skips a gone base
 
-clean-overlay: ## Remove the built (arch-scoped) overlay pacman repo + build tree
-	rm -rf work/repo work/overlay-build
+clean-overlay: ## Remove the built (arch-scoped) overlay pacman repo, its per-hash build cache + build tree
+	rm -rf work/repo work/overlay-build work/overlay-cache
 
 # work/ccache holds the compiler caches (kernel/build.sh, packages/build-overlay.sh). The kernel
 # one is root-owned (its build runs as root in the build image), so like clean-base this removes
@@ -953,7 +953,8 @@ clean-ccache: ## Remove the kernel + overlay compiler caches (work/ccache)
 #
 #   work/prebuilt      the pinned-download cache (customize-base.sh documents it as persistent).
 #   work/pacman-cache  the package cache.
-#   work/repo          the built overlay packages (NOT clean-overlay — this target no longer runs it).
+#   work/repo          the built overlay packages, and work/overlay-cache, every recent build of
+#                      each one by input hash (NOT clean-overlay — this target no longer runs it).
 #   work/ccache        the kernel + overlay compiler caches (`make clean-ccache`).
 #
 # Together they are, i.e. essentially everything left under work/ after this target runs,

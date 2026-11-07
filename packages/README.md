@@ -70,6 +70,11 @@ CI is just this directory and its stamps in `actions/cache` — no registry, pin
 `work/repo/<arch>/.stamps/<name>.hash` and rebuilds only what moved, so a one-line gamescope patch
 costs a gamescope build and nothing else. Change a `source.pin`, a patch or a `PKGBUILD` and the next
 `make overlay` rebuilds that package; change nothing and it does nothing.
+Each good build is also filed under `work/overlay-cache/<arch>/<name>/<input hash>/` (the newest
+three per package; `RETROFORGE_OVERLAY_CACHE=0` turns it off, and it is off on CI). Because the
+stamps hold one hash per package and are shared by every branch in the checkout, switching between
+two branches that differ in a package used to recompile it on every switch; now a hash that was
+built before is copied back into the repo instead.
 
 `retroforge.db` is deliberately **not** pinned: `repo-add` is not byte-reproducible either, so a pin on
 it could never hold. Nothing installs *from* the db in a locked build — `fetchlock.sh` hands pacman an

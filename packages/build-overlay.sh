@@ -15,6 +15,9 @@
 # inputs as $(OVERLAY_DB) prerequisites; that just re-triggers this (now cheap) script, which
 # self-selects which packages actually need the slow build.
 #
+# Every good build is also kept under work/overlay-cache/<arch>/<name>/<input hash>/, so a package
+# whose inputs move back to a hash already built (a branch hop) is copied in, not recompiled.
+#
 # That hash is computed by packages/inputhash.sh, NOT here, because it has a second job: it is
 # also what rootfs/manifest.lock records for the `retroforge` rows (our builds are not
 # bit-reproducible, so the lock pins the sources rather than the artifact bytes — see that script
@@ -70,6 +73,18 @@ GL="https://gitlab.steamos.cloud"
 REPO_DIR="$ROOT/work/repo/$ARCH"
 STAMPS="$REPO_DIR/.stamps"
 STAGE="$ROOT/work/overlay-build/$ARCH"
+# BUILT-ARTIFACT CACHE, keyed by input hash: work/overlay-cache/<arch>/<name>/<hash>/. The stamps
+# above hold ONE hash per package, and a dev box shares them across every branch in the checkout,
+# so switching between two branches whose inputs differ for a package (a patch tweak, a PKGBUILD
+# edit) recompiled it on EVERY hop, even though both builds had already been made once. Each good
+# build is now also filed here under its hash; when a package's stamp disagrees, a cached build
+# for the CURRENT hash is copied back into the repo instead of compiled. The hash is the same one
+# manifest.lock pins, so a cache hit is exactly as trustworthy as an up-to-date stamp.
+# Off on CI (nothing there outlives the runner; its own actions/cache covers work/repo), forced
+# either way with RETROFORGE_OVERLAY_CACHE=0/1. The newest $CACHE_KEEP builds per package are kept.
+CACHE="${RETROFORGE_OVERLAY_CACHE_DIR:-$ROOT/work/overlay-cache/$ARCH}"
+if [ -n "${CI:-}" ]; then USE_CACHE="${RETROFORGE_OVERLAY_CACHE:-0}"; else USE_CACHE="${RETROFORGE_OVERLAY_CACHE:-1}"; fi
+CACHE_KEEP="${RETROFORGE_OVERLAY_CACHE_KEEP:-3}"
 . "$ROOT/build/lib-pins.sh"
 
 shopt -s nullglob
@@ -115,6 +130,48 @@ fi
 # is still present in the repo. Otherwise it is staged (PKGBUILD fetched/patched) and queued.
 declare -A HASH        # name -> content hash of this package's inputs (recorded after a good build)
 BUILD_NAMES=()
+restored=0             # packages brought back from $CACHE instead of compiled (forces a re-index)
+
+# Swap the artifacts the stamp says <name> last put in the repo for <new basenames...>: delete
+# every old one not in the new set, so a renamed file (pkgrel bump) never lingers in the repo.
+retire_old_artifacts() {
+  local name="$1"; shift
+  local old b keep
+  [ -f "$STAMPS/$name.files" ] || return 0
+  while read -r old; do
+    [ -n "$old" ] || continue
+    keep=0; for b in "$@"; do [ "$b" = "$old" ] && keep=1 && break; done
+    [ "$keep" = 0 ] && rm -f "$REPO_DIR/$old"
+  done < "$STAMPS/$name.files"
+}
+
+# A cached build of <name> at <hash> is usable only if its file list exists, is non-empty and
+# every file it names is still there; anything less is treated as a miss and rebuilt.
+cache_has() {
+  local d="$CACHE/$1/$2" f n=0
+  [ -f "$d/files" ] || return 1
+  while read -r f; do
+    [ -n "$f" ] && [ -f "$d/$f" ] || return 1
+    n=$((n + 1))
+  done < "$d/files"
+  [ "$n" -gt 0 ]
+}
+
+# File <name>'s fresh build under <hash>, then keep only the newest $CACHE_KEEP hashes of it.
+# Written to a temp dir and renamed, so an interrupted copy is never mistaken for a cache entry.
+cache_store() {
+  local name="$1" hash="$2"; shift 2
+  local d="$CACHE/$name/$hash" tmp f old
+  mkdir -p "$CACHE/$name"
+  tmp="$(mktemp -d "$CACHE/$name/.incoming.XXXXXX")"
+  for f in "$@"; do cp -p "$f" "$tmp/"; done
+  for f in "$@"; do basename "$f"; done > "$tmp/files"
+  rm -rf "$d"; mv "$tmp" "$d"; touch "$d"
+  # shellcheck disable=SC2012  # names are 64-hex hashes, ls -t is safe here
+  ls -1dt "$CACHE/$name"/*/ 2>/dev/null | tail -n +"$((CACHE_KEEP + 1))" | while read -r old; do
+    rm -rf "$old"
+  done
+}
 
 for pin in "${PINS[@]}"; do
   pdir="$(dirname "$pin")"
@@ -180,6 +237,23 @@ for pin in "${PINS[@]}"; do
   fi
   if [ -z "$why" ]; then
     echo "[overlay] $name: up-to-date (${hash:0:12}) — skip" >&2
+    # Seed the cache from a build made before it existed (or after it was cleared), so the
+    # first branch hop away and back is already free.
+    if [ "$USE_CACHE" != 0 ] && ! cache_has "$name" "$hash"; then
+      mapfile -t current < "$STAMPS/$name.files"
+      cache_store "$name" "$hash" "${current[@]/#/$REPO_DIR/}"
+    fi
+    continue
+  fi
+  if [ "$USE_CACHE" != 0 ] && cache_has "$name" "$hash"; then
+    mapfile -t cached < "$CACHE/$name/$hash/files"
+    retire_old_artifacts "$name" "${cached[@]}"
+    for f in "${cached[@]}"; do cp -p "$CACHE/$name/$hash/$f" "$REPO_DIR/"; done
+    printf '%s\n' "${cached[@]}" > "$STAMPS/$name.files"
+    printf '%s\n' "$hash"        > "$STAMPS/$name.hash"
+    touch "$CACHE/$name/$hash"    # most recently used: the last one pruning would drop
+    restored=$((restored + 1))
+    echo "[overlay] $name: $why — restored the ${hash:0:12} build from work/overlay-cache, no compile" >&2
     continue
   fi
   echo "[overlay] $name: $why — building" >&2
@@ -311,7 +385,7 @@ done
 # Falling through to the index step instead is both the fix and exactly what a freshly pulled repo
 # needs: one cheap container, no compiles.
 if [ ${#BUILD_NAMES[@]} -eq 0 ] && [ "$stale_foreign" -eq 0 ] && [ "$retired" -eq 0 ] \
-   && [ -f "$REPO_DIR/retroforge.db.tar.zst" ]; then
+   && [ "$restored" -eq 0 ] && [ -f "$REPO_DIR/retroforge.db.tar.zst" ]; then
   echo "[overlay] all overlay packages up-to-date — nothing to rebuild" >&2
   # Bump the db mtime so make sees $(OVERLAY_DB) as satisfied against the touched inputs and
   # does not keep re-invoking this script every build.
@@ -336,7 +410,7 @@ pins_builder_ensure >/dev/null
 # Qt6 module resolution. Isolating each build removes that cross-contamination at the cost of a
 # per-package dep re-sync (the emulated compile dwarfs it anyway).
 if [ ${#BUILD_NAMES[@]} -eq 0 ]; then
-  echo "[overlay] no package changed — re-indexing only ($stale_foreign foreign-arch artifact(s) to drop, $retired retired package(s) purged)" >&2
+  echo "[overlay] nothing to compile — re-indexing only ($restored restored from cache, $stale_foreign foreign-arch artifact(s) to drop, $retired retired package(s) purged)" >&2
 else
   case "$(uname -m)" in
     aarch64|arm64) how="native arm64" ;;
@@ -417,15 +491,10 @@ for name in "${BUILD_NAMES[@]}"; do
   # old hash so the next run retries.
   produced=("$STAGE/$name"/out/*.pkg.tar.zst)
   new_basenames=(); for f in "${produced[@]}"; do new_basenames+=("$(basename "$f")"); done
-  if [ -f "$STAMPS/$name.files" ]; then
-    while read -r old; do
-      [ -n "$old" ] || continue
-      keep=0; for b in "${new_basenames[@]}"; do [ "$b" = "$old" ] && keep=1 && break; done
-      [ "$keep" = 0 ] && rm -f "$REPO_DIR/$old"
-    done < "$STAMPS/$name.files"
-  fi
+  retire_old_artifacts "$name" "${new_basenames[@]}"
   printf '%s\n' "${new_basenames[@]}" > "$STAMPS/$name.files"
   printf '%s\n' "${HASH[$name]}"      > "$STAMPS/$name.hash"
+  [ "$USE_CACHE" = 0 ] || cache_store "$name" "${HASH[$name]}" "${produced[@]}"
 done
 
 # Re-index the repo db from ALL present artifacts (repo-add is an arm64 tool). Rebuild it from
