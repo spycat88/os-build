@@ -48,12 +48,15 @@ case "$model" in
     "MANGMI Air Y Pro")          profile=mangmi-air-y-pro ;;
     "MANGMI Pocket Max")         profile=mangmi-pocket-max ;;
     "Retroid Pocket 5")          profile=retroid-pocket-5 ;;
+    "Retroid Pocket 5 Visionox") profile=retroid-pocket-5-visionox ;;
     "Retroid Pocket 6")          profile=retroid-pocket-6 ;;
     "Retroid Pocket 6 TOP-DPAD") profile=retroid-pocket-6 ;;
     "Retroid Pocket Classic")    profile=retroid-pocket-classic ;;
     "Retroid Pocket Classic Rev Q") profile=retroid-pocket-classic-revq ;;
+    "Retroid Pocket Classic 6")  profile=retroid-pocket-classic-6 ;;
     "Retroid Pocket Classic 6 Rev Q") profile=retroid-pocket-classic-6-revq ;;
     "Retroid Pocket Flip2")      profile=retroid-pocket-flip2 ;;
+    "Retroid Pocket Flip2 Visionox") profile=retroid-pocket-flip2-visionox ;;
     "Retroid Pocket Mini")       profile=retroid-pocket-mini ;;
     "Retroid Pocket Mini V2")    profile=retroid-pocket-mini-v2 ;;
     "Retroid Pocket Nova")       profile=retroid-pocket-nova ;;

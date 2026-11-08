@@ -113,7 +113,8 @@ done
 # answer into a NetworkManager drop-in under /run, before NetworkManager reads its config.
 CASE="wifi power save"
 WPS="$ROOT/rootfs/overlay/usr/lib/retroforge/wifi-powersave"
-for m in "Anbernic RG 55G1" "Retroid Pocket Classic" "Retroid Pocket Classic Rev Q" "Retroid Pocket Classic 6 Rev Q"; do
+for m in "Anbernic RG 55G1" "Retroid Pocket Classic" "Retroid Pocket Classic Rev Q" "Retroid Pocket Classic 6" \
+         "Retroid Pocket Classic 6 Rev Q"; do
   [ "$(value "$m" RETROFORGE_WIFI_POWERSAVE)" = off ] && ok "$m: off" \
     || bad "$m: RETROFORGE_WIFI_POWERSAVE is '$(value "$m" RETROFORGE_WIFI_POWERSAVE)', not off"
 done

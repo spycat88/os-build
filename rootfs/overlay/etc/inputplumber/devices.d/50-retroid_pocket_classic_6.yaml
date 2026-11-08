@@ -1,12 +1,12 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/ShadowBlip/InputPlumber/main/rootfs/usr/share/inputplumber/schema/composite_device_v1.json
 #
-# Retroid Pocket Classic 6 Rev Q (sm4450-retroid-pocket-classic-6-revq.dts, which includes the Rev Q
-# DTS and renames the model). Same rsinput MCU as the Classic and Rev Q, different face-button and
+# Retroid Pocket Classic 6 and Classic 6 Rev Q (sm4450-retroid-pocket-classic-6.dts and
+# sm4450-retroid-pocket-classic-6-revq.dts, which include the Classic / Rev Q DTS and rename the model). Same rsinput MCU as the Classic and Rev Q, different face-button and
 # stick-click wiring: capability_maps.d/sm4450-rp_classic_6_mcu.yaml. Otherwise as
 # 50-retroid_pocket_classic.yaml, from ROCKNIX SM4450 01-retroid-classic-6-controller.yaml.
 version: 1
 kind: CompositeDevice
-name: Retroid Pocket Classic 6 Rev Q
+name: Retroid Pocket Classic 6
 
 maximum_sources: 0
 
@@ -14,6 +14,11 @@ options:
     auto_manage: true
 
 matches:
+    - udev:
+          sys_path: /sys/firmware/devicetree/base
+          attributes:
+              - name: model
+                value: Retroid Pocket Classic 6
     - udev:
           sys_path: /sys/firmware/devicetree/base
           attributes:

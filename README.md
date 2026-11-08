@@ -45,7 +45,9 @@ install.
 | AYN Thor Lite | SM8250 | `ayn-thor-lite` |
 | MANGMI Pocket Max | SM8250 | `mangmi-pocket-max` |
 | Retroid Pocket 5 | SM8250 | `retroid-pocket-5` |
+| Retroid Pocket 5 Visionox | SM8250 | `retroid-pocket-5-visionox` |
 | Retroid Pocket Flip2 | SM8250 | `retroid-pocket-flip2` |
+| Retroid Pocket Flip2 Visionox | SM8250 | `retroid-pocket-flip2-visionox` |
 | AYANEO Pocket DMG | SM8550 | `ayaneo-pocket-dmg` |
 | AYANEO Pocket DS | SM8550 | `ayaneo-pocket-ds` |
 | AYANEO Pocket EVO | SM8550 | `ayaneo-pocket-evo` |
@@ -63,6 +65,7 @@ install.
 | MANGMI Air Y | SM6115 | `mangmi-air-y` |
 | Anbernic RG 55G1 | SM4450 | `anbernic-rg55g1` |
 | Retroid Pocket Classic | SM4450 | `retroid-pocket-classic` |
+| Retroid Pocket Classic 6 | SM4450 | `retroid-pocket-classic-6` |
 | Retroid Pocket Classic 6 Rev Q | SM4450 | `retroid-pocket-classic-6-revq` |
 | Retroid Pocket Classic Rev Q | SM4450 | `retroid-pocket-classic-revq` |
 

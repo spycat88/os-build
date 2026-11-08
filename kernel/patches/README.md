@@ -147,6 +147,7 @@ taken for issue #122 — see the `0780`–`0796` rows.
 | `0545` | retroforge | Also ROCKNIX SM8650 `0063`. Never posted. | never |
 | `0550` | community | ROCKNIX. Never posted; possibly an R63419 variant (unverified). | never |
 | `0555` | community | Teguh Sobirin via ROCKNIX `0104`. Aaron Kling posted a different version (`<20260814-rp6-panel-v1-4-111c1aeccf0f@gmail.com>`, `retroidpocket,rp6-panel`); v2 owed after Neil's review. | when Aaron's series lands — switch compatible |
+| `0556` | community | Jacob Pyke via ROCKNIX SM8250 `0105` (co-authored by spycat88), rebased onto `0555` (probe hunk context only). Adds `vtdr6130,rp5` / `vtdr6130,rpflip2` with the SM8250 supplies for the Pocket 5 / Flip2 Visionox panel variants, and the missing F0 byte in the page-select write (which also changes the Pocket 6 sequence, matching ROCKNIX SM8550 `0104`). ROCKNIX's frame-length calibration on top (SM8250 `0506`) is not carried. Never posted. | when Aaron's RP6 series lands — fold into it |
 | `0560` | posted | Teguh Sobirin via ROCKNIX `0105`. Posted by Jacob Pyke with Teguh as author, as Ilitek IL97680A panels for the Nova and Duo: `<20261025133741.100490-3-jacob@pyk.ee>` (2026-10-25). | when upstreamed |
 | `0610` | community | Teguh Sobirin via ROCKNIX `0058`. Never posted. | never |
 | `0630` | community | ROCKNIX SM8750 `0056`. The AW99706 driver itself is upstream in 7.2.11 and ROCKNIX's `0055` fixes are already in; this one (enable HWEN before the chip-id read) is not. | when upstreamed |

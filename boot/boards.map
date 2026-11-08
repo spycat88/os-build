@@ -40,7 +40,7 @@
 # module params (min/max ±1024, deadzone 70 — ROCKNIX SM8750 1300's values):
 # the peer patch changes the driver's global defaults, which would recalibrate
 # every rsinput board in our combined kernel; the cmdline scopes it per board.
-# SM4450 (Snapdragon G1 Gen 2: 2x A78 + 6x A55) rows — the Anbernic RG 55G1 and three Retroid
+# SM4450 (Snapdragon G1 Gen 2: 2x A78 + 6x A55) rows — the Anbernic RG 55G1 and four Retroid
 # Pocket Classic revisions — carry only `gpt`, the one arg ROCKNIX's SM4450 EXTRA_CMDLINE adds
 # beyond our common line. No irqaffinity until a tuning pass measures one (ROCKNIX sets none),
 # and no allow_mismatched_32bit_el0: both clusters run 32-bit EL0.
@@ -67,11 +67,14 @@ mangmi-air-y	MANGMI Air Y	sm6115-mangmi-air-y	gpt ssbd=force-off kpti=off iommu.
 mangmi-air-y-pro	MANGMI Air Y Pro	sm8250-mangmi-air-y-pro
 mangmi-pocket-max	MANGMI Pocket Max	sm8250-mangmi-pocket-max
 retroid-pocket-5	Retroid Pocket 5	sm8250-retroidpocket-rp5
+retroid-pocket-5-visionox	Retroid Pocket 5 Visionox	sm8250-retroidpocket-rp5-visionox
 retroid-pocket-6	Retroid Pocket 6	qcs8550-retroidpocket-rp6	allow_mismatched_32bit_el0 fw_devlink.strict=1 pcie_ports=compat irqaffinity=0-2
 retroid-pocket-classic	Retroid Pocket Classic	sm4450-retroid-pocket-classic	gpt
+retroid-pocket-classic-6	Retroid Pocket Classic 6	sm4450-retroid-pocket-classic-6	gpt
 retroid-pocket-classic-6-revq	Retroid Pocket Classic 6 Rev Q	sm4450-retroid-pocket-classic-6-revq	gpt
 retroid-pocket-classic-revq	Retroid Pocket Classic Rev Q	sm4450-retroid-pocket-classic-revq	gpt
 retroid-pocket-flip2	Retroid Pocket Flip2	sm8250-retroidpocket-flip2
+retroid-pocket-flip2-visionox	Retroid Pocket Flip2 Visionox	sm8250-retroidpocket-flip2-visionox
 retroid-pocket-mini	Retroid Pocket Mini	sm8250-retroidpocket-rpmini
 retroid-pocket-mini-v2	Retroid Pocket Mini V2	sm8250-retroidpocket-rpminiv2
 retroid-pocket-nova	Retroid Pocket Nova	qcs8550-retroidpocket-rpnova	allow_mismatched_32bit_el0 fw_devlink.strict=1 pcie_ports=compat irqaffinity=0-2
