@@ -1,0 +1,146 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: retroforge <retroforge@invalid>
+Date: Thu, 5 Nov 2026 04:10:00 +0000
+Subject: [PATCH] fix(AudioManager): the startup volume reaches the sliders
+
+The volume sliders showed 0 at startup while the speaker played at its
+real level. AudioManager reads the volume once, from _init(), with an
+asynchronous `wpctl get-volume`:
+- the quick settings and audio settings menus are built before that
+  command finishes, read current_volume while it is still 0, and the
+  read emits nothing when it arrives, so they keep 0 until the level is
+  changed;
+- if the shell starts before WirePlumber has picked a default sink, the
+  command fails and the volume is -1, never read again.
+The volume keys step from that value too, so the first press jumped the
+level to 6%.
+
+The startup volume is now read again once a second (up to 30 s) until
+there is a default sink, and announced with a new volume_read signal.
+The menus show it without setting it back (which would also clear a
+mute, 0031), and it does not show the volume indicator. A level set
+from the shell meanwhile wins over the one read, and a relative change
+stays within 0 and the limit.
+
+---
+ core/global/audio_manager.gd                    | 35 ++++++++++++++++++++++---
+ core/ui/common/quick_bar/quick_settings_menu.gd |  8 ++++++
+ core/ui/common/settings/audio_settings_menu.gd  |  8 ++++++
+ 3 files changed
+
+--- a/core/global/audio_manager.gd
++++ b/core/global/audio_manager.gd
+@@ -7,6 +7,9 @@ class_name AudioManager
+ ## devices if the host supports it.
+ 
+ signal volume_changed(value: float)
++## Emitted when the system volume has been read, e.g. once WirePlumber has a default sink at startup.
++## Unlike volume_changed it does not show the volume indicator; views use it to show the real level.
++signal volume_read(value: float)
+ signal volume_mute_toggled()
+ 
+ ## Types of volume changes that are supported
+@@ -18,18 +21,43 @@ enum VOLUME {
+ ## Limit the maximum volume to 200%
+ const volume_limit := "2.0"
+ 
++## How long to keep trying to read the startup volume, one try a second: the shell can start before
++## WirePlumber has picked the default sink, and until then `wpctl get-volume` fails.
++const VOLUME_READ_TRIES := 30
++
+ ## Current volume
+-var current_volume := await _get_current_volume()
++var current_volume := 0.0
++## True once the system volume has been read (or set from here)
++var volume_known := false
+ var _muted := false
+ var _output_devices := PackedStringArray()
+ var _current_output := ""
+ 
+ 
+ func _init() -> void:
+-	current_volume = await _get_current_volume()
++	_read_startup_volume()
+ 	_output_devices = await _get_output_devices()
+ 
+ 
++# The volume is read asynchronously, so the views built at startup see 0 until it arrives. Read it
++# until there is a default sink, then tell them with volume_read.
++func _read_startup_volume() -> void:
++	for i in VOLUME_READ_TRIES:
++		var volume := await _get_current_volume()
++		# A level set from here meanwhile is newer than the one read.
++		if volume_known:
++			return
++		if volume >= 0:
++			current_volume = volume
++			volume_known = true
++			volume_read.emit(current_volume)
++			return
++		var tree := Engine.get_main_loop() as SceneTree
++		if not tree:
++			return
++		await tree.create_timer(1.0).timeout
++
++
+ ## Returns true if the system has audio controls we support
+ func supports_audio() -> bool:
+ 	var code := OS.execute("which", ["wpctl"])
+@@ -62,7 +90,8 @@ func set_volume(value: float, type: VOLUME = VOLUME.ABSOLUTE) -> int:
+ 	if type == VOLUME.ABSOLUTE:
+ 		current_volume = value
+ 	else:
+-		current_volume += value
++		current_volume = clampf(current_volume + value, 0, volume_limit.to_float())
++	volume_known = true
+ 	if last_volume != current_volume:
+ 		volume_changed.emit(current_volume)
+ 
+--- a/core/ui/common/quick_bar/quick_settings_menu.gd
++++ b/core/ui/common/quick_bar/quick_settings_menu.gd
+@@ -21,6 +21,7 @@ func _ready() -> void:
+ 	output_volume.value = current_volume * 100
+ 	output_volume.value_changed.connect(_on_output_volume_slider_changed)
+ 	AudioManager.volume_changed.connect(_on_output_volume_changed)
++	AudioManager.volume_read.connect(_on_output_volume_read)
+ 
+ 	# Setup the saturation slider
+ 	saturation_slider.value = 100
+@@ -38,6 +39,13 @@ func _on_output_volume_changed(value: float) -> void:
+ 	output_volume.value = value * 100
+ 
+ 
++# The level read from the system: shown without setting it back (that would also clear a mute).
++func _on_output_volume_read(value: float) -> void:
++	output_volume.value_changed.disconnect(_on_output_volume_slider_changed)
++	output_volume.value = value * 100
++	output_volume.value_changed.connect(_on_output_volume_slider_changed)
++
++
+ func _on_output_volume_slider_changed(value: float) -> void:
+ 	var percent: float = value * 0.01
+ 	AudioManager.set_volume(percent)
+--- a/core/ui/common/settings/audio_settings_menu.gd
++++ b/core/ui/common/settings/audio_settings_menu.gd
+@@ -21,6 +21,7 @@ func _ready() -> void:
+ 	output_volume.value_changed.connect(_on_output_volume_slider_changed)
+ 	output_device.item_selected.connect(_on_output_device_changed)
+ 	AudioManager.volume_changed.connect(_on_output_volume_changed)
++	AudioManager.volume_read.connect(_on_output_volume_read)
+ 	
+ 	# Populate the dropdown with available output devices
+ 	_update_output_devices()
+@@ -30,6 +31,13 @@ func _on_output_volume_changed(value: float) -> void:
+ 	output_volume.value = value * 100
+ 
+ 
++# The level read from the system: shown without setting it back (that would also clear a mute).
++func _on_output_volume_read(value: float) -> void:
++	output_volume.value_changed.disconnect(_on_output_volume_slider_changed)
++	output_volume.value = value * 100
++	output_volume.value_changed.connect(_on_output_volume_slider_changed)
++
++
+ # Updates the list of output devices
+ func _update_output_devices() -> void:
+ 	var current_device := await AudioManager.get_current_output_device()
