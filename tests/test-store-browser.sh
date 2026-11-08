@@ -22,6 +22,10 @@ STORE="$ROOT/rootfs/overlay/usr/lib/retroforge/store"
 GEN="$ROOT/rootfs/chromium-pin.py"
 for f in "$STORE" "$GEN"; do [ -f "$f" ] || { echo "missing: $f" >&2; exit 1; }; done
 command -v glib-compile-schemas >/dev/null || { echo "test-store-browser: needs glib-compile-schemas" >&2; exit 1; }
+# The packages are .pkg.tar.zst, which tarfile reads only with compression.zstd (Python 3.14+, the image's).
+# CI runs 3.14 (.github/workflows/ci.yml); an older python3 on a dev machine skips rather than fails.
+python3 -c 'import compression.zstd' 2>/dev/null || {
+  echo "test-store-browser: skipped -- $(python3 -V 2>&1) has no compression.zstd (needs 3.14+)"; exit 0; }
 T="$(mktemp -d)" && [ -d "$T" ] || { echo "mktemp -d failed" >&2; exit 1; }
 trap 'rm -rf "$T"' EXIT
 

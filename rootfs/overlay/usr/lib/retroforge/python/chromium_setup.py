@@ -20,7 +20,12 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-from compression import zstd
+
+try:
+    from compression import zstd  # Python 3.14+: the image's Python, and what tarfile's "r:zst" needs
+    _ZSTD_ERRORS = (zstd.ZstdError,)
+except ImportError:  # an older Python (CI's): importable, but unpack() fails as a SetupError
+    _ZSTD_ERRORS = ()
 
 FREE_FACTOR = 3  # free space wanted, times the download: the packages unpack to ~2.2x (396/181 MB)
 DOWNLOAD_SHARE = 95  # % of the progress the downloads take; unpacking each is in its download's share
@@ -110,7 +115,7 @@ def unpack(package, folder):
     try:
         with tarfile.open(package, "r:zst") as t:
             t.extractall(folder, filter=_filter)
-    except (tarfile.TarError, OSError, EOFError, zstd.ZstdError) as err:
+    except (tarfile.TarError, OSError, EOFError) + _ZSTD_ERRORS as err:
         raise SetupError(f"could not unpack {os.path.basename(package)}: {err}")
 
 
