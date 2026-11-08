@@ -181,6 +181,13 @@ ID_ENV := -e RETROFORGE_VERSION -e RETROFORGE_GIT=$(RETROFORGE_GIT)
 # the image calls itself.
 VERSION_STAMP := work/.rootfs-version-$(if $(RETROFORGE_VERSION),$(RETROFORGE_VERSION),dev)
 
+# RETROFORGE_SSH_PUBKEY is the same trap again: it is root's authorized_keys on a dev card, but make
+# cannot see it, so changing the key (say, from dev.env's throwaway key to your own) left an existing
+# rootfs.img looking up-to-date and you flashed the OLD key. Keyed on a hash, not the key itself, so
+# the marker name stays short and filename-safe. Release builds never read the key, so they share one marker.
+SSHKEY_HASH  := $(if $(filter 1,$(RETROFORGE_DEV)),$(if $(RETROFORGE_SSH_PUBKEY),$(shell printf '%s' "$$RETROFORGE_SSH_PUBKEY" | sha256sum | cut -c1-12),none),release)
+SSHKEY_STAMP := work/.rootfs-sshkey-$(SSHKEY_HASH)
+
 # RETROFORGE_DEV changes the rootfs CONTENT (Wi-Fi profile, SSH host keys + authorized_keys) but is
 # an environment variable, which make cannot see. Without this, an existing release rootfs.img looks
 # up-to-date to a `RETROFORGE_DEV=1 make sdcard`, the assembler is skipped, and you flash a RELEASE
@@ -758,12 +765,17 @@ $(VERSION_STAMP):
 	@mkdir -p $(@D) && rm -f work/.rootfs-version-* && touch $@
 	@echo "[retroforge] rootfs version: $(if $(RETROFORGE_VERSION),$(RETROFORGE_VERSION),dev)"
 
+# Same shape for the dev card's root SSH key (see SSHKEY_STAMP).
+$(SSHKEY_STAMP):
+	@mkdir -p $(@D) && rm -f work/.rootfs-sshkey-* && touch $@
+	@echo "[retroforge] root SSH key: $(SSHKEY_HASH)"
+
 # $(INITRAMFS) and $(GRUB) are prerequisites because the root CARRIES its own boot
 # half: /boot/{Image,initramfs-retroforge.img,dtbs} that the slot's stage 2 boots, plus the
 # /usr/lib/retroforge/boot mirror the RAUC hook refreshes the ESP and the slot's efi partition FROM.
 # That is what makes "this root and the software that boots it came from one build" true by
 # construction. No cycle: the initramfs is built from work/base, never from the assembled root.
-$(ROOTFS): $(KERNEL) $(INITRAMFS) $(GRUB) boot/esp-dtbs.sh $(BASE_STAMP) $(FW_LINUX) $(FW_QCOM) $(PLUGIN_ZIP) $(SIGDEFER_LIB) $(GPTK_LIB) $(HIDEMENU_LIB) $(MESA_X86_DEP) $(ASSEMBLE_SRC) $(MODE_STAMP) $(VERSION_STAMP) $(SCRAPER_STAMP) $(DEV_CA) | $(BUILD_STAMP)
+$(ROOTFS): $(KERNEL) $(INITRAMFS) $(GRUB) boot/esp-dtbs.sh $(BASE_STAMP) $(FW_LINUX) $(FW_QCOM) $(PLUGIN_ZIP) $(SIGDEFER_LIB) $(GPTK_LIB) $(HIDEMENU_LIB) $(MESA_X86_DEP) $(ASSEMBLE_SRC) $(MODE_STAMP) $(VERSION_STAMP) $(SCRAPER_STAMP) $(SSHKEY_STAMP) $(DEV_CA) | $(BUILD_STAMP)
 	$(DOCKER) $(DEV_ENV) $(SCRAPER_ENV) $(ID_ENV) -e RETROFORGE_DEBUG -e RETROFORGE_X86_MESA $(BUILD_IMG) \
 	  $(ROOTFS_DIR)/assemble-rootfs.sh /src/work/base
 

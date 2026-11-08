@@ -103,6 +103,19 @@ for rel in $OFFLOAD_PATHS; do
     chown --reference="/\$rel" "\$dst" 2>/dev/null || :
   fi
 done
+
+# root's authorized_keys is the one seeded file that must FOLLOW the image rather than stay as first
+# seeded. A dev card bakes the build's RETROFORGE_SSH_PUBKEY into /root/.ssh, but the loop above only
+# seeds a directory that does not exist yet -- so once /home had an offload/root (any earlier boot:
+# a previous flash whose /home survived, an OTA, a release first boot) a new key never reached the
+# bound /root and ssh root@ kept rejecting it. Refresh it from the read-only root on every boot. A
+# release root ships no such file, so this is a no-op there; nothing else writes root's keys
+# (pairingd only ever touches the session user's).
+if [ -f /root/.ssh/authorized_keys ]; then
+  install -d -m0700 -o root -g root "\$OFFLOAD/root/.ssh"
+  install -m0600 -o root -g root /root/.ssh/authorized_keys "\$OFFLOAD/root/.ssh/authorized_keys" \\
+    || echo "[retroforge-offload] refreshing root's authorized_keys failed" >&2
+fi
 PREPARE
 chmod 0755 "$stage/usr/lib/retroforge/offload-prepare.sh"
 
