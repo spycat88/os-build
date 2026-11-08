@@ -1,3 +1,0 @@
-# retroforge: the device's display name. bluetoothd's hostname plugin uses it as the Bluetooth name
-# other devices see (it reads the pretty hostname first, then the static one, "retroforge").
-PRETTY_HOSTNAME=RetroForge
