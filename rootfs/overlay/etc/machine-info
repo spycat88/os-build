@@ -1,0 +1,3 @@
+# retroforge: the device's display name. bluetoothd's hostname plugin uses it as the Bluetooth name
+# other devices see (see etc/bluetooth/main.conf); the static hostname stays "retroforge".
+PRETTY_HOSTNAME=RetroForge
