@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: retroforge <retroforge@invalid>
+Date: Sun, 8 Nov 2026 12:01:13 +0000
+Subject: [PATCH] fix(QuickSettings): volume and brightness move in steps of 5,
+ no saturation
+
+The volume keys moved the volume by 6%, and left/right moved the quick
+settings volume slider by 1 and the brightness slider by 3 (user,
+2026-11-08). All of them move by 5 now: the keys change the volume by
+5%, and both sliders step by 5.
+
+A slider snaps its value to its step, so a volume the keys leave off
+the grid (one set elsewhere before) lands on the nearest multiple of 5
+the next time the quick settings slider shows it, and stays on it.
+
+The Saturation slider is hidden: its handler does nothing upstream
+("TODO: Deprecate"), so moving it changed nothing.
+---
+ core/global/audio_manager.gd                      | 2 +-
+ core/systems/input/input_manager.gd               | 4 ++--
+ core/systems/input/overlay_mode_input_manager.gd  | 4 ++--
+ core/ui/common/quick_bar/quick_settings_menu.tscn | 4 +++-
+ 4 files changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/core/global/audio_manager.gd b/core/global/audio_manager.gd
+index 63f1047..e40d9d9 100644
+--- a/core/global/audio_manager.gd
++++ b/core/global/audio_manager.gd
+@@ -43,7 +43,7 @@ func supports_audio() -> bool:
+ ##     const AudioManager := preload("res://core/global/audio_manager.tres")
+ ##     ...
+ ##     AudioManager.set_volume(1.0) # Set volume to 100%
+-##     AudioManager.set_volume(-0.06, AudioManager.TYPE.RELATIVE) # Decrease volume by 6%
++##     AudioManager.set_volume(-0.05, AudioManager.TYPE.RELATIVE) # Decrease volume by 5%
+ ##     [/codeblock]
+ func set_volume(value: float, type: VOLUME = VOLUME.ABSOLUTE) -> int:
+ 	var is_negative := false
+diff --git a/core/systems/input/input_manager.gd b/core/systems/input/input_manager.gd
+index 645cc19..d4baecd 100644
+--- a/core/systems/input/input_manager.gd
++++ b/core/systems/input/input_manager.gd
+@@ -370,11 +370,11 @@ func _audio_input(event: InputEvent) -> void:
+ 		return
+ 	if event.is_action("ogui_volume_down"):
+ 		logger.debug("Volume Down!")
+-		audio_manager.call_deferred("set_volume", -0.06, audio_manager.VOLUME.RELATIVE)
++		audio_manager.call_deferred("set_volume", -0.05, audio_manager.VOLUME.RELATIVE)
+ 		return
+ 	if event.is_action("ogui_volume_up"):
+ 		logger.debug("Volume Up!")
+-		audio_manager.call_deferred("set_volume", 0.06, audio_manager.VOLUME.RELATIVE)
++		audio_manager.call_deferred("set_volume", 0.05, audio_manager.VOLUME.RELATIVE)
+ 		return
+ 
+ 
+diff --git a/core/systems/input/overlay_mode_input_manager.gd b/core/systems/input/overlay_mode_input_manager.gd
+index 0949bf3..aaf1734 100644
+--- a/core/systems/input/overlay_mode_input_manager.gd
++++ b/core/systems/input/overlay_mode_input_manager.gd
+@@ -345,12 +345,12 @@ func _audio_input(event: InputEvent) -> void:
+ 		return
+ 	if event.is_action("ogui_volume_down"):
+ 		logger.debug("Volume Down!")
+-		audio_manager.call_deferred("set_volume", -0.06, audio_manager.VOLUME.RELATIVE)
++		audio_manager.call_deferred("set_volume", -0.05, audio_manager.VOLUME.RELATIVE)
+ 		get_viewport().set_input_as_handled()
+ 		return
+ 	if event.is_action("ogui_volume_up"):
+ 		logger.debug("Volume Up!")
+-		audio_manager.call_deferred("set_volume", 0.06, audio_manager.VOLUME.RELATIVE)
++		audio_manager.call_deferred("set_volume", 0.05, audio_manager.VOLUME.RELATIVE)
+ 		get_viewport().set_input_as_handled()
+ 		return
+ 
+diff --git a/core/ui/common/quick_bar/quick_settings_menu.tscn b/core/ui/common/quick_bar/quick_settings_menu.tscn
+index 3bc7162..2681e7b 100644
+--- a/core/ui/common/quick_bar/quick_settings_menu.tscn
++++ b/core/ui/common/quick_bar/quick_settings_menu.tscn
+@@ -33,16 +33,18 @@ focus_stack = ExtResource("3_ljj2w")
+ unique_name_in_owner = true
+ layout_mode = 2
+ text = "Volume"
++step = 5.0
+ 
+ [node name="BrightnessSlider" parent="QuickVBoxContainer" unique_id=2142893004 instance=ExtResource("2_v67rd")]
+ unique_name_in_owner = true
+ layout_mode = 2
+ text = "Brightness"
+-step = 3.0
++step = 5.0
+ 
+ [node name="SaturationSlider" parent="QuickVBoxContainer" unique_id=1840954089 instance=ExtResource("2_v67rd")]
+ unique_name_in_owner = true
+ layout_mode = 2
++visible = false
+ text = "Saturation"
+ value = 100.0
+ max_value = 400.0
