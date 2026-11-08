@@ -108,13 +108,17 @@ done
 # seeded. A dev card bakes the build's RETROFORGE_SSH_PUBKEY into /root/.ssh, but the loop above only
 # seeds a directory that does not exist yet -- so once /home had an offload/root (any earlier boot:
 # a previous flash whose /home survived, an OTA, a release first boot) a new key never reached the
-# bound /root and ssh root@ kept rejecting it. Refresh it from the read-only root on every boot. A
-# release root ships no such file, so this is a no-op there; nothing else writes root's keys
-# (pairingd only ever touches the session user's).
+# bound /root and ssh root@ kept rejecting it. So the image is the source of truth on every boot: a
+# dev root's key is copied over, and a release root (which ships none) REMOVES any left behind, so
+# installing a release build over a dev card -- by OTA, with /home kept -- locks root out again
+# instead of leaving the dev key working. Nothing else writes root's keys (pairingd only ever
+# touches the session user's), so there is nothing of the user's here to lose.
 if [ -f /root/.ssh/authorized_keys ]; then
   install -d -m0700 -o root -g root "\$OFFLOAD/root/.ssh"
   install -m0600 -o root -g root /root/.ssh/authorized_keys "\$OFFLOAD/root/.ssh/authorized_keys" \\
     || echo "[retroforge-offload] refreshing root's authorized_keys failed" >&2
+else
+  rm -f "\$OFFLOAD/root/.ssh/authorized_keys"
 fi
 PREPARE
 chmod 0755 "$stage/usr/lib/retroforge/offload-prepare.sh"
