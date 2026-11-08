@@ -24,7 +24,14 @@
 #         profile while Guide+South is still held, and the lost ui_quick release made the DBus
 #         target drop the next press as a duplicate (quick bar and OSK opened every other time).
 #         Independent of 0002; drop once upstream carries it.
+#   0004  ours, for upstream: the DBus target thresholds stick and trigger input (a direction or
+#         trigger "presses" past 0.60 / 0.75 and releases below), but chose that by the event's own
+#         capability, which for a profile-translated event is the DBus one. Since OGUI's focus
+#         profile (opengamepadui 0024) maps LeftStick -> ui_left.. and the analog triggers -> ui_l2 /
+#         ui_r2, the raw value went out on every change, and OGUI reads only 1.0 as pressed: the
+#         stick did not move focus and the analog triggers missed the on-screen keyboard's shift
+#         (L2) and enter (R2) nearly always. Goes by the event's source capability now.
 name: inputplumber
 pkgbuild_local: PKGBUILD
-patches: 0001-feat-Input-Layers-add-input-layers-to-map-button-com.patch 0002-feat-Input-Layers-emit-events-when-a-layer-activatio.patch 0003-fix-Input-Layers-release-layer-outputs-before-loadin.patch
+patches: 0001-feat-Input-Layers-add-input-layers-to-map-button-com.patch 0002-feat-Input-Layers-emit-events-when-a-layer-activatio.patch 0003-fix-Input-Layers-release-layer-outputs-before-loadin.patch 0004-fix-DBus-threshold-axis-and-trigger-input-a-profile-translated.patch
 pkgrel_suffix: 1

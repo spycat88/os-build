@@ -1,0 +1,46 @@
+From 9662288603f1514185172eb360a22320e0538cd7 Mon Sep 17 00:00:00 2001
+From: spycat88 <spycat88@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 04:40:00 +0000
+Subject: [PATCH] fix(DBus): threshold axis and trigger input a profile
+ translated to DBus
+
+The DBus target turns axis and trigger input into button-like actions:
+a stick direction or trigger "presses" once it passes AXIS_THRESHOLD or
+TRIGGER_THRESHOLD and releases once it falls back. It picked that path
+from event.as_capability(), which for an event a device profile has
+translated (e.g. LeftStick -> dbus ui_left, LeftTrigger -> dbus ui_l2)
+is the DBus target capability, so none of it ran: the raw value went
+out on every change of the stick or trigger (0.12, 0.47, 0.83, ...).
+A client that reads 1.0 as pressed and anything else as released, as
+OpenGamepadUI does, then saw the stick and analog triggers as released
+nearly always.
+
+Go by the capability the event was translated from when it has one.
+Untranslated events (intercept mode) take the same path as before.
+---
+ src/input/target/dbus.rs | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/input/target/dbus.rs b/src/input/target/dbus.rs
+index 7ce4729..2116a51 100644
+--- a/src/input/target/dbus.rs
++++ b/src/input/target/dbus.rs
+@@ -75,8 +75,13 @@ impl DBusDevice {
+     /// Translate the given native event into one or more dbus events
+     fn translate_event(&mut self, event: NativeEvent) -> Vec<DBusEvent> {
+         // Check to see if this is an axis event, which requires special
+-        // handling.
+-        let source_cap = event.as_capability();
++        // handling. A device profile hands this target events it already
++        // translated to a DBus capability (e.g. LeftStick -> ui_left), still
++        // carrying the raw axis or trigger value, so the special handling
++        // goes by the capability the event was translated from.
++        let source_cap = event
++            .get_source_capability()
++            .unwrap_or_else(|| event.as_capability());
+ 
+         let mut translated = vec![];
+         let events = DBusEvent::from_native_event(event);
+-- 
+2.43.0
+
