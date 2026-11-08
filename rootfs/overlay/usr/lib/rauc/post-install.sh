@@ -18,6 +18,8 @@
 #                    the shared ESP gets parts.env, OpenABL's \dtbs\qcom and this build's ESP GRUB
 #                    (content-identical when unchanged), the ESP GRUB last.
 #   4. re-arm     -- the grubenv names the target first, OK and with all three tries.
+#   5. tidy up    -- a local bundle under /home that this install came from is deleted. Last, and
+#                    best-effort: by now the slot is armed, so nothing here may fail the install.
 #
 # WHY THE BOOT FILES COME OUT OF THE NEW ROOT AND NOT THE BUNDLE: grub-esp.efi and grub-<slot>.cfg
 # are boot software owned by the same build that ships /boot/vmlinuz.efi and /lib/modules/<ver> inside the
@@ -70,6 +72,12 @@ BOOTINFO=${BOOTINFO:-/run/retroforge/boot}
 # die() -- there is no other way in, and an assertion nothing can exercise is what put a dead `cmp`
 # in this file for three releases.
 SHA256=${SHA256:-sha256sum}
+# Step 5's view of the kernel: the mount table that maps the bundle mount point to a device, the
+# sysfs tree that walks that device down to its loop file, and the only tree a bundle is deleted
+# from. Seams so the offline suite can model a loop-backed bundle without a loop device.
+MOUNTINFO=${MOUNTINFO:-/proc/self/mountinfo}
+SYSDEVBLOCK=${SYSDEVBLOCK:-/sys/dev/block}
+BUNDLEHOME=${BUNDLEHOME:-/home}
 
 # The shared half of this hook. Everything a RAUC bundle does not carry has to be written twice --
 # once here and once by the internal installer, onto a disk with no retroforge on it -- and two copies
@@ -210,5 +218,62 @@ umount "$MNT"; trap - EXIT
 "$EDITENV" "$GRUBENV" set "ORDER=$target $booted" "${target}_OK=1" "${target}_TRY=0" \
   || die "cannot re-arm slot $target for its trial boot"
 sync
+
+# --- 5. delete the installed bundle -------------------------------------------------------------
+# A manual install is `scp bundle /home/ && rauc install /home/<bundle>`, and the multi-GB file is
+# dead weight once its slot is armed. The OTA path streams over NBD and leaves nothing on disk.
+#
+# RAUC DOES NOT TELL A HANDLER THE BUNDLE'S PATH, only RAUC_BUNDLE_MOUNT_POINT. So it is recovered
+# from the kernel: the mount point's device (major:minor in mountinfo) is dm-verity (format=verity)
+# or the loop device itself (format=plain), and dm-verity's single slave is the loop device whose
+# loop/backing_file is the bundle, opened by RAUC itself (mount.c r_setup_loop). A streamed bundle
+# bottoms out at an nbd device with no backing_file, and is skipped.
+#
+# WHAT GETS DELETED IS DELIBERATELY NARROW, because this runs as root on a path a session user can
+# choose (rauc's bus policy lets anyone install): a regular *.raucb file under /home, outside
+# /home/.retroforge, named by a path with no symlinks in it. Anything else -- a bundle on a USB
+# stick, RAUC's own /tmp download copy, a renamed file -- is left alone and says why.
+#
+# The loop device keeps the inode alive, so unlinking it while RAUC still has it mounted is safe;
+# the space comes back when RAUC unmounts the bundle after this hook returns. Never fatal: the slot
+# is armed, and a leftover file is not a failed install.
+installed_bundle() {
+  local mp=${RAUC_BUNDLE_MOUNT_POINT:-} majmin dev slaves depth
+  [ -n "$mp" ] || return 1
+  majmin=$(awk -v mp="$mp" '$5 == mp { m = $3 } END { if (m != "") print m }' "$MOUNTINFO" 2>/dev/null) || return 1
+  [ -n "$majmin" ] || return 1
+  dev="$SYSDEVBLOCK/$majmin"
+  for depth in 1 2 3 4; do
+    if [ -r "$dev/loop/backing_file" ]; then
+      cat "$dev/loop/backing_file"
+      return 0
+    fi
+    slaves=("$dev"/slaves/*)
+    [ "${#slaves[@]}" = 1 ] && [ -e "${slaves[0]}" ] || return 1
+    dev=${slaves[0]}
+  done
+  return 1
+}
+
+delete_installed_bundle() {
+  local bundle real
+  bundle=$(installed_bundle) || { log "no local bundle file behind this install -- nothing to delete"; return 0; }
+  case "$bundle" in
+    *" (deleted)") log "bundle $bundle is already gone"; return 0 ;;
+    "$BUNDLEHOME"/.retroforge/*) log "not deleting $bundle: it is under $BUNDLEHOME/.retroforge"; return 0 ;;
+    "$BUNDLEHOME"/*.raucb) ;;
+    *) log "not deleting $bundle: only a *.raucb under $BUNDLEHOME is removed after an install"; return 0 ;;
+  esac
+  [ -e "$bundle" ] || { log "bundle $bundle is already gone"; return 0; }
+  real=$(realpath -- "$bundle" 2>/dev/null) || { log "not deleting $bundle: cannot resolve its path"; return 0; }
+  [ "$real" = "$bundle" ] || { log "not deleting $bundle: its path now resolves to $real"; return 0; }
+  [ -f "$bundle" ] && [ ! -L "$bundle" ] || { log "not deleting $bundle: not a regular file"; return 0; }
+  if rm -f -- "$bundle"; then
+    log "deleted the installed bundle $bundle"
+  else
+    log "WARNING: could not delete the installed bundle $bundle"
+  fi
+}
+delete_installed_bundle || true
 
 log "slot $target re-armed for a trial boot; reboot to try it"

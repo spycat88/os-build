@@ -251,6 +251,7 @@ run() { # [KEY=VAL ...]  -- leading assignments are passed to the hook, as in te
   OUT=$(env PATH="$SB/bin:$PATH" SB="$SB" \
             ESP="$SB/esp" EFI="$SB/efi" MNT="$SB/mnt" EFIMNT="$SB/efimnt" VAR="$SB/var" \
             DEVDIR="$SB/dev" DEVTEST=-e EDITENV="$SB/bin/grub-editenv" BOOTINFO="$SB/run/boot" \
+            MOUNTINFO="$SB/mountinfo" SYSDEVBLOCK="$SB/sys" BUNDLEHOME="$SB/home" \
             "${env_extra[@]}" bash "$HOOK" 2>&1)
   RC=$?
   return 0
@@ -845,6 +846,108 @@ expect_call 'set ORDER=B A B_OK=1 B_TRY=0'   # asked for, and refused
 expect_env B_OK 0
 expect_env B_TRY 0
 expect_hasnt 're-armed for a trial boot'
+done_
+
+echo "== step 5: the local bundle this install came from is deleted, and nothing else =="
+
+# The kernel's view of a bundle mount, as step 5 reads it: one mountinfo line for RAUC's mount point
+# naming a device by major:minor, and that device in a fake /sys/dev/block. `verity` puts dm-verity
+# on top of the loop (format=verity, what we ship); `plain` mounts the loop itself; `nbd` is a
+# streamed OTA, whose bottom device has no backing file. RAUC_BUNDLE_MOUNT_POINT is what RAUC
+# exports to every handler.
+BMP=/run/rauc/bundle
+bundle_mount() {  # <verity|plain|nbd> [backing file]
+  local top=253:3
+  [ "$1" = plain ] && top=7:7
+  printf '36 25 %s / %s ro,nodev - squashfs /dev/whatever ro\n' "$top" "$BMP" >"$SB/mountinfo"
+  case "$1" in
+    verity) mkdir -p "$SB/sys/253:3/slaves/loop7/loop"
+            printf '%s\n' "$2" >"$SB/sys/253:3/slaves/loop7/loop/backing_file" ;;
+    plain)  mkdir -p "$SB/sys/7:7/loop"
+            printf '%s\n' "$2" >"$SB/sys/7:7/loop/backing_file" ;;
+    nbd)    mkdir -p "$SB/sys/253:3/slaves/nbd0" ;;
+  esac
+}
+new_bundle() {  # <path under $SB/home>
+  mkdir -p "$(dirname "$SB/home/$1")"
+  printf 'bundle\n' >"$SB/home/$1"
+  printf '%s' "$SB/home/$1"
+}
+expect_gone() { [ -e "$1" ] && bad "still there: ${1#"$SB/"}" || ok "deleted: ${1#"$SB/"}"; }
+expect_kept() { [ -f "$1" ] && ok "kept: ${1#"$SB/"}" || bad "deleted, must be kept: ${1#"$SB/"}"; }
+
+t "a-verity-bundle-under-home-is-deleted-after-the-re-arm"
+b=$(new_bundle retroforge-1.raucb); bundle_mount verity "$b"
+run RAUC_BUNDLE_MOUNT_POINT=$BMP
+expect_rc 0
+expect_gone "$b"
+expect_has "deleted the installed bundle $b"
+expect_env B_OK 1
+expect_said_order 'deleted the installed bundle' 're-armed for a trial boot'
+done_
+
+t "a-plain-bundle-under-home-is-deleted"
+b=$(new_bundle player/Downloads/retroforge-2.raucb); bundle_mount plain "$b"
+run RAUC_BUNDLE_MOUNT_POINT=$BMP
+expect_rc 0
+expect_gone "$b"
+done_
+
+t "a-streamed-ota-deletes-nothing"
+b=$(new_bundle retroforge-3.raucb); bundle_mount nbd
+run RAUC_BUNDLE_MOUNT_POINT=$BMP
+expect_rc 0
+expect_kept "$b"
+expect_has "no local bundle file behind this install"
+done_
+
+t "no-mount-point-from-rauc-deletes-nothing"
+b=$(new_bundle retroforge-4.raucb); bundle_mount verity "$b"
+run
+expect_rc 0
+expect_kept "$b"
+done_
+
+t "a-bundle-outside-home-is-kept"
+mkdir -p "$SB/media"; printf 'bundle\n' >"$SB/media/retroforge-5.raucb"
+bundle_mount verity "$SB/media/retroforge-5.raucb"
+run RAUC_BUNDLE_MOUNT_POINT=$BMP
+expect_rc 0
+expect_kept "$SB/media/retroforge-5.raucb"
+expect_has "only a *.raucb under"
+done_
+
+t "a-file-not-named-raucb-is-kept"
+b=$(new_bundle retroforge-6.img); bundle_mount verity "$b"
+run RAUC_BUNDLE_MOUNT_POINT=$BMP
+expect_rc 0
+expect_kept "$b"
+done_
+
+t "nothing-under-home-retroforge-is-touched"
+b=$(new_bundle .retroforge/rauc/x.raucb); bundle_mount verity "$b"
+run RAUC_BUNDLE_MOUNT_POINT=$BMP
+expect_rc 0
+expect_kept "$b"
+done_
+
+t "a-path-that-now-goes-through-a-symlink-is-kept"
+# The loop recorded the path at open time; if a directory in it has since become a symlink, the
+# same string names a different file, and that is not the file that was installed.
+mkdir -p "$SB/elsewhere"; printf 'bundle\n' >"$SB/elsewhere/retroforge-7.raucb"
+mkdir -p "$SB/home"; ln -s "$SB/elsewhere" "$SB/home/link"
+bundle_mount verity "$SB/home/link/retroforge-7.raucb"
+run RAUC_BUNDLE_MOUNT_POINT=$BMP
+expect_rc 0
+expect_kept "$SB/elsewhere/retroforge-7.raucb"
+done_
+
+t "a-failed-install-keeps-the-bundle"
+b=$(new_bundle retroforge-8.raucb); bundle_mount verity "$b"
+: >"$SB/fail-rearm"
+run RAUC_BUNDLE_MOUNT_POINT=$BMP
+expect_rc 1
+expect_kept "$b"
 done_
 
 # --- summary ------------------------------------------------------------------------------------
