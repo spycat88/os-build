@@ -1,0 +1,32 @@
+// Let player (wheel) reboot / power off / suspend from an SSH login, not only from the seat session.
+//
+// Stock logind policy only allows these for an ACTIVE local session (allow_active=yes). An ssh login
+// is a remote, inactive session, so `reboot` as player falls through to auth_admin_keep and fails with
+// "interactive authentication has not been enabled" — and there is no password to give it anyway
+// (no sudo, root locked). The *-multiple-sessions variants matter too: the seat0 shell session is
+// always logged in alongside the ssh one, so systemd asks for those even from the seat.
+//
+// Gated on wheel only, deliberately NOT on subject.active/local: reaching the box over ssh as player
+// already needs a key in player's authorized_keys, and restarting the device is far less than what
+// that login can already do. *-ignore-inhibit is included so `systemctl reboot -i` works when a hung
+// session process is holding a shutdown inhibitor.
+polkit.addRule(function(action, subject) {
+    if (!subject.isInGroup("wheel"))
+        return polkit.Result.NOT_HANDLED;
+    switch (action.id) {
+    case "org.freedesktop.login1.reboot":
+    case "org.freedesktop.login1.reboot-multiple-sessions":
+    case "org.freedesktop.login1.reboot-ignore-inhibit":
+    case "org.freedesktop.login1.power-off":
+    case "org.freedesktop.login1.power-off-multiple-sessions":
+    case "org.freedesktop.login1.power-off-ignore-inhibit":
+    case "org.freedesktop.login1.halt":
+    case "org.freedesktop.login1.halt-multiple-sessions":
+    case "org.freedesktop.login1.halt-ignore-inhibit":
+    case "org.freedesktop.login1.suspend":
+    case "org.freedesktop.login1.suspend-multiple-sessions":
+    case "org.freedesktop.login1.suspend-ignore-inhibit":
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

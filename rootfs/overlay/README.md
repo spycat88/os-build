@@ -46,7 +46,8 @@ drops udev's want for the masked socket.
 `usr/bin/retroforge-update` is the OS update client (RAUC), including its channel picker
 (`channels` / `set-channel`); `usr/bin/retroforge-format-sdcard` / `retroforge-format-device` pkexec into
 `usr/lib/retroforge/storage/format-device.sh`. `50-retroforge-timezone.rules` is the one polkit grant
-stock polkit still prompts for.
+stock polkit still prompts for in the seat session; `50-retroforge-power.rules` lets wheel (player)
+reboot, power off and suspend from an ssh login too, where stock logind policy wants a password.
 
 **Audio — ALSA UCM2 machine profiles**
 `usr/share/alsa/ucm2/Qualcomm/sm8{250,550,650}/<CARD>/` profiles, card-name-matched via relative
