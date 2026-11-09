@@ -4,7 +4,9 @@ AGREED 2026-11-04, branch feat/installer-on-card.
 
 ## Decisions
 - D1 The OS still comes from the latest OTA: bundle resolved from the channel, verified before
-  consent, streamed by RAUC. No slot copy.
+  consent, streamed by RAUC. No slot copy. EXCEPT a dev image (2026-11-09): it copies its own
+  running root, since the dev channel usually has nothing published and the build in hand is the
+  one being tested (release-info `running:<dev>`, retroforge-install verify_running_root).
 - D2 The installer keeps its own UI (pygame) in its own session. Not rebuilt in the plugin.
 - D3 Entry: Settings > General, directly below Updates, shown only when booted from a card.
 - installer/ stays the source directory; files ship via installer/shipped-files, as genpart.sh does.

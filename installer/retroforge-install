@@ -3,6 +3,16 @@
 #
 #   retroforge-install --bundle <url> [--disk <dev>] [--userdata-gib N]
 #                    [--intent fresh|reinstall] [--erase-home]
+#   retroforge-install --bundle running:<root-dev> ...
+#
+# THE SOURCE IS A BUNDLE, OR THE RUNNING ROOT. `running:<dev>` is what installer/release-info
+# answers on a dev image: the root slot this card booted from is copied byte for byte into root-a
+# instead of a bundle being streamed, and then the SAME handler a bundle install runs
+# (post-install-fresh.sh) re-randomises its fsid and seeds var-a. A dev card's channel usually has
+# nothing published, and what a person testing one wants on internal storage is the build in their
+# hand. It is the running system, so there is no signature to check: it is exactly as trusted as
+# the code doing the copying. verify_sources() checks instead that the device really is the
+# mounted root and that it fits the slot.
 #
 # Installs RetroForge onto a device's INTERNAL storage, from a running card whose slots are not the
 # ones being built, beside an Android that stays bootable. It is the ordered list of steps and
@@ -108,6 +118,13 @@ SESSION=${RETROFORGE_RAUC_SESSION:-$(find_component rauc-session.sh install || t
 HOMESTAGE=${RETROFORGE_HOMESTAGE:-$(find_component lib-homestage.sh images || true)}
 SLOTWRITE=${RETROFORGE_SLOTWRITE:-$(find_component lib-slotwrite.sh \
             rootfs/overlay/usr/lib/retroforge/install || true)}
+# The running-root source only: the handler rauc-session.sh names for a bundle, run here directly,
+# and the table the slot size comes from.
+POST_INSTALL=${POST_INSTALL:-$(find_component post-install-fresh.sh install || true)}
+PARTTABLE=${RETROFORGE_PARTITION_TABLE:-$(find_component partition-table.txt image || true)}
+# Where the running root is mounted, and the mount table that says from what. Seams for the suite.
+RUNNING_MNT=${RETROFORGE_RUNNING_MNT:-/}
+MOUNTINFO=${RETROFORGE_MOUNTINFO:-/proc/self/mountinfo}
 
 # --- arguments -----------------------------------------------------------------------------------
 usage() {
@@ -132,6 +149,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$BUNDLE" ] || die "no --bundle given"
+
+# running:<dev> -- copy the root this system booted from (see the header). SOURCE_ROOT is set only
+# for that source; every bundle-only step tests it.
+SOURCE_ROOT=""
+case "$BUNDLE" in
+  running:*)
+    SOURCE_ROOT="${BUNDLE#running:}"
+    [ -n "$SOURCE_ROOT" ] || die "--bundle running: names no device"
+    ;;
+esac
 
 # THE INTENT IS THE USER'S AND IT IS AN ARGUMENT, never read off the disk -- carve.sh's header makes
 # the same point and it is the same reason: the disk only distinguishes "ours" from "not ours", and
@@ -201,6 +228,12 @@ recon() {
   for c in "$SELECT" "$CARVE" "$SESSION"; do
     [ -n "$c" ] && [ -x "$c" ] || die "cannot find an executable component (looked for select-target.sh, carve.sh, rauc-session.sh)"
   done
+  if [ -n "$SOURCE_ROOT" ]; then
+    command -v dd >/dev/null 2>&1 || die "this image is missing: dd"
+    [ -n "$POST_INSTALL" ] && [ -x "$POST_INSTALL" ] \
+      || die "cannot find post-install-fresh.sh -- the copied root would keep the card's fsid and get no /var"
+    [ -n "$PARTTABLE" ] && [ -r "$PARTTABLE" ] || die "cannot find partition-table.txt -- the root slot's size is unknown"
+  fi
   for c in "$SLOTWRITE" "$HOMESTAGE"; do
     [ -n "$c" ] && [ -r "$c" ] || die "cannot find lib-slotwrite.sh / lib-homestage.sh"
   done
@@ -344,9 +377,59 @@ open_install_record() {
 # synthesized config IS the mechanism of the install (bundle-formats, the keyring path,
 # check-purpose), so a verify under a config of its own would be checking something other than what
 # the install will do, and would be a second copy of that config waiting to drift.
+# The running root: no signature (see the header), so what is checked is that this is the root, and
+# that it fits. Both BEFORE the carve, for the same reason the bundle is verified here.
+SOURCE_BYTES=""
+mounted_root_source() {  # the device $RUNNING_MNT is mounted from, per the mount table; the last wins
+  awk -v m="$RUNNING_MNT" '{ for (i = 1; i <= NF; i++) if ($i == "-") break; if ($5 == m) s = $(i + 2) }
+                           END { print s }' "$MOUNTINFO"
+}
+
+size_bytes() {  # 2G / 256M / 512K -> bytes
+  local n="${1%[KMGTkmgt]}" u="${1: -1}"
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
+  case "$u" in
+    K|k) echo $(( n << 10 )) ;; M|m) echo $(( n << 20 )) ;;
+    G|g) echo $(( n << 30 )) ;; T|t) echo $(( n << 40 )) ;;
+    *) return 1 ;;
+  esac
+}
+
+verify_running_root() {
+  local src mounted type slot
+  # shellcheck disable=SC2086  # DEVTEST is a predicate, not a path
+  [ $DEVTEST "$SOURCE_ROOT" ] || die "$SOURCE_ROOT is not a block device"
+  mounted="$(mounted_root_source)"
+  [ -n "$mounted" ] || die "cannot tell what $RUNNING_MNT is mounted from"
+  src="$(readlink -f "$SOURCE_ROOT")"
+  [ "$src" = "$(readlink -f "$mounted")" ] \
+    || die "$SOURCE_ROOT is not the running root ($RUNNING_MNT is mounted from $mounted) -- refusing to copy it"
+  case "$src" in
+    "$(readlink -f "$DISK")"*) die "$SOURCE_ROOT is on the target disk $DISK -- refusing to copy a disk onto itself" ;;
+  esac
+  type="$(blkid -o value -s TYPE "$src" 2>/dev/null || true)"
+  [ "$type" = btrfs ] || die "$src holds ${type:-no filesystem}, not a btrfs root -- refusing to copy it"
+
+  # The FILESYSTEM's size, not the partition's: a card's slot may be larger than the image in it
+  # (4G slots from before 2026-10-03) and only the image has to fit root-a.
+  SOURCE_BYTES="$(btrfs inspect-internal dump-super "$src" 2>/dev/null \
+                  | awk '$1 == "dev_item.total_bytes" { print $2; exit }')"
+  case "$SOURCE_BYTES" in ''|*[!0-9]*|0) die "cannot read the size of the btrfs on $src" ;; esac
+  slot="$(awk '$1 == "rootfs-a" { print $2; exit }' "$PARTTABLE")"
+  slot="$(size_bytes "$slot")" || die "partition-table.txt gives rootfs-a no usable size"
+  [ "$SOURCE_BYTES" -le "$slot" ] \
+    || die "the running root is $SOURCE_BYTES bytes and root-a is $slot -- it does not fit"
+  log "running root $src: btrfs, $SOURCE_BYTES bytes, fits root-a ($slot)"
+  record "source: running root $src ($SOURCE_BYTES bytes)"
+}
+
 verify_sources() {
   step "verify sources"
 
+  if [ -n "$SOURCE_ROOT" ]; then
+    verify_running_root
+    return 0
+  fi
   "$SESSION" --info "$BUNDLE" || die "the bundle did not verify -- refusing to touch the disk"
   log "bundle verified against $KEYRING"
   record "bundle: $BUNDLE (verified)"
@@ -608,10 +691,35 @@ make_filesystems() {
 # config declares exactly one slot and it is the root.
 install_root() {
   step "root slot"
+  if [ -n "$SOURCE_ROOT" ]; then
+    copy_running_root
+    return 0
+  fi
   RETROFORGE_TARGET_VAR_A="${DEV[retroforge-var-A]}" \
     "$SESSION" "${DEV[retroforge-root-A]}" "$BUNDLE" \
     || die "the root slot was not installed"
   record "root-a: installed from $BUNDLE"
+}
+
+# The running-root source. The copy is the filesystem's bytes and no more, then the handler a bundle
+# install runs, given what rauc would have given it: one target slot and its device. It re-randomises
+# the fsid BEFORE anything mounts the copy -- until then it carries the running root's fsid, and the
+# kernel refuses a second device with a mounted filesystem's fsid and devid rather than switching to
+# it, so a udev scan of the fresh partition cannot steal the running root.
+copy_running_root() {
+  local dst="${DEV[retroforge-root-A]}" have=""
+  have="$(blockdev --getsize64 "$dst" 2>/dev/null || true)"
+  if [ -n "$have" ] && [ "$have" -lt "$SOURCE_BYTES" ]; then
+    die "root-a ($dst) is $have bytes, smaller than the running root's $SOURCE_BYTES"
+  fi
+  log "copying the running root $SOURCE_ROOT ($SOURCE_BYTES bytes) into $dst"
+  dd if="$SOURCE_ROOT" of="$dst" bs=4M count="$SOURCE_BYTES" iflag=count_bytes conv=fsync status=none \
+    || die "copying the running root into $dst failed"
+  RAUC_TARGET_SLOTS=1 RAUC_SLOT_DEVICE_1="$dst" \
+  RETROFORGE_TARGET_VAR_A="${DEV[retroforge-var-A]}" \
+    "$POST_INSTALL" \
+    || die "the copied root slot could not be finished"
+  record "root-a: copied from the running root $SOURCE_ROOT"
 }
 
 # =================================================================================================

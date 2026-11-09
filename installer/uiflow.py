@@ -33,6 +33,9 @@ VERIFY_INSTALL = os.environ.get(
 # installer/release-info, so any card installs the current release. /home needs nothing from
 # anywhere: the spine stages an empty player home exactly as the card does.
 #
+# On a dev image release-info answers `running:<root device>` instead of a URL: the spine copies the
+# running root rather than streaming a bundle. Nothing here needs to know; it is passed through.
+#
 # The bundle remains overridable, for a dev run (docs/install-internal.md) and for the suite.
 RELEASE_INFO = os.environ.get("RETROFORGE_RELEASE_INFO", "/usr/lib/retroforge/install/release-info")
 BUNDLE = os.environ.get("RETROFORGE_INSTALL_BUNDLE", "")

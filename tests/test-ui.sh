@@ -610,6 +610,8 @@ relinfo() {  # prints release-info's key=value output
   PATH="$T/bin:$PATH" NET_CURL_CALLS="$REL_CALLS" \
     RETROFORGE_OTA_URL="${REL_URL-https://ota.example}" \
     RETROFORGE_OTA_CONFIG="${REL_CONF-/dev/null}" \
+    RETROFORGE_RELEASE_FILE="${REL_RELEASE-/dev/null}" \
+    RETROFORGE_MOUNTINFO="${REL_MOUNTINFO-/dev/null}" \
     "$RELINFO" 2>/dev/null
 }
 MANIFEST='{"version":"0.2.0","build":"20260825","bundle":"retroforge-0.2.0.raucb","size":4294967296,"sha256":"deadbeef"}'
@@ -629,6 +631,33 @@ printf '%s' "$out" | grep -q '^SEED=' \
 printf '%s' "$out" | grep -q '^DETAIL=RetroForge 0.2.0, 4.0 GiB from ota.example' \
   && ok "one line for the panel: the version, the download size and the host it comes from" \
   || bad "the detail line is not what the screen puts under 'To install': $out"
+
+CASE="release-info: a dev image installs the root it is running from"
+printf 'RETROFORGE_BUILD=20261109T120000Z\nRETROFORGE_VERSION=dev\nRETROFORGE_MODE=dev\n' >"$T/rel/dev-release"
+printf '%s\n' \
+  '22 1 0:20 / / ro,relatime shared:1 - tmpfs tmpfs rw' \
+  '30 1 0:31 / / ro,relatime shared:2 - btrfs /dev/mmcblk0p4 ro,compress=zstd' \
+  '31 30 0:32 / /var rw shared:3 - ext4 /dev/mmcblk0p6 rw' >"$T/rel/mountinfo"
+out="$(REL_RELEASE="$T/rel/dev-release" REL_MOUNTINFO="$T/rel/mountinfo" NET_HOST_RC=22 relinfo)"
+[ "$(state "$out")" = ok ] \
+  && ok "an empty dev channel does not stop a dev image: STATE=ok" \
+  || bad "a dev image was refused: $out"
+printf '%s' "$out" | grep -qx 'BUNDLE=running:/dev/mmcblk0p4' \
+  && ok "the source is the device / is mounted from, the last mount of / winning" \
+  || bad "the running root is not the source: $out"
+printf '%s' "$out" | grep -qx 'SOURCE=running' && printf '%s' "$out" | grep -qx 'BUILD=20261109T120000Z' \
+  && ok "and it says so, by build" || bad "SOURCE/BUILD missing: $out"
+[ ! -s "$REL_CALLS" ] \
+  && ok "the update server is not asked at all" || bad "a dev image still fetched: $(cat "$REL_CALLS")"
+out="$(REL_RELEASE="$T/rel/dev-release" REL_MOUNTINFO=/dev/null relinfo)"
+[ "$(state "$out")" = malformed ] \
+  && ok "a dev image whose root cannot be found says so, and offers nothing" \
+  || bad "an unknown running root was offered: $out"
+printf 'RETROFORGE_MODE=release\n' >"$T/rel/rel-release"
+out="$(REL_RELEASE="$T/rel/rel-release" REL_MOUNTINFO="$T/rel/mountinfo" NET_CURL_BODY="$MANIFEST" relinfo)"
+printf '%s' "$out" | grep -qx 'BUNDLE=https://ota.example/stable/retroforge-0.2.0.raucb' \
+  && ok "a release image still installs the channel's release" \
+  || bad "a release image did not resolve the channel: $out"
 
 CASE="release-info: a channel with nothing published is not an unreachable server"
 out="$(NET_HOST_RC=22 relinfo)"

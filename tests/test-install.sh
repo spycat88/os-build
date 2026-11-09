@@ -1583,6 +1583,68 @@ sp_before 'refresh esp/dtbs/qcom/' 'refresh esp/EFI/BOOT/bootaa64.efi' \
   || bad "bootaa64.efi was written before the DTBs (or they never were)"
 
 # --- which grub-editenv --------------------------------------------------------------------------
+CASE="spine: a dev image installs the root it is running from"
+# --bundle running:<dev> is release-info's answer on a dev image. No rauc at all: the root is copied
+# byte for byte, up to the FILESYSTEM's size, and finished by the handler a bundle install runs.
+run_running() {
+  POST_INSTALL="$SP/post-install-fresh.sh" RETROFORGE_MOUNTINFO="$SP/mountinfo" \
+    SP_SRC_BYTES="${SP_SRC_BYTES:-1073741824}" spine_run --bundle "running:$1"
+}
+running_stubs() {  # <mounted-root-source>
+  : >"$SP/srcroot"
+  printf '%s\n' "30 1 0:31 / / ro,relatime shared:2 - btrfs $1 ro" >"$SP/mountinfo"
+  cat >"$SP_STUBS/blkid" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "blkid $*" >>"$SP_CALLS"
+case "$*" in *srcroot*) echo btrfs ;; *) [ -n "${SP_HOME_FSTYPE:-}" ] || exit 2; echo "$SP_HOME_FSTYPE" ;; esac
+EOF
+  cat >"$SP_STUBS/btrfs" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "btrfs $*" >>"$SP_CALLS"
+[ "${1:-} ${2:-}" = "inspect-internal dump-super" ] && printf 'dev_item.total_bytes\t%s\n' "$SP_SRC_BYTES"
+exit 0
+EOF
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "dd $*" >>"$SP_CALLS"\n' >"$SP_STUBS/dd"
+  cat >"$SP/post-install-fresh.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "post-install-fresh slots=$RAUC_TARGET_SLOTS dev=$RAUC_SLOT_DEVICE_1 var=$RETROFORGE_TARGET_VAR_A" >>"$SP_CALLS"
+EOF
+  chmod +x "$SP_STUBS"/* "$SP/post-install-fresh.sh"
+}
+
+spine_dir running
+running_stubs "$SP/srcroot"
+out="$(run_running "$SP/srcroot")" && ok "exits 0" || bad "failed: $out"
+grep -q 'rauc-session' "$SP/calls" \
+  && bad "rauc was asked to verify or stream a bundle: $(grep rauc-session "$SP/calls")" \
+  || ok "no bundle is verified or streamed"
+grep -q "^dd if=$SP/srcroot of=$SP_PART/aaaaaaaa-bbbb-cccc-dddd-000000000009 .*count=1073741824 iflag=count_bytes" "$SP/calls" \
+  && ok "the running root is copied into root-a, the filesystem's bytes and no more" \
+  || bad "the copy is wrong: $(grep '^dd' "$SP/calls")"
+grep -q "^post-install-fresh slots=1 dev=$SP_PART/aaaaaaaa-bbbb-cccc-dddd-000000000009 var=$SP_PART/aaaaaaaa-bbbb-cccc-dddd-000000000011" "$SP/calls" \
+  && ok "and finished by the bundle path's own handler: fsid re-randomised, var-a seeded" \
+  || bad "the handler did not run on root-a/var-a: $(grep post-install "$SP/calls")"
+sp_before 'btrfs inspect-internal dump-super' 'carve.sh fresh' && sp_before 'confirm ' 'dd if=' \
+  && sp_before 'dd if=' 'post-install-fresh' \
+  && ok "measured before the carve, copied after consent, finished after the copy" \
+  || bad "the running-root steps are out of order"
+
+spine_dir running_other
+running_stubs "$SP/elsewhere"; : >"$SP/elsewhere"
+out="$(run_running "$SP/srcroot")" \
+  && bad "a device that is not the mounted root was copied" \
+  || { printf '%s' "$out" | grep -q "is not the running root" && ! carve_wrote \
+         && ok "a device that is not the mounted root is refused, before the carve" \
+         || bad "refused for the wrong reason, or after the carve: $out"; }
+
+spine_dir running_big
+running_stubs "$SP/srcroot"
+out="$(SP_SRC_BYTES=$(( 3 << 30 )) run_running "$SP/srcroot")" \
+  && bad "a root larger than root-a was copied" \
+  || { printf '%s' "$out" | grep -q "does not fit" && ! carve_wrote \
+         && ok "a root that does not fit root-a is refused, before the carve" \
+         || bad "refused for the wrong reason, or after the carve: $out"; }
+
 CASE="spine: with no grub-editenv in the root, the installer image's is the fallback"
 spine_dir editenv_path
 rm -f "$SP_RUN/root-a/usr/bin/grub-editenv"

@@ -556,7 +556,7 @@ cmp -s "$STAGE/usr/lib/retroforge/install/lib-homestage.sh" "$ROOT/image/lib-hom
 [ "$(readlink "$STAGE/usr/lib/retroforge/install/confirm" 2>/dev/null)" = confirm-ui ] \
   || bad "/usr/lib/retroforge/install/confirm does not point at confirm-ui — an installer that cannot take consent cannot install"
 # tests/test-installer-shipped.sh keeps this list a superset of what recon() and the components call.
-INSTALLER_TOOLS="sgdisk sfdisk mdir sha256sum mkfs.vfat mkfs.ext4 mkfs.btrfs btrfstune btrfs blkid mount umount tar rauc dbus-daemon gdbus partprobe udevadm curl gamescope seatd-launch python3 zstd grub-editenv pgrep"
+INSTALLER_TOOLS="sgdisk sfdisk mdir sha256sum dd mkfs.vfat mkfs.ext4 mkfs.btrfs btrfstune btrfs blkid mount umount tar rauc dbus-daemon gdbus partprobe udevadm curl gamescope seatd-launch python3 zstd grub-editenv pgrep"
 # -L as well: a link with an absolute target does not resolve inside a staged tree.
 missing_tools=""
 for t in $INSTALLER_TOOLS; do

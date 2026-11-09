@@ -390,6 +390,10 @@ func test_internal_install() -> void:
 	check("confirmation: names the version", InternalInstall.confirmation(ok).contains("0.0.6"), true)
 	check("confirmation: says it closes the session and erases nothing yet",
 		[InternalInstall.confirmation(ok).contains("closes RetroForge"), InternalInstall.confirmation(ok).contains("Nothing is erased")], [true, true])
+	var dev := InternalInstall.parse_release("CHANNEL=dev\nSOURCE=running\nSTATE=ok\nVERSION=dev\nBUILD=20261109T120000Z\nBUNDLE=running:/dev/mmcblk0p4\n")
+	check("release: a dev image's running root can be installed", InternalInstall.can_install(dev), true)
+	check("confirmation: a dev image says it installs itself, by build",
+		[InternalInstall.confirmation(dev).contains("this running"), InternalInstall.confirmation(dev).contains("20261109T120000Z")], [true, true])
 	check("refusal: the channel with nothing in it is named", InternalInstall.refusal({"STATE": "no-release", "CHANNEL": "beta"}).contains("beta"), true)
 	check("refusal: unreachable points at the network", InternalInstall.refusal({"STATE": "unreachable"}).contains("Wi-Fi"), true)
 	check("refusal: nothing from the tool still says something", InternalInstall.refusal({}) != "", true)

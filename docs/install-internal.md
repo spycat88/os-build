@@ -124,8 +124,16 @@ every tool the install path calls. `tests/test-installer-shipped.sh` checks the 
 
 ## Testing it on a dev card
 
-A dev card pins `OTA_CHANNEL=dev`, so it installs from the `dev` channel, and only if something is
-published there. To test a local bundle, serve it (rauc streams it over NBD and needs `Range`, so
+A dev image (`RETROFORGE_MODE=dev` in `/etc/retroforge-release`) installs **itself**: it does not ask
+the update server. `release-info` answers with the root the card booted from
+(`BUNDLE=running:<device>`), and `retroforge-install` copies that slot into root-a byte for byte, up to
+the filesystem's size, then runs the same handler a bundle install does (`post-install-fresh.sh`
+re-randomises the fsid and seeds var-a). Before the carve it checks that the device is the mounted
+root, holds btrfs, and fits root-a. Only the OS slot is copied: `/home` is staged empty and `/var`
+comes from the image's seed, exactly as with a bundle. The dev keyring and the `dev` channel pin
+come along, so the installed device takes later dev bundles as updates.
+
+To test a bundle instead, serve it (rauc streams it over NBD and needs `Range`, so
 nginx, not `python3 -m http.server`) and name it to the unit:
 
 ```bash

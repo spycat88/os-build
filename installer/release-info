@@ -3,6 +3,13 @@
 #
 #   release-info          resolve <OTA_URL>/<channel>/latest.json and print key=value
 #
+# A DEV IMAGE INSTALLS ITSELF. On an image whose /etc/retroforge-release says RETROFORGE_MODE=dev,
+# this does not ask the server at all: it answers with the root this system booted from, as
+# BUNDLE=running:<device>, and retroforge-install copies that slot instead of streaming a bundle. A
+# dev card is pinned to the `dev` channel, which usually has nothing published, and even when it
+# has, what a person testing a dev card wants on internal storage is the build they are holding --
+# not whatever was last pushed to a channel.
+#
 # IT EMITS key=value AND NO PROSE: the words belong to whatever is drawing the screen, the facts belong
 # here. installer/uiflow turns STATE= into a sentence, and the Settings row reads the same line. It
 # always exits 0 -- a failure is itself an answer, and STATE is where the answer lives.
@@ -42,6 +49,10 @@ USER_CONFIG_FILE = os.environ.get(
     "RETROFORGE_OTA_USER_CONFIG", "/home/player/.config/retroforge/ota.conf"
 )
 CURL = os.environ.get("RETROFORGE_CURL", "curl")
+# What this image calls itself (rootfs/assemble-rootfs.sh writes it), and where the mount table is
+# read to find the root it booted from. Both are seams for tests/test-ui.sh.
+RELEASE_FILE = os.environ.get("RETROFORGE_RELEASE_FILE", "/etc/retroforge-release")
+MOUNTINFO = os.environ.get("RETROFORGE_MOUNTINFO", "/proc/self/mountinfo")
 TIMEOUT = os.environ.get("RETROFORGE_NET_TIMEOUT", "20")
 # The server this fetches from, resolved as retroforge-update resolves it. The literals are written a
 # second time here because the two files share no code; tests/test-ui.sh asserts they agree.
@@ -173,12 +184,66 @@ def gib(n):
     return "%.1f" % (n / float(1 << 30))
 
 
+def running_root():
+    """
+    The block device / is mounted from, or "" if it cannot be told.
+
+    Read from mountinfo, not from root= on the cmdline: that may be PARTLABEL=retroforge-root-A, which
+    names the card AND an earlier internal install alike. The mount table names the node the root
+    was actually opened from. The LAST entry for / wins, as it does in the kernel. This runs as
+    `player` from the Settings row, so it reads nothing that needs root; retroforge-install checks
+    the answer again, as root, before it copies a byte.
+    """
+    source = ""
+    try:
+        with open(MOUNTINFO, "r") as handle:
+            for line in handle:
+                pre, sep, post = line.partition(" - ")
+                fields = pre.split()
+                if not sep or len(fields) < 5 or fields[4] != "/":
+                    continue
+                tail = post.split()
+                if len(tail) >= 2:
+                    source = tail[1]
+    except OSError:
+        return ""
+    return source if source.startswith("/dev/") else ""
+
+
+def emit_running():
+    """The dev-image answer: install the root this system is running from."""
+    rel = read_env_file(RELEASE_FILE)
+    version = rel.get("RETROFORGE_VERSION", "") or "dev"
+    build = rel.get("RETROFORGE_BUILD", "")
+    emit("SOURCE", "running")
+    root = running_root()
+    if not root:
+        emit("STATE", "malformed")
+        emit("DETAIL", "this is a dev image, but the device its root is mounted from cannot be found")
+        return 0
+    emit("STATE", "ok")
+    emit("VERSION", version)
+    if build:
+        emit("BUILD", build)
+    try:
+        st = os.statvfs("/")
+        emit("SIZE", st.f_blocks * st.f_frsize)
+    except OSError:
+        pass
+    emit("BUNDLE", "running:%s" % root)
+    emit("DETAIL", "This running RetroForge %s image%s, copied from %s"
+         % (version, (" (build %s)" % build) if build else "", root))
+    return 0
+
+
 def main():
     base, channel = config()
 
     url = "%s/%s/latest.json" % (base, channel)
     emit("URL", url)
     emit("CHANNEL", channel)
+    if read_env_file(RELEASE_FILE).get("RETROFORGE_MODE", "") == "dev":
+        return emit_running()
     rc, raw = fetch(url)
     if rc == 22:
         emit("STATE", "no-release")
