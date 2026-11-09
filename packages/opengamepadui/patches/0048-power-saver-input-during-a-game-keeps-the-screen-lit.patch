@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: retroforge <retroforge@invalid>
+Date: Mon, 9 Nov 2026 01:00:00 +0000
+Subject: [PATCH] fix(PowerSaver): input during a game keeps the screen lit
+
+The screen dimmed after the inactivity timeout while a game was being
+played. PowerSaver restarts its dim and suspend timers from _input(),
+but InputManager is a later sibling in card_ui.tscn, so its _input()
+runs first, and while InputPlumber is running it marks every Godot
+joypad event as handled. In the menu that does not matter: InputPlumber
+sends the input over DBus as UI actions, which pass through. In a game
+the game's profile sends the gamepad to its virtual controller instead,
+so the only events OpenGamepadUI sees are those joypad events, and none
+of them reached PowerSaver.
+
+PowerSaver now watches the window's window_input signal, which is
+emitted for every event before any node can handle it. A stick resting
+near its centre (below 0.2) does not count as activity, so a drifting
+stick does not keep the screen lit.
+
+---
+diff --git a/core/systems/power/power_saver.gd b/core/systems/power/power_saver.gd
+index 0557a12..3b5635a 100644
+--- a/core/systems/power/power_saver.gd
++++ b/core/systems/power/power_saver.gd
+@@ -36,6 +36,13 @@ var logger := Log.get_logger("PowerSaver")
+ 
+ func _ready() -> void:
+ 	gamescope_timer.timeout.connect(_on_gamescope_check_timeout)
++	# Watch the window's input rather than implement _input(): InputManager comes
++	# later in the scene, so its _input() runs first and marks every Godot joypad
++	# event as handled while InputPlumber is running. In a game those are the only
++	# events that arrive (the game's profile sends nothing over DBus), so the timer
++	# never restarted and the screen dimmed while the player was playing.
++	# window_input is emitted for every event before any node handles it.
++	get_window().window_input.connect(_on_window_input)
+ 	if display_device:
+ 		has_battery = display_device.is_present
+ 	
+@@ -88,7 +95,19 @@ func _on_suspend_timer_timeout() -> void:
+ 		logger.warn("Failed to suspend: '" + output[0] + "'")
+ 
+ 
+-func _input(_event: InputEvent) -> void:
++## A stick resting near its centre still reports small changes; those are not
++## activity, or a drifting stick would keep the screen lit forever.
++const STICK_ACTIVITY_THRESHOLD := 0.2
++
++
++func _on_window_input(event: InputEvent) -> void:
++	var motion := event as InputEventJoypadMotion
++	if motion and absf(motion.axis_value) < STICK_ACTIVITY_THRESHOLD:
++		return
++	_on_activity()
++
++
++func _on_activity() -> void:
+ 	if dim_screen_enabled and supports_brightness:
+ 		if dimmed:
+ 			dimmed = false
+@@ -125,7 +144,7 @@ func _on_gamescope_check_timeout() -> void:
+ 	if not detected_input:
+ 		return
+ 
+-	self._input(null)
++	_on_activity()
+ 
+ 
+ ## Returns true if input counter for the given gamescope type is different
