@@ -1,7 +1,7 @@
 {
   "plugin.id": "retroforge",
   "plugin.name": "RetroForge",
-  "plugin.version": "0.1.107",
+  "plugin.version": "0.1.108",
   "plugin.min-api-version": "2.0.0",
   "plugin.link": "https://github.com/retroforge-linux/os-build",
   "plugin.source": "https://github.com/retroforge-linux/os-build/tree/main/apps/ogui-retroforge-plugin",

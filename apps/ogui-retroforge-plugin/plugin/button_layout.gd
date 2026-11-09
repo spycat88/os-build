@@ -167,6 +167,7 @@ func apply() -> void:
 		var loaded := _profile_path(device.dbus_path)
 		var ext := loaded.get_extension()
 		if ext != "json" and ext != "yaml" and ext != "yml":
+			logger.info("Nintendo layout: no profile file to swap on " + device.name + " (" + loaded + ")")
 			continue
 		var swapped := loaded.get_basename().ends_with("_nintendo")
 		if on and not swapped:
@@ -323,7 +324,7 @@ static func swap_yaml(text: String) -> String:
 			if section == "mapping":
 				mapped[value] = true
 			elif section == "layers":
-				lines[i] = m.get_string(1) + SWAP[value] + ((" " + m.get_string(3)) if m.get_string(3) else "")
+				lines[i] = m.get_string(1) + SWAP[value] + ((" " + m.get_string(3)) if not m.get_string(3).is_empty() else "")
 	if mapping_line < 0:
 		return ""
 	# Fill-in rows at the indentation of the mapping's first item
