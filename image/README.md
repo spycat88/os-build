@@ -27,7 +27,7 @@ kernel (`kernel/build.sh`), fetched firmware (`firmware/fetch-qcom-fw.sh` +
 
 | File | Purpose |
 |---|---|
-| `make-sdcard.sh` | Lay the **full** GPT from the table and populate **both** slots (Phase 5): the ESP carries the ESP GRUB + a grubenv seeded with RAUC's slot state + `parts.env` + OpenABL's `/dtbs/qcom`; each slot's `efi-*` partition carries its stage-2 `grub.cfg`; root-A/B + var-A/B + home. `/home` is pre-seeded with the native arm64 Steam client. → `out/images/sdcard.img`. Unprivileged (mtools + sgdisk + `dd`, no loop). |
+| `make-sdcard.sh` | Lay the **full** GPT from the table and populate **both** slots (Phase 5): the ESP carries the ESP GRUB + a grubenv seeded with RAUC's slot state + `parts.env` + OpenABL's `/dtbs/qcom`; each slot's `efi-*` partition carries its stage-2 `grub.cfg`; root-A/B + var-A/B + home. `/home` is pre-seeded with the native arm64 Steam client. → `out/images/sdcard.img.gz` (pigz -6). Unprivileged (mtools + sgdisk + `dd`, no loop). |
 | `lib-homestage.sh` | Sourced, never executed. The player user's `/home`, built once and used by two writers — `make-sdcard.sh` at build time and `installer/retroforge-install` on the device — because the two must produce the same tree. The parts that drift silently are the `~/.steam` compat symlinks: a missing sdk64 does not stop Steam starting, it makes an x86 title's `SteamAPI_Init()` fail at launch, on that medium only. |
 | `verify-card.sh` | Read the built card back and assert what actually landed: the GPT against the table, each slot's stage-2 config, the seeded grubenv. `make verify-card`. |
 | `card-meta.sh` | Emit the card's own metadata (version, git, mode, sizes) for the release workflows. |
@@ -38,7 +38,7 @@ Build the root first (`rootfs/build-image.sh`), then:
 
 ```
 image/make-sdcard.sh
-sudo dd if=out/images/sdcard.img of=/dev/sdX bs=4M conv=fsync status=progress
+gzip -dc out/images/sdcard.img.gz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
 For a throwaway card that joins your LAN and accepts SSH, see `rootfs/README.md` — the

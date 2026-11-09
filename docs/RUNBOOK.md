@@ -115,9 +115,9 @@ The version and commit a card was built from are stamped into `/etc/retroforge-r
 
 ```sh
 set -a; . ./dev.env; set +a                   # RETROFORGE_DEV=1 + optional Wi-Fi creds
-make sdcard                                   # -> out/images/sdcard.img
+make sdcard                                   # -> out/images/sdcard.img.gz
 make verify-card                              # GPT, ESP, per-slot filesystem identities
-sudo dd if=out/images/sdcard.img of=/dev/sdX bs=4M conv=fsync status=progress
+gzip -dc out/images/sdcard.img.gz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
 **Editing an overlay package needs no CI round trip, in either mode.** `make overlay` compiles it

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Offline verification of a built A/B card image — out/images/sdcard.img.
+# Offline verification of a built A/B card image — out/images/sdcard.img.gz (or a raw .img).
 #
 # Same doctrine as rootfs/guard-rootfs.sh: assert the BUILT ARTIFACT, not the source diff. That
 # guard stops at the staged tree (it runs before mkfs), so nothing checked the partition table,
@@ -23,7 +23,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-IMG="${1:-$ROOT/out/images/sdcard.img}"
+IMG="${1:-$ROOT/out/images/sdcard.img.gz}"
 TABLE="$ROOT/image/partition-table.txt"
 INITRAMFS="$ROOT/out/initramfs.cpio.zst"
 
@@ -32,7 +32,18 @@ for t in sgdisk blkid debugfs mdir mtype mlabel cpio cmp zstd; do
   command -v "$t" >/dev/null 2>&1 || { echo "$t not found — run inside retroforge-build" >&2; exit 1; }
 done
 
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; RAW=""; trap 'rm -rf "$T"; [ -z "$RAW" ] || rm -f "$RAW"' EXIT
+
+# The build ships the card gzip'd (image/make-sdcard.sh), and every check below reads partitions
+# by byte offset, so unpack it first. Beside the .gz rather than in $T: the container's /tmp is not
+# sized for a ~19 GiB card. --sparse=always keeps the zeros (most of the card) off the disk.
+if [ "${IMG%.gz}" != "$IMG" ]; then
+  RAW="$(dirname "$IMG")/.verify-$(basename "${IMG%.gz}")"
+  echo "[retroforge] unpacking ${IMG#"$ROOT"/}"
+  if command -v pigz >/dev/null; then pigz -dc "$IMG"; else gzip -dc "$IMG"; fi \
+    | cp --sparse=always /dev/stdin "$RAW" || { echo "could not unpack $IMG" >&2; exit 1; }
+  SRC="${IMG#"$ROOT"/}"; IMG="$RAW"
+fi
 export MTOOLS_SKIP_CHECK=1
 FAIL=0
 ok()  { printf '    ok  %s\n' "$1"; }
@@ -52,7 +63,7 @@ ESP_UUID=$(part_uuid "$P_ESP")
 EFIA_UUID=$(part_uuid "$P_EFIA")
 EFIB_UUID=$(part_uuid "$P_EFIB")
 
-echo "[retroforge] verifying ${IMG#"$ROOT"/}"
+echo "[retroforge] verifying ${SRC:-$IMG}"
 
 # ----------------------------------------------------------------------------------------------
 # 1. Filesystem identity. Two btrfs filesystems on one disk sharing an fsid AND devid=1 are the

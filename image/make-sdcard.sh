@@ -281,15 +281,18 @@ write_part "$P_HOME"  "$home"   "retroforge-home (ext4, grows on first boot)"
 
 echo "  ok   $(du -h "$IMG" | cut -f1) -> ${IMG#"$ROOT"/}"
 
-# 6. Compress: pigz -6 -> sdcard.img.gz beside the raw image (kept for verify-card and a local dd).
-# This is the file the release uploads (image.yml renames it to retroforge-<version>.img.gz), so a
-# local build and a release produce the same compressed card.
-pigz -6 -kf "$IMG"
-echo "  ok   $(du -h "$IMG.gz" | cut -f1) -> ${IMG#"$ROOT"/}.gz"
+# 6. Compress: pigz -6 replaces sdcard.img with sdcard.img.gz, the ONE card a build produces. It is
+# the file the release uploads (image.yml renames it to retroforge-<version>.img.gz), so a local
+# build and a release produce the same card. image/verify-card.sh decompresses it to check it.
+rm -f "$IMG.gz"
+pigz -6 "$IMG"
+IMG="$IMG.gz"
+echo "  ok   $(du -h "$IMG" | cut -f1) -> ${IMG#"$ROOT"/}"
 
 cat <<EOF
 Done. Write it to the card (replace sdX with your device, ALL DATA LOST):
-  sudo dd if=${IMG#"$ROOT"/} of=/dev/sdX bs=4M conv=fsync status=progress
+  gzip -dc ${IMG#"$ROOT"/} | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
+(balenaEtcher and Raspberry Pi Imager take the .img.gz as is.)
 ABL starts /EFI/BOOT/bootaa64.efi (the ESP GRUB) off the ESP; it picks the slot from RAUC's state in
 /EFI/steamos/grubenv and hands over to \EFI\steamos\grub.cfg on that slot's efi-A/B partition,
 which boots the kernel in the slot root's /boot.

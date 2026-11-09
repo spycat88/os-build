@@ -54,5 +54,5 @@ Image flow done. Read-only root at out/images/rootfs.img.
 The root carries its own boot half (Phase 5): /boot/{vmlinuz.efi, initramfs-retroforge.img, dtbs} and the
 /usr/lib/retroforge/boot mirror (run boot/grub.sh for out/boot/* first).
 Next — the flashable card:
-  image/make-sdcard.sh             # -> out/images/sdcard.img (or `make sdcard`)
+  image/make-sdcard.sh             # -> out/images/sdcard.img.gz (or `make sdcard`)
 EOF

@@ -108,7 +108,7 @@ scripts by hand.**
 
 ```sh
 make help                       # every target and knob
-make sdcard                     # full image -> out/images/sdcard.img
+make sdcard                     # full image -> out/images/sdcard.img.gz
 make kernel                     # Image + dtbs + modules
 make test                       # offline suites: no build, no container, no root, no device
 ```

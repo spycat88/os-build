@@ -7,7 +7,7 @@
 # file only wires them together and pins WHERE each one runs (host vs container).
 #
 # Quick start:
-#   make sdcard        # full bring-up image -> out/images/sdcard.img
+#   make sdcard        # full bring-up image -> out/images/sdcard.img.gz
 #   make help          # list every target
 #
 # Conventions:
@@ -306,7 +306,7 @@ SPLASH_GEOM  := $(wildcard rootfs/overlay/usr/lib/retroforge/devices/*.conf)
 # grub-b.cfg, fonts/, grubenv (the pristine env block the ESP gets), grub-editenv (for RAUC on the
 # device) and steamcl-version (what an older root's update hook expects beside the ESP GRUB).
 GRUB         := $(OUT)/boot/grubaa64.efi
-SDCARD       := $(OUT)/images/sdcard.img
+SDCARD       := $(OUT)/images/sdcard.img.gz
 # The LD_PRELOAD library PortMaster's gptokeyb2 runs with (apps/retroforge-gptk-interpose; its exclusive
 # pad grab under sdl2-compat). aarch64, built in the container like the splash.
 GPTK_LIB     := apps/retroforge-gptk-interpose/build/libretroforge-gptk-interpose.so

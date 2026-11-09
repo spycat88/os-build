@@ -308,8 +308,8 @@ jobs:
       # The name is set here, before card-meta.sh hashes it, so sha256sums.txt names the file a
       # downloader actually has. release-sdcard.yml derives the same name from the same version.
       #
-      # The compression itself happens in image/make-sdcard.sh (pigz -6 -> sdcard.img.gz), so a local
-      # build produces the same file; this step only renames it.
+      # The compression itself happens in image/make-sdcard.sh (pigz -6 -> sdcard.img.gz, the only
+      # card a build produces), so a local build produces the same file; this step only renames it.
       - name: stage the card
         if: inputs.artifact == 'sdcard'
         run: |
