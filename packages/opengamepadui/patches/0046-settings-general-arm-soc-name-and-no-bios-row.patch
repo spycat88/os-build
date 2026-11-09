@@ -1,13 +1,13 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: retroforge <retroforge@invalid>
 Date: Sun, 8 Nov 2026 12:30:00 +0000
-Subject: [PATCH] feat(GeneralSettings): an Arm SoC's own name, and no BIOS row
- without DMI
+Subject: [PATCH] feat(GeneralSettings): an Arm SoC's own name, the memory size, and
+ no DMI rows without DMI
 
-Settings > General showed "Unknown" for BIOS Version on every Arm board
-(a devicetree board has no DMI, so /sys/class/dmi/id/bios_version is
-absent) and the core types for CPU Model ("Cortex-A510 Cortex-A715
-..."), which is what lscpu gives as the model name on Arm.
+Settings > General showed "Unknown" for BIOS Version and an empty Vendor
+on every Arm board (a devicetree board has no DMI), and the core types
+for CPU Model ("Cortex-A510 Cortex-A715 ..."), which is what lscpu gives
+as the model name on Arm.
 
 CPU.model is now the SoC's name when the kernel's Qualcomm socinfo has
 one (soc0/family "Snapdragon"): soc0/soc_id through a table of names
@@ -15,12 +15,21 @@ one (soc0/family "Snapdragon"): soc0/soc_id through a table of names
 Gen 2"). The id, not soc0/machine, since gaming SKUs share a part name
 with the phone chip. An id not in the table shows "Qualcomm <machine>".
 Without socinfo (x86) it stays lscpu's, so the APU database lookups are
-as before. The BIOS Version row hides when there is no version to show.
+as before. The BIOS Version and Vendor rows hide when they have nothing
+to show.
+
+A Memory row under Driver Version shows the memory as it is sold: MemTotal
+in MiB rounded to the capacity it falls under (above 7000 -> 8 GB,
+above 10500 -> 12 GB, ...; below 3001 MiB the nearest GB).
+
+Kernel Version showed uname's output with its trailing newline, so its
+row was two lines tall; it is stripped now.
 
 ---
- core/systems/hardware/cpu.gd                      | 41 +++++++++++++++++++++++
- core/ui/card_ui/settings/general_settings_menu.gd |  5 ++-
- 2 files changed, 45 insertions(+), 1 deletion(-)
+ core/systems/hardware/cpu.gd                       | 41 +++++++++++++++++++
+ core/ui/card_ui/settings/general_settings_menu.gd  | 47 +++++++++++++++++++++-
+ .../ui/card_ui/settings/general_settings_menu.tscn |  7 ++++
+ 3 files changed, 93 insertions(+), 2 deletions(-)
 
 diff --git a/core/systems/hardware/cpu.gd b/core/systems/hardware/cpu.gd
 index efba616..4615290 100644
@@ -82,14 +91,73 @@ index efba616..4615290 100644
  ## Returns the count of number of enabled CPU cores
  func get_enabled_core_count() -> int:
 diff --git a/core/ui/card_ui/settings/general_settings_menu.gd b/core/ui/card_ui/settings/general_settings_menu.gd
-index 9604013..577d3c7 100644
+index 9604013..0163af9 100644
 --- a/core/ui/card_ui/settings/general_settings_menu.gd
 +++ b/core/ui/card_ui/settings/general_settings_menu.gd
-@@ -53,7 +53,10 @@ func _ready() -> void:
+@@ -32,11 +32,46 @@ var logger := Log.get_logger("GeneralSettings")
+ @onready var cpu_text := $%CPUModelText as SelectableText
+ @onready var gpu_text := $%GPUModelText as SelectableText
+ @onready var driver_text := $%GPUDriverText as SelectableText
++@onready var memory_text := $%MemoryText as SelectableText
+ @onready var kernel_text := $%KernelVerText as SelectableText
+ @onready var bios_text := $%BIOSVerText as SelectableText
+ @onready var lang_dropdown := $%LanguageDropdown as Dropdown
+ 
+ 
++## Returns the installed memory in GB as it is sold (8, 12, 16, ...), from MemTotal in /proc/meminfo,
++## which is less than the installed size by what the kernel and firmware reserve. 0 if unreadable.
++func _get_memory_marketing_gb() -> int:
++	# Read line by line: /proc files report a length of 0, so a read by length gets nothing.
++	var file := FileAccess.open("/proc/meminfo", FileAccess.READ)
++	if not file:
++		return 0
++	var mb := 0
++	while not file.eof_reached():
++		var line := file.get_line()
++		if line.begins_with("MemTotal:"):
++			var parts := line.split(" ", false)
++			if parts.size() >= 2 and parts[1].is_valid_int():
++				mb = parts[1].to_int() / 1024
++			break
++	if mb <= 0:
++		return 0
++	if mb >= 30001:
++		return 32
++	if mb >= 22001:
++		return 24
++	if mb >= 14001:
++		return 16
++	if mb >= 10501:
++		return 12
++	if mb >= 7001:
++		return 8
++	if mb >= 5001:
++		return 6
++	if mb >= 3001:
++		return 4
++	return mb / 1024 + (1 if mb % 1024 > 512 else 0)
++
++
+ # Called when the node enters the scene tree for the first time.
+ func _ready() -> void:
+ 	# Set system info text
+@@ -47,13 +82,21 @@ func _ready() -> void:
+ 	os_text.text = platform.os_info.pretty_name
+ 	product_text.text = hardware_manager.get_product_name()
+ 	vendor_text.text = hardware_manager.get_vendor_name()
++	# A devicetree board (Arm SoCs) has no DMI and so no vendor: hide the row rather than show it empty.
++	vendor_text.visible = not vendor_text.text.strip_edges().is_empty()
+ 	if hardware_manager.cpu:
+ 		cpu_text.text = hardware_manager.cpu.model
+ 	if hardware_manager.gpu:
  		gpu_text.text = hardware_manager.gpu.model
  		driver_text.text = hardware_manager.gpu.driver
- 	kernel_text.text = hardware_manager.get_kernel_version()
+-	kernel_text.text = hardware_manager.get_kernel_version()
 -	bios_text.text = hardware_manager.get_bios_version()
++	var memory_gb := _get_memory_marketing_gb()
++	memory_text.text = "{0} GB".format([memory_gb]) if memory_gb > 0 else "Unknown"
++	# uname's output ends in a newline, which made the row two lines tall.
++	kernel_text.text = hardware_manager.get_kernel_version().strip_edges()
 +	var bios_version := hardware_manager.get_bios_version().strip_edges()
 +	bios_text.text = bios_version
 +	# A devicetree board (Arm SoCs) has no DMI and so no BIOS version: hide the row, not "Unknown".
@@ -97,6 +165,22 @@ index 9604013..577d3c7 100644
  	
  	# Try to detect the platform and platform image
  	if product_text.text == "Jupiter" and vendor_text.text == "Valve":
+diff --git a/core/ui/card_ui/settings/general_settings_menu.tscn b/core/ui/card_ui/settings/general_settings_menu.tscn
+index f74005b..93c786d 100644
+--- a/core/ui/card_ui/settings/general_settings_menu.tscn
++++ b/core/ui/card_ui/settings/general_settings_menu.tscn
+@@ -296,4 +296,11 @@ title = "Driver Version"
+ description = ""
+ text = "Generic"
+ 
++[node name="MemoryText" parent="MarginContainer/VBoxContainer/VBoxContainer3" instance=ExtResource("9_sq2rc")]
++unique_name_in_owner = true
++layout_mode = 2
++title = "Memory"
++description = ""
++text = "Generic"
++
+ [node name="ScrollerJoystick" parent="." instance=ExtResource("10_06mt3")]
 -- 
 2.55.0
 

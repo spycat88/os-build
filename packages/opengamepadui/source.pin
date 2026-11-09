@@ -204,11 +204,13 @@
 #         settings volume slider by 1 and the brightness slider by 3 (user, 2026-11-08). All move by 5
 #         now; a slider snaps to its step, so a volume left off the grid lands on a multiple of 5.
 #         The Saturation slider is hidden: its handler does nothing upstream ("TODO: Deprecate").
-#   0046  ours, for upstream: Settings > General showed "Unknown" for BIOS Version on every Arm board
-#         (no DMI on a devicetree board) and the core types for CPU Model (lscpu's model names on
-#         Arm, "Cortex-A510 Cortex-A715 ..."). CPU Model is now the SoC's name from Qualcomm
-#         socinfo (by soc0/soc_id, e.g. 603 "Qualcomm Dragonwing QCS8550"; unlisted ids "Qualcomm
-#         <machine>"), and the BIOS row hides when there is no version (user, 2026-11-08).
+#   0046  ours, for upstream: Settings > General showed "Unknown" for BIOS Version and an empty Vendor
+#         on every Arm board (no DMI on a devicetree board) and the core types for CPU Model
+#         (lscpu's model names on Arm, "Cortex-A510 Cortex-A715 ..."). CPU Model is now the SoC's
+#         name from Qualcomm socinfo (by soc0/soc_id, e.g. 603 "Qualcomm Dragonwing QCS8550";
+#         unlisted ids "Qualcomm <machine>"), the BIOS and Vendor rows hide when empty, and a Memory
+#         row shows MemTotal rounded to the capacity sold (8, 12, 16 GB...); Kernel Version drops
+#         uname's trailing newline, which made its row two lines tall (user, 2026-11-09).
 #   0047  ours, for upstream: the volume sliders showed 0 at startup while the speaker played. The
 #         volume is read once, asynchronously, from AudioManager._init(): the menus are built before
 #         it arrives and nothing tells them, and before WirePlumber has a default sink the read fails
