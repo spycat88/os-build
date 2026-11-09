@@ -281,10 +281,11 @@ write_part "$P_HOME"  "$home"   "retroforge-home (ext4, grows on first boot)"
 
 echo "  ok   $(du -h "$IMG" | cut -f1) -> ${IMG#"$ROOT"/}"
 
-# 6. No compression here. The image compresses hard (most of the card is empty — B slots plus the
-# unallocated tail), but single-threaded gzip over ~19GiB dominates the wall time of an otherwise
-# incremental rebuild, and every local consumer of this image dd's the raw .img anyway. Compression
-# is a release/CI concern: do it there, where it runs once per artifact instead of once per edit.
+# 6. Compress: pigz -6 -> sdcard.img.gz beside the raw image (kept for verify-card and a local dd).
+# This is the file the release uploads (image.yml renames it to retroforge-<version>.img.gz), so a
+# local build and a release produce the same compressed card.
+pigz -6 -kf "$IMG"
+echo "  ok   $(du -h "$IMG.gz" | cut -f1) -> ${IMG#"$ROOT"/}.gz"
 
 cat <<EOF
 Done. Write it to the card (replace sdX with your device, ALL DATA LOST):

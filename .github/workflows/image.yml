@@ -307,13 +307,15 @@ jobs:
       # download called sdcard.img.gz says nothing about what it is or which release it came from.
       # The name is set here, before card-meta.sh hashes it, so sha256sums.txt names the file a
       # downloader actually has. release-sdcard.yml derives the same name from the same version.
-      - name: compress the card
+      #
+      # The compression itself happens in image/make-sdcard.sh (pigz -6 -> sdcard.img.gz), so a local
+      # build produces the same file; this step only renames it.
+      - name: stage the card
         if: inputs.artifact == 'sdcard'
         run: |
           set -euo pipefail
-          command -v pigz >/dev/null || sudo apt-get install -y -qq pigz
           mkdir -p upload
-          pigz -6 -c out/images/sdcard.img > "upload/retroforge-${RETROFORGE_VERSION:-dev}.img.gz"
+          mv out/images/sdcard.img.gz "upload/retroforge-${RETROFORGE_VERSION:-dev}.img.gz"
           ls -lh upload/ >> "$GITHUB_STEP_SUMMARY"
           { echo '```'; echo "after build+compress:"; df -h /; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
 

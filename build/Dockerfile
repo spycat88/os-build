@@ -80,11 +80,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       casync \
       erofs-utils \
       libcap2-bin \
-      bsdextrautils zstd \
+      bsdextrautils zstd pigz \
     && rm -rf /var/lib/apt/lists/*
 # bsdextrautils is the kernel's: its EFI zboot rule (drivers/firmware/efi/libstub/Makefile.zboot)
 # sizes the payload with `hexdump`, and vmlinuz.efi is the only kernel kernel/build.sh stages.
 # Ubuntu ships hexdump there, not in util-linux. zstd compresses the initramfs (image/mkinitramfs.sh).
+# pigz compresses the card (image/make-sdcard.sh -> sdcard.img.gz).
 # `fdisk` is NOT redundant with `gdisk`, and neither is it implied by util-linux: Debian ships
 # sfdisk in the `fdisk` package while blkid and partx come from util-linux in the base image, so
 # `command -v sfdisk` was empty here while every device had it. image/lib-gpt.sh reads type GUIDs
