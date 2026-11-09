@@ -1341,6 +1341,7 @@ spine_run() {  # extra args passed through to the spine
       RETROFORGE_SESSION_WAIT=0 RETROFORGE_CARD_GRUBENV="$SP_CARD_GRUBENV" \
       SP_PLAN_RC="$SP_PLAN_RC" SP_PLAN_GIB="$SP_PLAN_GIB" SP_PLAN_REPLACES="$SP_PLAN_REPLACES" \
       RETROFORGE_INSTALL_RUN="$SP_RUN" DEVTEST=-e REQUIRE_ROOT=0 FAT_ASSERT=0 \
+      RETROFORGE_NM_CONNECTIONS="${SP_NM:-$SP/no-nm}" \
       PARTUUID_DIR="$SP_PART" DISKTEST=-e \
       PLAYER_UID="$(id -u)" PLAYER_GID="$(id -g)" \
       KEYRING="$SP_KEYRING" SGDISK="${SP_SGDISK:-sgdisk}" \
@@ -1583,6 +1584,31 @@ sp_before 'refresh esp/dtbs/qcom/' 'refresh esp/EFI/BOOT/bootaa64.efi' \
   || bad "bootaa64.efi was written before the DTBs (or they never were)"
 
 # --- which grub-editenv --------------------------------------------------------------------------
+CASE="spine: the card's Wi-Fi networks come along"
+spine_dir wifi
+SP_NM="$SP/nm"; mkdir -p "$SP_NM"
+printf '[connection]\nid=Home\ntype=wifi\n\n[wifi]\nssid=Home\n\n[wifi-security]\npsk=secret\n' >"$SP_NM/Home.nmconnection"
+printf '[connection]\nid=Cafe\ntype=802-11-wireless\n' >"$SP_NM/Cafe.nmconnection"
+printf '[connection]\nid=usb\ntype=ethernet\n' >"$SP_NM/usb.nmconnection"
+ln -s Home.nmconnection "$SP_NM/link.nmconnection"
+chmod 0644 "$SP_NM"/Home.nmconnection
+out="$(spine_run)" && ok "exits 0" || bad "failed: $out"
+upper="$SP_RUN/var-a/lib/overlays/etc/upper/NetworkManager/system-connections"
+cmp -s "$upper/Home.nmconnection" "$SP_NM/Home.nmconnection" && [ -f "$upper/Cafe.nmconnection" ] \
+  && ok "every Wi-Fi profile lands in var-a's /etc overlay upper, where Settings would have put it" \
+  || bad "the Wi-Fi profiles did not land: $(ls -A "$upper" 2>&1 | tr '\n' ' ')"
+[ "$(stat -c %a "$upper/Home.nmconnection" 2>/dev/null)" = 600 ] \
+  && ok "0600, or NetworkManager ignores it" || bad "mode is $(stat -c %a "$upper/Home.nmconnection" 2>&1)"
+[ ! -e "$upper/usb.nmconnection" ] && [ ! -e "$upper/link.nmconnection" ] \
+  && ok "not a profile of another type, and not a symlink" \
+  || bad "carried something that is not a Wi-Fi profile: $(ls -A "$upper" | tr '\n' ' ')"
+grep -q 'wifi: 2 network(s) carried over' "$SP_RUN/record" \
+  && ok "the install record says how many" || bad "the record does not count them: $(grep '^wifi' "$SP_RUN/record")"
+sp_before 'rauc-session install' "mount .*$SP_PART/aaaaaaaa-bbbb-cccc-dddd-000000000011 $SP_RUN/var-a" \
+  && ok "copied after var-a is seeded, so the reformat cannot wipe them" \
+  || bad "var-a was mounted for Wi-Fi before the root slot was installed"
+SP_NM=""
+
 CASE="spine: a dev image installs the root it is running from"
 # --bundle running:<dev> is release-info's answer on a dev image. No rauc at all: the root is copied
 # byte for byte, up to the FILESYSTEM's size, and finished by the handler a bundle install runs.

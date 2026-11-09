@@ -38,8 +38,12 @@ unallocated. The firmware partitions (`xbl`, `abl`, `devinfo`, `super`, every OE
 and are safe by construction, on any layout, including boards nobody has captured.
 
 **RetroForge on your SD card is not touched.** Its partitions are refused as a target outright, and
-the new `/home` starts empty: games, saves and Wi-Fi networks on the card do not come across. Enter
-your Wi-Fi once more after the first internal boot.
+the new `/home` starts empty: games and saves on the card do not come across.
+
+**Your Wi-Fi networks do come across.** Every Wi-Fi profile NetworkManager has on the card (the
+networks joined in Settings, and a dev card's baked-in one) is copied into the new slot's `/etc`
+overlay, so the first internal boot joins the same network. Other connection types are left behind.
+This is best-effort: a profile that cannot be copied is logged, and the install carries on.
 
 **On a device that already runs RetroForge internally**, the installer replaces it completely,
 **including `/home`**. A repair that keeps `/home` is not offered yet; the pre-flight screen says so.

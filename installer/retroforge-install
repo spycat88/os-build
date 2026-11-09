@@ -125,6 +125,9 @@ PARTTABLE=${RETROFORGE_PARTITION_TABLE:-$(find_component partition-table.txt ima
 # Where the running root is mounted, and the mount table that says from what. Seams for the suite.
 RUNNING_MNT=${RETROFORGE_RUNNING_MNT:-/}
 MOUNTINFO=${RETROFORGE_MOUNTINFO:-/proc/self/mountinfo}
+# The Wi-Fi networks this card knows, carried to the install (carry_wifi). The merged /etc view, so
+# a network joined in Settings (the /etc overlay upper) and one baked into a dev card both count.
+NM_CONNECTIONS=${RETROFORGE_NM_CONNECTIONS:-/etc/NetworkManager/system-connections}
 
 # --- arguments -----------------------------------------------------------------------------------
 usage() {
@@ -722,6 +725,47 @@ copy_running_root() {
   record "root-a: copied from the running root $SOURCE_ROOT"
 }
 
+# The Wi-Fi networks set up on the card, so the installed device joins them at its first boot instead
+# of starting offline. They go where NetworkManager writes a network joined from Settings: the /etc
+# overlay upper in var-a, which seed_var has just created. NetworkManager itself is still running
+# here (the installer starts from Settings, over Wi-Fi), so its directory is complete.
+#
+# Wi-Fi profiles only: a profile of another type -- the dev card's USB gadget, a wired one -- describes
+# the card's setup, not the network the user is on. Regular files only, 0600 as NetworkManager
+# insists, or it ignores the file.
+#
+# BEST-EFFORT, like the install record. This runs after the carve, and a network that did not come
+# across costs the user a password typed again; refusing here would cost them an install whose
+# Android data is already gone.
+carry_wifi() {
+  local src="$NM_CONNECTIONS" mnt="$RUNDIR/var-a" dst f n=0
+  if [ ! -d "$src" ]; then
+    log "no Wi-Fi networks to carry over ($src does not exist)"
+    record "wifi: none ($src missing)"
+    return 0
+  fi
+  mount_at "${DEV[retroforge-var-A]}" "$mnt"
+  dst="$mnt/lib/overlays/etc/upper/NetworkManager/system-connections"
+  if mkdir -p "$dst" && chmod 0700 "$dst"; then
+    for f in "$src"/*.nmconnection; do
+      [ -f "$f" ] && [ ! -L "$f" ] || continue
+      grep -qxE '[[:space:]]*type[[:space:]]*=[[:space:]]*(wifi|802-11-wireless)[[:space:]]*' "$f" || continue
+      if cp "$f" "$dst/" && chmod 0600 "$dst/${f##*/}"; then
+        n=$(( n + 1 ))
+        log "wifi: carried over ${f##*/}"
+      else
+        warn "could not carry over the Wi-Fi network ${f##*/}"
+      fi
+    done
+  else
+    warn "cannot create $dst -- the Wi-Fi networks were not carried over"
+  fi
+  sync
+  unmount_at "$mnt"
+  log "carried over $n Wi-Fi network(s)"
+  record "wifi: $n network(s) carried over"
+}
+
 # =================================================================================================
 # 9. /home
 # =================================================================================================
@@ -861,6 +905,7 @@ main() {
   carve
   make_filesystems
   install_root
+  carry_wifi
   seed_home
   mount_new_root
   write_efi_partitions
