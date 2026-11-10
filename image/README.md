@@ -20,16 +20,16 @@ kernel (`kernel/build.sh`), fetched firmware (`firmware/fetch-qcom-fw.sh` +
 
 | File | Purpose |
 |---|---|
-| `initramfs/init` | The initramfs `/init` (Phase 5): mounts the booted slot's root read-only + its `/var`, mounts the slot's efi-a/b partition at `/efi` (from `retroforge.efi=PARTUUID=`), stacks the `/etc` overlay on `/var`, then `switch_root`s into systemd. Slot selection is not here — the bootloader chain did it. Degrades to a writable un-overlaid root (loudly, via `/dev/kmsg`) rather than bricking a device with no serial console. |
+| `initramfs/init` | The initramfs `/init` (Phase 5): mounts the booted slot's root read-only + its `/var`, stacks the `/etc` overlay on `/var`, then `switch_root`s into systemd. Slot selection is not here — the bootloader chain did it. Degrades to a writable un-overlaid root (loudly, via `/dev/kmsg`) rather than bricking a device with no serial console. |
 | `mkinitramfs.sh <base-rootfs>` | Stage `bash` + util-linux out of the base, resolve their libraries via `readelf`, and roll `init` into `out/initramfs.cpio.zst` (installed as `/boot/initramfs-retroforge.img`). No mkinitcpio/dracut, no modules — every filesystem and block driver we need is `=y`. |
 
 ## Assembly and verification
 
 | File | Purpose |
 |---|---|
-| `make-sdcard.sh` | Lay the **full** GPT from the table and populate **both** slots (Phase 5): the ESP carries the ESP GRUB + a grubenv seeded with RAUC's slot state + `parts.env` + OpenABL's `/dtbs/qcom`; each slot's `efi-*` partition carries its stage-2 `grub.cfg`; root-A/B + var-A/B + home. `/home` is pre-seeded with the native arm64 Steam client. → `out/images/sdcard.img`. Unprivileged (mtools + sgdisk + `dd`, no loop). |
+| `make-sdcard.sh` | Lay the **full** GPT from the table and populate **both** slots (Phase 5): the ESP carries `loader/loader.conf`; boot-a carries slot A's kernel, initramfs, DTBs and one setup Boot Loader Specification entry per board (OpenABL shows them as a menu on first boot); boot-b carries slot B's kernel files; root-A/B + var-A/B + home. `/home` is pre-seeded with the native arm64 Steam client. → `out/images/sdcard.img`. Unprivileged (mtools + sgdisk + `dd`, no loop). |
 | `lib-homestage.sh` | Sourced, never executed. The player user's `/home`, built once and used by two writers — `make-sdcard.sh` at build time and `installer/retroforge-install` on the device — because the two must produce the same tree. The parts that drift silently are the `~/.steam` compat symlinks: a missing sdk64 does not stop Steam starting, it makes an x86 title's `SteamAPI_Init()` fail at launch, on that medium only. |
-| `verify-card.sh` | Read the built card back and assert what actually landed: the GPT against the table, each slot's stage-2 config, the seeded grubenv. `make verify-card`. |
+| `verify-card.sh` | Read the built card back and assert what actually landed: the GPT against the table, the ESP's loader.conf, setup entries and slot files. `make verify-card`. |
 | `card-meta.sh` | Emit the card's own metadata (version, git, mode, sizes) for the release workflows. |
 
 ## End-to-end
@@ -51,14 +51,14 @@ the build image, so run them there:
 docker run --rm -v "$PWD":/src -w /src retroforge-build image/make-sdcard.sh
 ```
 
-**Done (Phase 5 assembly):** partition layout, read-only Btrfs root, SteamDeck-style boot
-(the ESP GRUB picks the slot + the per-slot stage-2 config picks the board + kernel in the slot root), initramfs `/efi` mount,
-both slots populated by `make-sdcard.sh`, and the offline suites in `make test`
-(`tests/test-stage2-grub.sh`, `tests/test-units.sh`, `tests/test-bootctl.sh`,
+**Done:** partition layout, read-only Btrfs root, Boot Loader Specification boot (OpenABL boots
+the slot entry on that slot's boot partition, counting three tries per slot and falling back to
+the other), both slots populated by `make-sdcard.sh`, and the offline suites in `make test`
+(`tests/test-bls.sh`, `tests/test-units.sh`, `tests/test-bootctl.sh`,
 `tests/test-post-install.sh`) plus `make verify-card` against the built image.
-**Deferred (needs hardware):** the whole chain end to end — ABL chainloading stage 1, the board
-choice persisting to the ESP grubenv, a slot switch, and the demote path. All of those, plus the
-stage-2 `retroforge_bootattempts` counter that rolls back a slot never reaching systemd, are
-HW-validated as of 2026-08-02 (`docs/archive/phase5.md`). `steamos-atomupd` remains out of scope.
+**Not yet validated on hardware:** the BLS chain end to end — the first-boot board menu and the
+commit that replaces it, a slot switch after an update, and the fall-back after three failed
+boots. The GRUB chain it replaces was HW-validated as of 2026-08-02 (`docs/archive/phase5.md`).
+`steamos-atomupd` remains out of scope.
 
 _Phase 5._

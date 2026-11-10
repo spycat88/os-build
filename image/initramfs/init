@@ -1,33 +1,24 @@
 #!/bin/sh
-# retroforge initramfs init — Phase 5: mount the booted slot's root (ro) + var, mount the slot's
-# efi partition at /efi, stack the /etc overlay, then hand off to systemd.
+# retroforge initramfs init — Phase 5: mount the booted slot's root (ro) + var, stack the /etc
+# overlay, then hand off to systemd.
 #
-# WHAT PICKED THE SLOT IS NOT HERE. The bootloader chain — ABL -> the ESP GRUB (on the ESP; it
-# picks the slot from RAUC's state) -> the slot's stage-2 grub.cfg (it picks the board) — picks the
-# image and appends the full cmdline. This init merely carries out what
-# the cmdline says:
+# WHAT PICKED THE SLOT IS NOT HERE. OpenABL picks the slot's Boot Loader Specification entry on
+# its boot partition (by RAUC's state: loader.conf's default and the entries' boot counters) and boots
+# the kernel with that entry's full cmdline. This init merely carries out what the cmdline says:
 #
 #   root=PARTUUID=...                   the slot's btrfs root, mounted ro
 #   retroforge.var=PARTUUID=...           the slot's ext4 /var (overlay upper + per-slot identity)
-#   retroforge.efi=PARTUUID=...           the slot's efi-a/b partition, mounted at /efi
-#   retroforge.slot=A|B                   which slot the above three are
+#   retroforge.slot=A|B                   which slot the above two are
 #
-#                                       The first three are PARTUUID because every retroforge medium
+#                                       The first two are PARTUUID because every retroforge medium
 #                                       carries the same eight PARTLABELs, so with a card inserted
 #                                       on a device installed to internal storage a PARTLABEL
-#                                       resolves to whichever disk enumerates first. Stage 2 reads
-#                                       the UUIDs off the disk it was chainloaded from with
-#                                       `probe --part-uuid`; PARTLABEL= is still accepted here,
-#                                       because it is stage 2's announced fallback.
-#   steamos.efi=PARTUUID=...            the same thing, as SteamOS states it -- appended by the
-#                                       bootloader from the partition the stage-2 binary was
-#                                       loaded from. Accepted as a FALLBACK so the two forms can
-#                                       coexist; nothing we ship emits it, because our stage-2
-#                                       grub.cfg states retroforge.efi= itself (it knows the slot,
-#                                       so it knows the partition). See docs/phase5.md.
+#                                       resolves to whichever disk enumerates first. The entry's
+#                                       writer read the UUIDs off the disk it wrote the entry to;
+#                                       PARTLABEL= is still accepted here.
 #
 # The old design-C machinery — the /RETROFORGE/STATE.* read/write, slot selection, failover,
-# kernel-mismatch warning and KERNEL.BAK rollback — is gone. The ESP GRUB's try count owns "did a
+# kernel-mismatch warning and KERNEL.BAK rollback — is gone. OpenABL's boot counting owns "did a
 # slot come up", and the OS owns "is this slot OK" via retroforge-boot-good.service (RAUC's
 # mark-good / mark-bad). Nothing here chooses anything.
 #
@@ -45,13 +36,11 @@
 # Layout (image/partition-table.txt):
 #   root  <- PARTUUID=... (root=)             btrfs, ro
 #   var   <- PARTUUID=... (retroforge.var=)     ext4, rw   (overlay upper+work; /lib/retroforge/slot)
-#   efi   <- PARTUUID=... (retroforge.efi=)     vfat, rw   (the SLOT's efi-a/b: stage 2 + parts.env)
 #   /etc  <- overlay(lower=/sysroot/etc, upper=/sysroot/var/lib/overlays/etc/upper)
 #
-# The efi mountpoint is INSIDE the btrfs root ($SYSROOT/efi), so the mount survives switch_root:
-# it is a mount on the new root's filesystem, not on this initramfs's root. The shared ESP is
-# deliberately NOT mounted here at all — the booted system mounts it at /esp from /etc/fstab, and
-# GPT bit 63 (partition-table.txt) keeps gpt-auto from trying to shadow /efi with it.
+# Neither the shared ESP nor the slots' boot partitions are mounted here: the booted system mounts
+# them from /etc/fstab (/esp, and /run/retroforge/bootfs/{a,b} on demand), and GPT bit 63
+# (partition-table.txt) keeps gpt-auto away from the ESP.
 #
 # DEGRADED BOOT: this device has no serial console ([[sm8650-no-uart]]), so a hard failure here
 # is only debuggable by pulling the card and mounting it. Every step past "root is mounted"
@@ -61,7 +50,7 @@
 # known-good rather than novel. The failure is loud, not silent.
 #
 # A root that will not mount is different: with no root there is no system, so that is a panic
-# (panic=5 on the grub.cfg cmdline reboots). Failover to the other slot is NOT done here — that
+# (panic=5 on the entry's cmdline reboots). Failover to the other slot is NOT done here — that
 # is the bootloader's job, and doing it here too would fight the boot-attempts counter's accounting.
 set -u
 
@@ -81,17 +70,15 @@ mount -t devtmpfs -o nosuid,mode=0755    dev  /dev
 # boot-console error is a debugging trap, so we give switch_root a real tmpfs to hand over.
 mount -t tmpfs    -o nosuid,nodev,mode=0755 run /run
 
-ROOTSPEC=''; VARSPEC=''; EFISPEC=''; EFISPEC_ALT=''; SLOTSPEC=''; ROOTFSTYPE=btrfs; SPLASH=1
+ROOTSPEC=''; VARSPEC=''; SLOTSPEC=''; ROOTFSTYPE=btrfs; SPLASH=1
 read -r _cmdline </proc/cmdline
 for _arg in $_cmdline; do
   case "$_arg" in
     root=*)          ROOTSPEC=${_arg#root=} ;;
     rootfstype=*)    ROOTFSTYPE=${_arg#rootfstype=} ;;
     retroforge.var=*)  VARSPEC=${_arg#retroforge.var=} ;;
-    retroforge.efi=*)  EFISPEC=${_arg#retroforge.efi=} ;;
     retroforge.slot=*) SLOTSPEC=${_arg#retroforge.slot=} ;;
     retroforge.splash=*) SPLASH=${_arg#retroforge.splash=} ;;
-    steamos.efi=*)   EFISPEC_ALT=${_arg#steamos.efi=} ;;
   esac
 done
 
@@ -149,12 +136,6 @@ splash_start() {
   SPLASH_PID=$!
 }
 splash_start
-# retroforge.efi= wins when both are present. It comes from the generated grub.cfg, which knows
-# which slot it is and therefore which partition to name; steamos.efi= is SteamOS's form, appended
-# by the bootloader from the partition it was chainloaded from. They should always agree, and when they do not it is
-# the config that is authoritative -- it is the file the update path installs alongside the root.
-[ -n "$EFISPEC" ] || EFISPEC=$EFISPEC_ALT
-
 # Resolve a root=-style spec (PARTLABEL=/LABEL=/UUID=/PARTUUID=/bare path) to a block device,
 # polling for it. There is no udev here and storage probes asynchronously, so the device may
 # simply not exist yet on the first pass — this is what the kernel's own `rootwait` does for us
@@ -199,15 +180,13 @@ resolve() {
   return 1
 }
 
-# The slot letter for /run/retroforge/boot. Stage 2 states it outright — it is generated per slot, so
-# it knows statically which one it is — and that is now the only thing that can tell us: the root=
-# spec it emits is a PARTUUID, which carries no slot letter at all.
+# The slot letter for /run/retroforge/boot. The entry states it outright — it is written per slot, so
+# it knows which one it is — and that is the only thing that can tell us: the root= spec is a
+# PARTUUID, which carries no slot letter at all.
 #
-# The PARTLABEL match is kept for one boot: an OLD stage-2 grub.cfg on the other slot's efi
-# partition, which has not been rewritten yet because post-install.sh only touches the slot it
-# just installed. Without it, booting back into a not-yet-updated slot reports slot='' and
-# retroforge-bootctl mark-good treats a real slot boot as a dev boot — so the boot is never
-# confirmed and a healthy slot gets marked bad.
+# The PARTLABEL match is kept for a hand-written command line that names the root by label. Without
+# it such a boot reports slot='' and retroforge-bootctl mark-good treats a real slot boot as a dev
+# boot.
 #
 # Empty on any other root (a dev boot) — which is exactly what mark-good needs to know.
 SLOT=''
@@ -269,38 +248,18 @@ else
   fi
 fi
 
-# ---------------------------------------------------------------------------------------------
-# The slot's efi partition at /efi (retroforge.efi=PARTLABEL=, or SteamOS's steamos.efi=PARTUUID=)
-# ---------------------------------------------------------------------------------------------
-# Either form names the partition the stage-2 grub.cfg was read from, so this mounts THIS slot's
-# efi partition. post-install.sh and retroforge-bootctl read parts.env off it, and the mount
-# persists across switch_root because it is on the new root's filesystem.
-efi_ok=0
-if [ -z "$EFISPEC" ]; then
-  warn "no steamos.efi=PARTUUID= on the kernel cmdline — /efi will not be mounted (post-install needs it)"
-elif ! EFIDEV=$(resolve "$EFISPEC"); then
-  warn "efi device '$EFISPEC' never appeared after 30s — /efi will not be mounted"
-elif ! mkdir -p "$SYSROOT/efi" || ! mount -t vfat "$EFIDEV" "$SYSROOT/efi"; then
-  warn "cannot mount $EFIDEV at $SYSROOT/efi — /efi will not be mounted"
-else
-  efi_ok=1
-  log "efi $EFIDEV mounted at /efi (slot=$SLOT)"
-fi
-
 # Hand the decision to the running system. /run is moved into the new root by switch_root, so
 # this survives the pivot. retroforge-bootctl mark-good reads slot= to tell "a slot boot" from a
 # "dev/cmdline boot" (nothing to confirm), and the fields are the first evidence when debugging
 # a boot offline.
 mkdir -p /run/retroforge
 { printf 'slot=%s\n'   "${SLOT}"
-  printf 'source=%s\n' 'grub'
+  printf 'source=%s\n' 'bls'
   printf 'root=%s\n'   "${ROOTDEV:-}"
   printf 'var=%s\n'    "${VARDEV:-}"
-  printf 'efi=%s\n'    "${EFIDEV:-}"
 } >/run/retroforge/boot 2>/dev/null || warn "cannot write /run/retroforge/boot"
 
 [ "$overlay_ok" -eq 1 ] || warn "DEGRADED: handing off to systemd on a writable, un-overlaid root"
-[ "$efi_ok" -eq 1 ] || warn "DEGRADED: /efi is not mounted — updates and boot confirmation will fail"
 
 # The drawer reads its logo, its font and the run directory by path, so it must have them before
 # switch_root empties this root. It usually does (the Air X: before root is even mounted), but where

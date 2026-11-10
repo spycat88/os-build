@@ -139,7 +139,7 @@ device.
 | `packages/` | From-source overlay: PKGBUILDs + source pins for what we patch or version-bump, plus the builder that turns them into a local pacman repo |
 | `kernel/` | Unified kernel: config fragments, patches, all device trees, firmware embed list |
 | `firmware/` | Vendor firmware fetch/verify recipes + their pins |
-| `boot/` | UEFI boot: the ESP GRUB picks the slot from RAUC's state, the per-slot stage-2 config picks the board; GRUB from a pinned release |
+| `boot/` | UEFI boot: the board table and common cmdline every Boot Loader Specification entry is written from; OpenABL boots one entry per slot off the ESP, counts its tries and falls back to the other slot |
 | `apps/retroforge-splash/` | The boot splash drawer |
 | `tests/` | Every offline suite. `make test` runs the host ones; the signing and disk suites need a container |
 | `build/` | Where the build itself is pinned: the cross-compile `Dockerfile`, the builder digest and the repo snapshot |
@@ -182,7 +182,6 @@ the LICENSE file alone would misrepresent them:
 | What | License |
 |---|---|
 | `kernel/patches/*` | derivatives of Linux — **GPL-2.0-only**, not "or later" |
-| `boot/patches/grub/*` | derivatives of GRUB — **GPL-3.0-or-later** |
 | `packages/*/patches/*` | each carries the license of the project it patches |
 | `apps/retroforge-splash/src/stb_truetype.h` | stb_truetype v1.26, **public domain** (Sean Barrett), vendored verbatim |
 

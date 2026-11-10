@@ -13,12 +13,12 @@
 #
 # The root's content is read-only by construction; the subvolume's ro *property* is
 # set by RAUC at deploy time (needs a mount), so it is not applied here. The kernel mounts
-# it `ro` regardless (rootfstype=btrfs ... ro on the stage-2 grub.cfg cmdline).
+# it `ro` regardless (rootfstype=btrfs ... ro on the boot entry's cmdline).
 #
-# The root carries its own boot half (docs/archive/phase5.md): /boot/{vmlinuz.efi, initramfs-retroforge.img,
-# dtbs} that the slot's stage-2 GRUB boots, plus the /usr/lib/retroforge/boot mirror + the
-# /esp//efi mountpoints the update path reads. The stage-1/2 binaries reach the cards through
-# the ESP/efi partitions laid by image/make-sdcard.sh and refreshed by the RAUC hook.
+# The root carries its own boot half (docs/archive/phase5.md): /boot/{vmlinuz, initramfs-retroforge.img,
+# dtbs} that the slot's boot entry boots, plus the /usr/lib/retroforge/boot mirror + the
+# /esp mountpoint the update path reads. The kernel, initramfs and DTBs reach the slot's boot
+# partition (beside its entry) through image/make-sdcard.sh on a card and the RAUC hook on an update.
 #
 #   rootfs/assemble-rootfs.sh <base-rootfs-dir>
 #   BASE_ROOTFS=<dir> rootfs/assemble-rootfs.sh
@@ -42,7 +42,7 @@ VAR_SIZE_MIB="${VAR_SIZE_MIB:-256}"   # matches var-a/-b in partition-table.txt 
 
 [ -n "$BASE" ]        || { echo "usage: assemble-rootfs.sh <base-rootfs-dir>" >&2; exit 2; }
 [ -d "$BASE" ]        || { echo "no base rootfs dir: $BASE" >&2; exit 2; }
-[ -f "$OUT/vmlinuz.efi" ] || { echo "no kernel: $OUT/vmlinuz.efi (run kernel/build.sh first)" >&2; exit 1; }
+[ -f "$OUT/vmlinuz" ] || { echo "no kernel: $OUT/vmlinuz (run kernel/build.sh first)" >&2; exit 1; }
 [ -f "$OUT/initramfs.cpio.zst" ] || { echo "no initramfs: $OUT/initramfs.cpio.zst (run make initramfs)" >&2; exit 1; }
 command -v mkfs.btrfs >/dev/null 2>&1 || { echo "mkfs.btrfs not found (run inside retroforge-build)" >&2; exit 1; }
 
@@ -79,11 +79,11 @@ else cp -a "$BASE"/. "$stage"/; fi
 # from-source overlay package with the 0.82.0 bump — but the mechanism remains; see issues #35
 # and #36 for the real guard (assert every file is package-owned or declared).
 
-# STAGE kernel-boot — retroforge kernel + dtbs + initramfs under /boot. These are what the stage-2 grub.cfg boots
-# (docs/archive/phase5.md): `linux ($root)/boot/vmlinuz.efi`, `initrd ($root)/boot/initramfs-retroforge.img`,
-# `devicetree ($root)/boot/dtbs/<dtb>.dtb`. The kernel is the EFI zboot image, which unpacks itself:
-# grubaa64.efi has no gzio filter, and does not need one for it (kernel/README.md).
-install -Dm0644 "$OUT/vmlinuz.efi" "$stage/boot/vmlinuz.efi"
+# STAGE kernel-boot — retroforge kernel + dtbs + initramfs under /boot. These are what the slot's boot
+# entry boots, once its writer has copied them onto the slot's boot partition as
+# /vmlinuz-<kver> and /initramfs-<kver>.img (OpenABL reads only FAT, and an entry's paths are on
+# the filesystem it sits on). The kernel is Image.gz, which OpenABL inflates (kernel/README.md).
+install -Dm0644 "$OUT/vmlinuz" "$stage/boot/vmlinuz"
 install -Dm0644 "$OUT/initramfs.cpio.zst" "$stage/boot/initramfs-retroforge.img"
 for dtb in "$OUT"/dtbs/*.dtb; do install -Dm0644 "$dtb" "$stage/boot/dtbs/$(basename "$dtb")"; done
 
@@ -97,19 +97,12 @@ else
   echo "  (no staged modules at ${MODROOT#"$ROOT"/} — run kernel/build.sh; built-in drivers only)"
 fi
 
-# STAGE boot-mountpoints — /esp + /efi (Phase 5). The two boot homes the OS must see are the shared ESP
-# and the booted slot's own efi partition:
-#   /esp  the shared ESP (p1, the only ef00) — the ESP GRUB + grubenv. Mounted HERE by /etc/fstab
-#         (below); gpt-auto is switched off for it by GPT bit 63 in partition-table.txt, because
-#         gpt-auto would otherwise mount it at /efi — which is the name the initramfs reserves for
-#         the slot's efi partition. The root is read-only, so the mountpoint must pre-exist.
-#   /efi  the booted slot's efi-a/b partition (p2/p3, typed 0700 so gpt-auto ignores them). The
-#         initramfs mounts THIS partition here, from steamos.efi=PARTUUID= on the cmdline; the
-#         mount persists across switch_root (it lives in the btrfs root). /boot/efi -> /efi is the
-#         SteamOS convention for bootloader tooling that looks there.
+# STAGE boot-mountpoints — /esp (Phase 5). The shared ESP (p1, the only ef00) — loader.conf and
+# OpenABL's Device model DTBs — mounted here by /etc/fstab; gpt-auto is switched off for it by GPT
+# bit 63 in partition-table.txt. The root is read-only, so the mountpoint must pre-exist. The slots'
+# boot partitions (boot-a/boot-b) are automounted under /run/retroforge/bootfs by /etc/fstab, where
+# systemd creates the mountpoints itself.
 install -dm0755 "$stage/esp"
-install -dm0755 "$stage/efi"
-ln -s /efi "$stage/boot/efi"
 
 # Firmware each device's own Android partitions hold, which msm-firmware-loader serves from there, so
 # the card does not ship it: all of qcom/ (DSPs, GPU microcode and zap shaders, amp configs, WPSS) but

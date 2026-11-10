@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # retroforge initramfs builder -> out/initramfs.cpio.zst (installed as /boot/initramfs-retroforge.img
-# by rootfs/assemble-rootfs.sh; the slot's stage-2 grub.cfg boots it via `initrd`).
+# by rootfs/assemble-rootfs.sh and copied to the slot's directory on the ESP, where its BLS entry
+# boots it via `initrd`).
 #
 # Stages a handful of aarch64 binaries out of the base rootfs, resolves their shared
 # libraries, adds image/initramfs/init, and rolls the lot into a newc cpio.
@@ -8,7 +9,7 @@
 # Deliberately NOT mkinitcpio/dracut: the base is minimal core and ships neither, and we
 # need no modules anyway — btrfs/ext4/overlayfs and every block driver are =y in
 # kernel.config (the device booted for months with no initramfs at all). So the whole job
-# is "mount the slot's root + var + efi partition, stack the /etc overlay, switch_root",
+# is "mount the slot's root + var + boot partition, stack the /etc overlay, switch_root",
 # which is a shell script and ~5 binaries. Slot selection is NOT here (Phase 5) — the
 # bootloader chain chose it and wrote the cmdline (docs/archive/phase5.md).
 #
@@ -29,11 +30,11 @@ INIT="$ROOT/image/initramfs/init"
 IMG="$OUT/initramfs.cpio.zst"
 
 # /bin/sh is bash (the base has no busybox); the rest is util-linux + coreutils. partx resolves
-# the PARTUUID= specs (root=, retroforge.var=, retroforge.efi=/steamos.efi=) from each disk's own
-# partition table, and findfs the rest, both without udev; mkdir creates the overlay upper/work and
-# the /efi mountpoint on first boot; sleep paces the device-probe poll.
+# the PARTUUID= specs (root=, retroforge.var=) from each disk's own
+# partition table, and findfs the rest, both without udev; mkdir creates the overlay upper/work on
+# first boot; sleep paces the device-probe poll.
 #
-# NO umount: the init mounts only INSIDE the btrfs root ($SYSROOT/efi, $SYSROOT/var), so every
+# NO umount: the init mounts only INSIDE the btrfs root ($SYSROOT/var), so every
 # mount survives switch_root attached to the new root's filesystem, and the shared ESP is never
 # mounted at all (the booted system mounts it at /esp from /etc/fstab). The old design-C need
 # for a pre-switch_root umount — a still-mounted initramfs-root /esp becoming an orphan and
@@ -66,7 +67,7 @@ chmod 0755 "$stage"   # mktemp -d is 0700; that mode would become the initramfs 
 # Pre-create every directory init needs, so it never has to mkdir before /dev exists.
 # /bin, /sbin and /lib are symlinks into /usr, matching the base's merged-usr layout — the
 # binaries' hardcoded PT_INTERP (/lib/ld-linux-aarch64.so.1) resolves through /lib.
-# /sysroot is where the slot's root (and, inside it, /var + /efi) is mounted; /run/retroforge is
+# /sysroot is where the slot's root (and, inside it, /var) is mounted; /run/retroforge is
 # NOT pre-created here -- /run is over-mounted with a fresh tmpfs, so a directory staged in the
 # cpio would be invisible; the init mkdirs it at runtime.
 mkdir -p "$stage"/{usr/bin,usr/lib,proc,sys,dev,run,sysroot}
@@ -129,7 +130,7 @@ install -m0755 "$SPLASH_BIN"   "$stage/usr/lib/retroforge/retroforge-splash"
 install -m0644 "$SPLASH_ASSET" "$stage/usr/share/retroforge/splash/logo.nds1"
 install -m0644 "$SPLASH_FONT"  "$stage/usr/share/retroforge/splash/font.ttf"
 
-# newc cpio, zstd -19 (CONFIG_RD_ZSTD=y): GRUB reads this through the firmware at ~7 MB/s, so
+# newc cpio, zstd -19 (CONFIG_RD_ZSTD=y): the loader reads this through the firmware at ~7 MB/s, so
 # the 0.8M zstd saves over gzip -9 is ~0.1 s of every boot, and the kernel unpacks it faster too
 # (Air X, 2026-10-31). -T1 keeps the output byte-identical from build to build. Ownership comes from the build user — root in the
 # build container, which is what the kernel should unpack as. Refuse to build a cpio whose

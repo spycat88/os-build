@@ -1,20 +1,21 @@
-# retroforge board catalog for the stage-2 grub.cfg generation (boot/grub.sh).
+# retroforge board catalog, read by boot/gen-bls.sh to make the board table (boards.tsv) every
+# Boot Loader Specification entry is written from.
 #
-# Tab-separated: <device-id>\t<menuentry name>\t<dtb basename>\t<bootargs>
-# One row per board, read verbatim by boot/grub.sh. This is BUILD-TIME data: the
-# DTB and the SoC bootargs only exist to generate grub.cfg menuentries, so they
-# live here in the project boot folder, NOT in the runtime device profiles
+# Tab-separated: <device-id>\t<menu name>\t<dtb basename>\t<bootargs>
+# One row per board. This is BUILD-TIME data: gen-bls.sh adds each DTB's root `model` (how the
+# running system and OpenABL's Device model setting name the board) and ships the result in the
+# root as /usr/lib/retroforge/boot/boards.tsv, NOT in the runtime device profiles
 # (rootfs/overlay/usr/lib/retroforge/devices/*.conf, which carry no boot data).
 #
 # <device-id> and <name> mirror RETROFORGE_DEVICE_ID / RETROFORGE_DEVICE_NAME in the
-# runtime profiles (the menuentry id/title must match the identity the OS
-# reports); tests/test-stage2-grub.sh cross-checks the two stay in sync. Every
+# runtime profiles (the entry title must match the identity the OS reports);
+# tests/test-bls.sh cross-checks the two stay in sync. Every
 # <dtb> must exist under kernel/dts/qcom/ and every board DTB must be covered
 # here or by the filename-derived top-dpad entry.
 #
 # The bootargs column carries only what is SPECIFIC to the board — the args every
 # board gets (quiet, video=efifb:off, console=tty0, ...) live in BOOT_CMDLINE in
-# boot/gen-grub-cfg.sh. In practice that means irqaffinity, pinned to the SoC's
+# boot/gen-bls.sh. In practice that means irqaffinity, pinned to the SoC's
 # LITTLE cluster so device interrupts stay off the big cores: 0-2 on SM8550
 # (3x A510), 0-1 on SM8650 (2x A520). The SM8250 rows carry no irqaffinity, so
 # the kernel's default spread applies there, and their column is empty. The SM8550

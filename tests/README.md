@@ -24,7 +24,7 @@ are invoked directly there rather than through `make test-disk` — a failure na
 
 ## What is here
 
-- **Boot and update** — `test-bootctl.sh`, `test-post-install.sh`, `test-stage2-grub.sh`,
+- **Boot and update** — `test-bootctl.sh`, `test-post-install.sh`, `test-bls.sh`,
   `test-update.sh`, `test-units.sh`, `test-coredump-limit.sh`.
 - **Storage and layout** — `test-partition-table.sh`, `test-select-target.sh`, `test-carve.sh`,
   with `lib-gptfixture.sh` rebuilding the real captured

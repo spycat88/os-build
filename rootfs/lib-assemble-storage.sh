@@ -18,7 +18,7 @@
 #  - the player user (uid 1000) is baked into the base /etc (customize-base.sh); /home/player is
 #    laid down at image-build time (image/lib-homestage.sh). ROMs, saves and states live on /home.
 #  The shared ESP is also fstab-mounted here, at /esp (Phase 5). It is the partition's only mount
-#  definition: GPT bit 63 (partition-table.txt) keeps gpt-auto from auto-mounting it at /efi.
+#  definition: GPT bit 63 (partition-table.txt) keeps gpt-auto from auto-mounting it at /efi or /boot.
 echo "  injecting first-boot storage: /home mount + grow (player user baked in base)"
 mkdir -p "$stage/etc"
 #
@@ -27,15 +27,27 @@ mkdir -p "$stage/etc"
 # names whichever disk udev enumerated first — and udev publishes ONE symlink per duplicate name, so
 # the loser gets none at all. /dev/retroforge/* is the same set of links scoped to the disk we booted
 # from (usr/lib/udev/rules.d/69-retroforge-bootdisk.rules + usr/lib/retroforge/on-boot-disk), which is
-# the only disk either of these mounts can correctly mean. It matters most for the ESP: the ESP GRUB
-# counts tries in the booted disk's grubenv, and RAUC's mark-good clears them through this mount — on
-# the wrong ESP the count climbs every boot until the ESP GRUB fails over a healthy slot, and the
-# other install's slot state is stamped over. Both grubenvs look alike, so nothing downstream can notice.
-if ! grep -q '/dev/retroforge/RETROFORGE-ESP' "$stage/etc/fstab" 2>/dev/null; then
+# the only disk either of these mounts can correctly mean. It matters most for the ESP: OpenABL counts
+# tries in the booted disk's Boot Loader Specification entry names, and RAUC's mark-good resets them
+# through this mount. On the wrong ESP the count runs down every boot until OpenABL fails over a
+# healthy slot, and the other install's entries are rewritten. Both ESPs look alike, so nothing
+# downstream can notice.
+if ! grep -q '/dev/retroforge/RETROFORGE' "$stage/etc/fstab" 2>/dev/null; then
   printf '%s\n' \
-    '# retroforge shared ESP — the ESP GRUB + its grubenv (RAUC slot state). Mounted here at /esp; GPT bit 63' \
-    '# keeps gpt-auto away so the initramfs can mount the slot efi partition at /efi instead.' \
-    '/dev/retroforge/RETROFORGE-ESP  /esp  vfat  defaults,nofail,noatime  0 2' \
+    '# retroforge shared ESP — loader.conf (the primary slot) + OpenABL Device model DTBs. Mounted at /esp;' \
+    '# GPT bit 63 keeps gpt-auto away from it.' \
+    '/dev/retroforge/RETROFORGE  /esp  vfat  defaults,nofail,noatime  0 2' \
+    >>"$stage/etc/fstab"
+fi
+# Both slots' boot partitions, where each slot's boot entries, kernel and DTBs live (lib-bls.sh).
+# retroforge-bootctl reads and writes the slot state there, for the slot it did NOT boot as much as
+# for the one it did, so both are reachable at fixed paths. Automounted: nothing touches them on a
+# normal boot until RAUC or mark-good asks. systemd creates the mountpoints under /run itself.
+if ! grep -q '/dev/retroforge/retroforge-boot-A' "$stage/etc/fstab" 2>/dev/null; then
+  printf '%s\n' \
+    '# retroforge per-slot boot partitions: each slot BLS entries, kernel, initramfs and DTBs.' \
+    '/dev/retroforge/retroforge-boot-A  /run/retroforge/bootfs/a  vfat  noauto,x-systemd.automount,nofail,noatime  0 0' \
+    '/dev/retroforge/retroforge-boot-B  /run/retroforge/bootfs/b  vfat  noauto,x-systemd.automount,nofail,noatime  0 0' \
     >>"$stage/etc/fstab"
 fi
 if ! grep -q '/dev/retroforge/retroforge-home' "$stage/etc/fstab" 2>/dev/null; then

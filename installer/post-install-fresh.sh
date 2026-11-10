@@ -4,16 +4,16 @@
 #
 # Named in the config installer/rauc-session.sh synthesizes, so it runs inside that session, after
 # RAUC has written and unmounted the one slot it knows about. It is a DISTINCT handler from
-# /usr/lib/rauc/post-install.sh rather than a mode of it: that one needs /esp, /efi, the
-# grubenv, the booted slot's handoff and a running /var to rsync, and on a disk with no retroforge
+# /usr/lib/rauc/post-install.sh rather than a mode of it: that one needs /esp and its boot
+# entries, the booted slot's handoff and a running /var to rsync, and on a disk with no retroforge
 # on it none of those exist. What the two do share is lib-slotwrite.sh, sourced below, which is where the
 # reasoning for each primitive lives.
 #
 # THE DIVISION OF LABOUR WITH THE SPINE, because it is not obvious and it is the thing to keep:
 # this handler owns the SLOT, retroforge-install owns the DISK. So the fsid and the per-slot /var are
 # here -- they are true of the bytes RAUC just wrote, whatever disk they landed on -- while the efi
-# partitions, the shared ESP, /home and the slot state in the grubenv are the spine's, because they
-# describe a layout RAUC knows nothing about.
+# partitions, the shared ESP, /home and the slot state in the boot entries are the spine's, because
+# they describe a layout RAUC knows nothing about.
 #
 # WHY THE fsid IS RANDOMISED ON A *FRESH* INSTALL, where there is no second slot to alias against.
 # mkfs.btrfs bakes an fsid into the superblock and every image we build also has devid=1, which is
@@ -31,8 +31,8 @@ PROG=${0##*/}
 log() { printf '[%s] %s\n' "$PROG" "$1"; }
 die() { printf '[%s] ERROR: %s\n' "$PROG" "$1" >&2; exit 1; }
 
-# A fresh install writes slot A and only slot A. B is left empty and B_OK=0, matching the release
-# card's shape so the ESP GRUB only ever tries A rather than switching into a slot that has no
+# A fresh install writes slot A and only slot A. B is left empty with no boot entry, matching the
+# release card's shape so OpenABL only ever boots A rather than switching into a slot that has no
 # kernel; the first OTA fills it. So this is a constant, not a decision.
 SLOT=A
 

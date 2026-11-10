@@ -3,16 +3,15 @@
 #
 # One Image serves EVERY supported SoC/board: a single arm64 kernel built with the union of all
 # config fragments, all out-of-tree patches, and all device trees. Every board DTB is staged
-# alongside it and the stage-2 grub.cfg picks one per menu entry.
+# alongside it, and each Boot Loader Specification entry names the one for its board.
 #
-# vmlinuz.efi, an EFI zboot image: the Image, gzip-compressed, behind a PE stub that unpacks it.
-# The stage-2 GRUB boots ($slotroot)/boot/vmlinuz.efi, and reading is what costs there (~7 MB/s
-# through the firmware's block driver; see kernel.config). GRUB needs no decompressor for it --
-# which grubaa64.efi lacks, the reason this staged the plain Image before -- so only vmlinuz.efi
-# is staged. Image.gz is not built: nothing boots it.
+# vmlinuz is Image.gz, the Image gzip-compressed, with no EFI zboot wrapper: OpenABL inflates it
+# itself and starts the kernel's EFI stub. It boots the slot's copy off the slot's boot partition,
+# and reading is what costs there (~7 MB/s through the firmware's block driver; see kernel.config),
+# so the compressed image is the one staged.
 #
 # Steps: fetch+verify pinned tarball -> apply all patches -> inject all device trees ->
-# merge all config fragments -> build vmlinuz.efi + every dtb + modules -> stage for image assembly.
+# merge all config fragments -> build Image.gz + every dtb + modules -> stage for image assembly.
 #
 #   kernel/build.sh           # no SoC argument — the build is unified
 set -euo pipefail
@@ -218,14 +217,14 @@ fi
   #   =y  NETFILTER_NETLINK: no prompt of its own, so it is here only through NF_TABLES' select.
   #       Without it systemd execs modprobe at every unit start and waits (kernel.config, nfnetlink),
   #       a boot-time cost with no failure anywhere to show it.
-  #   =y  EFI_ZBOOT + KERNEL_GZIP: vmlinuz.efi is the only kernel staged, so without ZBOOT there is
-  #       nothing to stage; zstd in place of gzip still boots, and measured no faster (kernel.config).
+  #   =n  EFI_ZBOOT: the kernel ships as the plain Image.gz, which OpenABL inflates (kernel.config).
+  #       Checked separately below, before the build, since an unset symbol reads "undef".
   #   =y  RD_ZSTD: the initramfs is zstd (image/mkinitramfs.sh). Without it the kernel cannot
   #       unpack it and panics before any log reaches a disk.
   #   =y  CPU_IDLE + ARM_PSCI_CPUIDLE: without them every core idles in WFI, a battery and heat
   #       cost with no other symptom. defconfig had CPU_IDLE only through ACPI's select.
   for pair in CFG80211=m MAC80211=m TOUCHSCREEN_CHIPONE_TDDI=m VIDEO_QCOM_IRIS=m VIDEO_QCOM_VENUS=m \
-              NETFILTER_NETLINK=y EFI_ZBOOT=y KERNEL_GZIP=y RD_ZSTD=y CPU_IDLE=y ARM_PSCI_CPUIDLE=y \
+              NETFILTER_NETLINK=y RD_ZSTD=y CPU_IDLE=y ARM_PSCI_CPUIDLE=y \
               BLK_DEV_DM=y DM_VERITY=y VFAT_FS=y BLK_DEV_LOOP=y \
               ZRAM=y ZRAM_BACKEND_ZSTD=y \
               DRM_MSM=y PCIE_QCOM=y PCI_PWRCTRL_GENERIC=y MMC_SDHCI_MSM=y SCSI_UFSHCD=y \
@@ -303,7 +302,10 @@ fi
     }
   done
 
-  make ARCH=arm64 "${CC[@]}" -j"$(nproc)" vmlinuz.efi dtbs modules
+  case "$(scripts/config --file .config --state EFI_ZBOOT)" in
+    y) echo "[retroforge] EFI_ZBOOT is set: the build would make vmlinuz.efi, not Image.gz" >&2; exit 1 ;;
+  esac
+  make ARCH=arm64 "${CC[@]}" -j"$(nproc)" Image.gz dtbs modules
 
   # Qualcomm clocks, pinctrl and interconnect still built for a SoC no board here has: what a
   # kernel bump adds to defconfig after trim-qcom-socs.config was written. A symbol counts when
@@ -338,8 +340,8 @@ fi
 
 # --- Stage artifacts for image assembly ---
 OUT="$ROOT/out"; mkdir -p "$OUT/dtbs"
-cp "$SRCDIR/arch/arm64/boot/vmlinuz.efi" "$OUT/"
-rm -f "$OUT/Image" "$OUT/Image.gz"   # leftovers from an older out/ would be stale, and nothing reads them
+cp "$SRCDIR/arch/arm64/boot/Image.gz" "$OUT/vmlinuz"
+rm -f "$OUT/Image" "$OUT/Image.gz" "$OUT/vmlinuz.efi"   # leftovers from an older out/ would be stale, and nothing reads them
 for b in "${BOARDS[@]}"; do cp "$QCOM_DTS/${b}.dtb" "$OUT/dtbs/"; done
 
 # Install loadable modules into a staging tree consumed by rootfs/assemble-rootfs.sh.
@@ -353,4 +355,4 @@ rm -rf "$MODROOT"
   make ARCH=arm64 "${CC[@]}" INSTALL_MOD_PATH="$MODROOT" INSTALL_MOD_STRIP=1 modules_install
 )
 find "$MODROOT/lib/modules" -maxdepth 2 -type l \( -name build -o -name source \) -delete
-echo "[retroforge] staged vmlinuz.efi + ${#BOARDS[@]} dtbs + modules in $OUT"
+echo "[retroforge] staged vmlinuz + ${#BOARDS[@]} dtbs + modules in $OUT"

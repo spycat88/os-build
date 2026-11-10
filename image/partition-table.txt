@@ -4,12 +4,15 @@
 # a shared ESP, A/B boot partitions, A/B read-only Btrfs roots, A/B /var, and a shared
 # /home. RAUC writes the inactive rootfs/var slot, then the bootloader switches on success.
 #
-# efi-a/efi-b are each a slot's STAGE 2 home: the ESP GRUB on the shared ESP picks a slot and hands
-# over to \EFI\steamos\grub.cfg on that slot's efi partition, which boots the kernel in the slot
-# root's /boot. Each carries the stage-2 config + parts.env. The stage-2 tree is ~2.3M; these are
-# 128M for a filesystem reason, not a capacity one -- see the FAT block near the rows.
+# boot-a/boot-b are each a slot's BOOT partition: its Boot Loader Specification entries
+# (\loader\entries\retroforge-<slot>+N.conf and a debug entry), and the kernel, initramfs and DTBs
+# they name, copied out of the slot's root. OpenABL ranks the entries of every FAT filesystem on the
+# boot drive as one list, so a slot with no tries left falls behind the other slot's entry whichever
+# partition is scanned first. The shared ESP keeps what is per-disk rather than per-slot: loader.conf
+# (the primary slot) and OpenABL's Device model DTBs. A slot's tree is ~30M; these are 128M for a
+# filesystem reason, not a capacity one -- see the FAT block near the rows.
 #
-# All 8 partitions mirror the SteamOS layout exactly (esp, efi-A/B, rootfs-A/B, var-A/B, home).
+# All 8 partitions mirror the SteamOS layout exactly (esp, boot-A/B, rootfs-A/B, var-A/B, home).
 #
 #   p8 home  — the player user's home. Two build-time choices, neither a layout divergence:
 #              it is created with an empty player home (image/lib-homestage.sh), and a factory
@@ -17,10 +20,10 @@
 #              a separate SD-card image. And home must stay LAST on disk: retroforge-grow-home
 #              expands it to fill the card on first boot, so nothing may follow it.
 #
-# efi-a/efi-b are typed 0700 (Microsoft basic data), NOT ef00 — exactly as SteamOS types
+# boot-a/boot-b are typed 0700 (Microsoft basic data), NOT ef00 — exactly as SteamOS types
 # them. Only p1 is an EFI System partition, and keeping exactly one avoids handing a
-# firmware scan two candidates. The stage-2 config is reached by the ESP GRUB, not by a UEFI
-# firmware scan, so it does not need ef00.
+# firmware scan two candidates. OpenABL reads every FAT filesystem on the boot drive whatever its
+# type, so they do not need ef00.
 #
 # CORRECTION 2026-08-24: this block used to say "the ROCKNIX ABL finds the ESP by type GUID".
 # That is WRONG, and it is load-bearing enough to correct rather than leave — it is the only
@@ -33,8 +36,8 @@
 # user-facing files on its ESP and there is nothing to gain by changing it.
 #
 # The ESP carries GPT bit 63 ("no-auto") for the same reason home does: that GUID would make
-# systemd's gpt-auto generator auto-mount it at /efi, and /efi is the name the initramfs
-# reserves for the SLOT's efi-a/b partition (mounted from steamos.efi=PARTUUID=, phase 5).
+# systemd's gpt-auto generator auto-mount it at /efi or /boot, where nothing
+# of ours expects it.
 # The ESP's one and only mount definition is the /esp entry rootfs/assemble-rootfs.sh puts in
 # /etc/fstab — bit 63 disables the competing generator without touching the type GUID the
 # firmware scans by.
@@ -83,9 +86,9 @@
 # with different logical sector sizes:
 #
 #                       512-byte sectors        4096-byte sectors
-#   esp  256M           516190 clusters  FAT32   65376 clusters  too few for FAT32
-#   efi  128M           258078 clusters  FAT32   32672 clusters  too few for FAT32
-#   efi   64M (was)     129022 clusters  FAT32   16320 clusters  too few for FAT32
+#   esp  256M (was)     516190 clusters  FAT32   65376 clusters  too few for FAT32
+#   esp, boot 128M      258078 clusters  FAT32   32672 clusters  too few for FAT32
+#   boot  64M (was)     129022 clusters  FAT32   16320 clusters  too few for FAT32
 #
 # Every SD card is 512e and every internal UFS in this fleet is 4Kn, so a forced -F 32 produced a
 # valid filesystem on every card ever flashed and an invalid one on every internal install. Nothing
@@ -97,22 +100,25 @@
 #   esp at 256M   ABL's own FatPkg refuses the volume (EFI_VOLUME_CORRUPTED, EnhancedFatDxe/Init.c
 #                 checks MaxCluster < 65525), never produces a SimpleFileSystem handle for it, and
 #                 LoadEFI reports "Failed to load EFI: Not Found" without reading a byte of it.
-#   efi at 64M    the ESP is fine, ABL loads stage 1, and steamcl (stage 1 then) could not mount
-#                 efi-A/B for the same reason -- so it found no boot candidate and printed "Boot
+#   boot at 64M   the ESP is fine, ABL loads stage 1, and steamcl (stage 1 then) could not mount
+#                 boot-A/B for the same reason -- so it found no boot candidate and printed "Boot
 #                 failed, waiting 5s".
 # Both are the same defect. The fix is the filesystem TYPE, not the partition size: growing the ESP
 # to 512M also worked, and was reverted, because it wasted space to buy what FAT16 gives for free.
 #
-# efi-a/efi-b ARE 128M rather than 64M, and that IS about size: at 64M/4Kn even FAT16 lands 7
+# The ESP is 128M too: it holds only loader.conf now (each slot's DTBs are on its boot partition),
+# and 128M is the smallest size this table already proves at both sector sizes.
+#
+# boot-a/boot-b ARE 128M rather than 64M, and that IS about size: at 64M/4Kn even FAT16 lands 7
 # clusters above the FAT12 boundary, which is a margin decided by mkfs.fat's reserved-sector
-# arithmetic rather than by us. 128M gives 8188 -- twice the floor. The content is ~2.3M either way.
+# arithmetic rather than by us. 128M gives 8188 -- twice the floor. The content is ~30M either way.
 #
 # tests/test-partition-table.sh asserts all of this against the table alone, at both sector sizes.
 #
 # name      size  typecode  fs        label            attrs
-esp         256M  ef00      vfat      RETROFORGE-ESP     63
-efi-a       128M  0700      vfat      retroforge-efi-A   -
-efi-b       128M  0700      vfat      retroforge-efi-B   -
+esp         128M  ef00      vfat      RETROFORGE         63
+boot-a      128M  0700      vfat      retroforge-boot-A  -
+boot-b      128M  0700      vfat      retroforge-boot-B  -
 rootfs-a    2G    8300      btrfs     retroforge-root-A  -
 rootfs-b    2G    8300      btrfs     retroforge-root-B  -
 var-a       256M  8300      ext4      retroforge-var-A   -

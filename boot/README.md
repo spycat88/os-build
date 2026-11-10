@@ -1,116 +1,152 @@
 # boot/
 
-The UEFI boot chain:
+The UEFI boot chain is one step:
 
 ```
-ABL (OpenABL)  →  the ESP GRUB (\EFI\BOOT\bootaa64.efi)  →  stage-2 grub.cfg (the slot's efi-A/B)  →  kernel in the slot root
-                  picks the SLOT from RAUC's state in        picks the BOARD (OpenABL's Device
-                  \EFI\steamos\grubenv, counts its tries     model, else the saved choice, else
-                                                             a menu), loads vmlinuz.efi + initramfs +
-                                                             that board's DTB from the slot root
+ABL (OpenABL)  →  kernel + initramfs + DTB of one Boot Loader Specification entry,
+                  \loader\entries\retroforge-<slot>+N.conf on that slot's boot partition,
+                  picked by the ESP's loader.conf default and the entry's boot counter
 ```
 
-Two choices, made in two places. Which **slot** boots is RAUC's state (`bootloader=grub`:
-`ORDER`, `A_OK`/`A_TRY`, `B_OK`/`B_TRY` in the ESP's grubenv), read by the ESP GRUB, which gives a
-slot three tries before it boots the other one. Which **board** this is — one image serves all of
-them — comes from OpenABL's Device model when it is set, and otherwise from the stage-2 menu,
-asked once and saved.
+There is no second-stage loader. OpenABL reads Boot Loader Specification Type #1 entries
+(`\loader\entries\*.conf`) and starts the kernel an entry names, with that entry's `initrd`,
+`devicetree` and `options`. Each slot has its own FAT partition for what boots it, and an entry's
+paths resolve on the partition the entry sits on:
+
+```
+boot-a  \loader\entries\retroforge-a+3.conf      slot A's entry, three tries left
+        \loader\entries\retroforge-debug-a.conf  slot A booted verbosely, uncounted
+        \vmlinuz-<kernel version>            slot A's kernel, initramfs and DTBs, copied out of root A
+        \initramfs-<kernel version>.img
+        \dtbs\<board>.dtb
+boot-b  the same for B
+ESP     \loader\loader.conf                    default retroforge-<primary>.conf
+```
+
+A slot entry looks like this:
+
+```
+title RetroForge (Slot A)
+version <build version>
+sort-key retroforge
+linux /vmlinuz-<kernel version>
+initrd /initramfs-<kernel version>.img
+options <kernel command line>
+```
+
+An entry names no `devicetree`. OpenABL installs the DTB of its **Device model** setting, read from
+the `\dtbs` of the partition the entry it boots sits on (`HandoverPrepare` with the entry's own
+filesystem, `Efi/Models.c`), so slot A boots with boot-a's DTBs and slot B with boot-b's. Set the
+Device model in OpenABL's menu once per device.
+
+The debug entry is the same with the title `RetroForge (Slot A, debug)`, no `sort-key`, no counter,
+and a verbose command line: no `quiet` or splash, `loglevel=7`, and systemd's unit status on the
+console. With no sort-key it lists after both slot entries, so it is picked by hand from OpenABL's
+menu, and is booted unattended only when neither slot has a try left.
+
+OpenABL ranks the entries of every FAT filesystem on the boot drive as one list, as the
+specification does for an ESP plus an XBOOTLDR partition, and reads `loader.conf` from whichever of
+them has one (spycat88/openabl, branch `bls-boot-entries`). Without that, the ranking and the
+default would be per partition, and a slot out of tries would still be booted first whenever the
+firmware listed its partition first.
+
+The booted system mounts the ESP at `/esp` and the two boot partitions at
+`/run/retroforge/bootfs/a` and `/run/retroforge/bootfs/b`, all from `/etc/fstab` (the boot partitions
+by automount).
 
 | File | Purpose |
 |---|---|
-| `grub.pin` | Pinned source: the **GNU GRUB 2.14 release tarball** from ftp.gnu.org. |
-| `patches/grub/` | Our delta on it: framebuffer rotation, the `retroforge` module, and the `Makefile.core.def` stanza that builds it. Applied lexically, like `kernel/patches/`. |
-| `grub.sh` | Cross-build → `out/boot/{grub-esp.efi, grubaa64.efi, grub-a.cfg, grub-b.cfg, fonts/, grubenv, grub-editenv, steamcl-version}`. |
-| `gen-esp-cfg.sh <out>` | Generate the slot picker embedded in `grub-esp.efi`. No toolchain. |
-| `gen-grub-cfg.sh <A\|B> <out>` | Generate one slot's stage-2 `grub.cfg`. No toolchain — `tests/test-stage2-grub.sh` runs both generators directly. |
-| `boards.map` | Build-time board catalog: `id⇥name⇥dtb⇥bootargs`. Cross-checked against the runtime device profiles by that test. |
-| `esp-dtbs.sh <out> <dtb>...` | The DTBs the ESP carries in `\dtbs\qcom` for OpenABL's Device model list (see below). |
+| `gen-bls.sh <out>` | Generate `boards.tsv` (id⇥name⇥dtb⇥model⇥bootargs, one row per bootable board) and `cmdline` (the args every entry carries). No toolchain — `tests/test-bls.sh` runs it directly. Both are installed in the root under `/usr/lib/retroforge/boot/`. |
+| `boards.map` | Build-time board catalog: `id⇥name⇥dtb⇥bootargs`. Cross-checked against the runtime device profiles by `tests/test-bls.sh`. |
+| `splash-dtbs.sh <out> <dtb>...` | The DTBs with a splash region added where a tree has none: each boot partition's `dtbs\` (see below). |
 
-## The ESP GRUB
+The entries themselves are written on the device, or into the card image, by one set of functions
+in `rootfs/overlay/usr/lib/retroforge/install/lib-bls.sh`, because what goes in them is per disk
+(the PARTUUIDs of the slot's partitions) and per device (the board).
 
-`grub-esp.efi` is GRUB with `gen-esp-cfg.sh`'s config in a memdisk; its embedded config is the one
-plain command `normal (memdisk)/esp.cfg` (an embedded config runs under the rescue parser, which has
-no `if`). The config reads the grubenv, picks the first slot in `ORDER` that is OK, has tries left
-(`TRY` 0, 1 or 2) and has both a stage-2 config and a kernel, counts the try, sets `$root`/`$prefix`
-to that slot's efi partition and sources the stage-2 `grub.cfg` there, as if it had been loaded off
-that partition.
-It tells the stage-2 config, through `rf_retry`/`rf_fallback`, whether this boot is another try or
-a fall-back, which is when the stage-2 menu is shown.
+## The slot state: three tries, then the other slot
 
-RAUC reads any `TRY` above 0 as "not good", and its `set-primary`, `mark-good` and `mark-bad`
-write `TRY=0`, so the three-try count means nothing to it. `retroforge-boot-good.service` confirms a
-healthy boot with `rauc status mark-good booted`; a failed health check demotes with `mark-bad`.
+The A/B state is in the entry file names, as in systemd's Automatic Boot Assessment, which OpenABL
+implements. Before it boots a counted entry, OpenABL renames it: `retroforge-a+3.conf` becomes
+`retroforge-a+2-1.conf`, then `+1-2`, then `+0-3`. An entry with no tries left is "bad": OpenABL
+sorts it last and the `loader.conf` default no longer matches it, so the other slot boots.
 
-Where the slots are comes from `\EFI\steamos\parts.env` on the ESP, else from the first partition
-on the boot disk that carries one, else the card layout's indices.
+Every boot is counted. `retroforge-boot-good.service` confirms a healthy boot with
+`retroforge-bootctl mark-good`, which runs `rauc status mark-good booted` and so puts the booted
+slot's counter back to `+3`. Three boots in a row that never get that far and the other slot takes
+over. `systemd-bless-boot.service`, which would strip the counter and end the counting, is masked.
 
-**Roots from before the ESP GRUB.** The first update into a root that has it is installed by the
-older root's hook, which copies `/usr/lib/retroforge/boot/steamcl.efi` onto the ESP — so that name
-is a link to `grub-esp.efi`, and the hook installs the ESP GRUB without knowing it. Such roots arm
-a slot by writing `\SteamOS\conf\<slot>.conf`; the ESP GRUB follows a change there once
-(`rf_bcsync`), and boots an older root through its own stage-2 config. Roots with the ESP GRUB never
-write those files, so once no older root is left this never fires. The post-install hook refuses
-to install a root without `grub-esp.efi`: going back past the switch is a reflash.
+RAUC drives this through `bootloader=custom`, with `retroforge-bootctl` as the backend:
 
-## The board, and OpenABL's Device model
+| RAUC asks | retroforge-bootctl does |
+|---|---|
+| `get-primary` | the `loader.conf` default if that slot is good, else the other slot if it is |
+| `set-primary X` | X's counter back to `+3`, then `default retroforge-x.conf` |
+| `get-state X` | `good` while X's entry has tries left, `bad` when it has none or there is no entry |
+| `set-state X good` | X's counter back to `+3` |
+| `set-state X bad` | X's counter to `+0`: OpenABL boots the other slot |
+| `get-current` | the booted slot, from `retroforge.slot=` on the kernel command line |
 
-OpenABL installs the DTB of its Device model setting, read from the boot drive, before it starts
-an EFI program. `retroforge_dt_model` reads that tree's root `model`, and the stage-2 config maps it
-to the entry for that board (every board .dts's root model). A model we know wins over the saved
-choice and replaces it, so once a Device model is set the board is changed in OpenABL's menu. Only
-the name is used: the entry boots the slot's own DTB.
+## An update
 
-The ESP's `\dtbs\qcom` copies are what OpenABL lists and installs. They are the real DTBs plus a
-`/reserved-memory/splash_region` where a tree has none, because OpenABL 1.2 powers the display down
-at the hand-over when the tree it installed has no splash region.
+RAUC writes the inactive slot's root, then runs `/usr/lib/rauc/post-install.sh`, which:
 
-With no Device model, the first boot stops at the stage-2 board menu and waits; the choice is
-saved in the grubenv (`saved_entry`) and the menu is hidden from then on. It comes back for 3s on a
-retry of a board that has never had a boot confirmed (`mark-good` records `rf_board_ok`), and when no
-slot has tries left — not on every retry, because a device shut down before its confirmation is not
-a wrong board.
+1. removes the target slot's entries from its boot partition, so nothing boots a half-written slot;
+2. seeds the target's `/var`;
+3. builds the new entries from the NEW root's `boards.tsv`, `cmdline` and `release` (build and
+   kernel version), for the board the running devicetree names, and replaces the target's boot
+   partition's kernel, initramfs and DTBs with the new root's;
+4. writes the debug entry and `retroforge-<slot>+3.conf` there, and makes the slot the
+   `loader.conf` default on the ESP.
+
+The new slot then gets its three tries. If none reaches `mark-good`, OpenABL falls back to the old
+slot, whose entry was never touched.
+
+A root from before this boot chain has no `boards.tsv` or `release` to write an entry from, so the
+hook refuses it, and the GRUB-era hook refuses a BLS root (it has no `grub-esp.efi`). Moving between
+the two is a reflash.
+
+## A fresh card, and the board
+
+One image serves every board, and the board decides the DTB and part of the command line. So a card
+leaves the build with no slot entries, only setup entries on boot-a: one per board, all for slot A,
+uncounted, titled `RetroForge (Slot A, <board>)`, and a `loader.conf` on the ESP with
+`timeout menu-force`, so OpenABL shows them as a menu. The first
+healthy boot's `mark-good` then writes the slot entries for the board it came up on (looked up by
+the running devicetree's `model` in `boards.tsv`), makes the booted slot the default and removes
+the setup entries. An interruption before that leaves the menu, never nothing.
+
+The internal installer and the update hook run on a device that has already booted, so they read
+the board off the running devicetree and go straight to slot entries.
+
+The boot partitions' `\dtbs` are also what OpenABL lists its Device models from (the name, the
+panel rotation). They are the real DTBs plus a `/reserved-memory/splash_region` where a tree has
+none, because OpenABL 1.2 powers the display down at the hand-over when the tree it installed has no
+splash region.
 
 ## The kernel command line
 
-There is no `boot/cmdline` any more. The EFI stub **overwrites** `/chosen/bootargs` with the
-loader's command line, so every argument has to be on the `linux` line or it is silently dropped —
-which is why the board args moved out of the DTS `/chosen/bootargs` too. They come together in
-`gen-grub-cfg.sh`:
+The EFI stub **overwrites** `/chosen/bootargs` with the loader's command line, so every argument
+has to be on the entry's `options` line or it is silently dropped — which is why the board args are
+not in the DTS `/chosen/bootargs`. They come together in `bls_cmdline`:
 
 | Part | Source |
 |---|---|
-| common args | `BOOT_CMDLINE` in `gen-grub-cfg.sh` |
+| common args | `BOOT_CMDLINE` + `SESSION_CMDLINE` in `gen-bls.sh`, shipped as `cmdline` |
 | board args | the fourth column of `boards.map` |
-| `root=` `retroforge.var=` `retroforge.efi=` | per slot, as `PARTUUID=` read out of the GPT at boot with `probe --part-uuid`; `PARTLABEL=` from `image/partition-table.txt` is the announced fallback |
+| `root=` `retroforge.var=` | per slot, as `PARTUUID=`, read off the disk the entry is written for |
 | `retroforge.slot=` `rauc.slot=` | per slot, stated outright — a PARTUUID carries no slot letter, and RAUC finds the booted slot from `rauc.slot=` |
 
 The specs are `PARTUUID=` because every retroforge medium carries the same eight GPT names: with a
 card inserted on a device installed to internal storage, `PARTLABEL=` resolves to whichever disk
-enumerates first. The UUIDs are derived from the disk at boot, so they name that disk by
-construction and no update has to rewrite them. This needs `probe` in the embedded `MODULES` — an
-unembedded module is an "unknown command" that leaves the variable unset and takes the fallback on
-every boot, so `tests/test-stage2-grub.sh` asserts the module list.
-
-## The retroforge module
-
-`grub-esp.efi` and `grubaa64.efi` embed one module of ours:
-
-```
-retroforge_dt_model VAR                 # VAR := the root model of the devicetree the firmware installed
-retroforge_conf_get FILE KEY VAR        # VAR := the value of `KEY:` in FILE (an older root's boot conf)
-retroforge_bootattempts <image-name>    # only older roots' stage-2 configs still call this
-```
-
-The first two only read, through GRUB's own drivers, and leave `VAR` unset when there is nothing to
-report. The third writes `\SteamOS\conf\<image>.conf` through the firmware's `EFI_FILE_PROTOCOL`
-(GRUB's `fat` driver is read-only); it stays for as long as older roots' stage-2 configs exist.
+enumerates first.
 
 ## Building
 
 ```sh
-make grub
+make bootdata
 ```
 
-The binaries reach a card through `image/make-sdcard.sh`, and reach an updated slot through the
-RAUC post-install hook, which takes them from `/usr/lib/retroforge/boot/` inside the root it just
-installed — so a root and the software that boots it always come from one build.
+`boards.tsv`, `cmdline` and `release` reach the root through `rootfs/lib-assemble-boot.sh`, and a card through
+`image/make-sdcard.sh`. An updated slot takes them from inside the root it just installed, so a
+root and the entry that boots it always come from one build.

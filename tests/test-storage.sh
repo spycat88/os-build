@@ -188,7 +188,7 @@ W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 # short-circuit then turned into "this card is system storage". HW-caught 2026-09-02 on an
 # internally-installed device: `automount.sh: skipping /dev/mmcblk0p1: this system runs from it`.
 # The stub for storage_disk_of stands in for block devices this host does not have.
-printf 'slot=A\nsource=grub\nroot=/dev/mmcblk9p4\nvar=/dev/mmcblk9p6\n' >"$W/boot"
+printf 'slot=A\nsource=bls\nroot=/dev/mmcblk9p4\nvar=/dev/mmcblk9p6\n' >"$W/boot"
 out="$(RETROFORGE_BOOTINFO="$W/boot" bash -c '
   . '"$LIB"'
   storage_disk_of() { printf "%s\n" "${1##*/}" | sed "s/p[0-9]*$//"; }
@@ -371,7 +371,7 @@ isours() { # <partlabel> -- prints yes or no
 }
 [ "$(isours retroforge-home)" = yes ] && ok "retroforge-home is ours" || bad "retroforge-home reads as a plain card"
 [ "$(isours retroforge-var-A)" = yes ] && ok "and so is retroforge-var-A" || bad "retroforge-var-A reads as a plain card"
-[ "$(isours RETROFORGE-ESP)" = yes ] && ok "and RETROFORGE-ESP" || bad "RETROFORGE-ESP reads as a plain card"
+[ "$(isours RETROFORGE)" = yes ] && ok "and RETROFORGE" || bad "RETROFORGE reads as a plain card"
 # format-device.sh names the card it formats retroforge-library, and that card must keep mounting.
 [ "$(isours retroforge-library)" = no ] && ok "a card we formatted for storage is a plain card" \
   || bad "retroforge-library is refused: every formatted card stops mounting"

@@ -7,37 +7,30 @@
 # WHY THIS FILE EXISTS. The hook is the most destructive program we ship: it runs `mkfs.ext4` and
 # `btrfstune -f -U` against a partition it picks itself, from the initramfs handoff's slot= -- and
 # RAUC's exported slot names are only ever allowed to disagree with that answer, never to supply it.
-# It is also the one writer of the slot state (ORDER, <slot>_OK, <slot>_TRY in the ESP's grubenv)
-# that acts behind RAUC's back, mid-install. tests/test-bootctl.sh covers the other writer of that
-# block; this covers the hook, which nothing else executes before hardware does.
+# It is also the one writer of the slot state (the Boot Loader Specification entries on the shared
+# ESP, lib-bls.sh) that acts behind RAUC's back, mid-install. tests/test-bootctl.sh covers the other
+# writer; this covers the hook, which nothing else executes before hardware does.
 #
-# ORDER IS THE POINT. The hook's own header calls its steps load-bearing, and every one of them is
-# an ORDERING claim rather than a value: the target is disarmed (<T>_OK=0) before anything is
-# touched, the fsid is re-randomised before anything mounts the target (or a mount of the target can
-# silently hand you the RUNNING root — same fsid, same devid=1), the slot witness is written after
-# the wholesale copy that would otherwise clobber it, the ESP GRUB is the last file written to the
-# ESP, and the re-arm (ORDER target-first, <T>_OK=1, <T>_TRY=0) is the last write of all. Values are
-# cheap to check by eye; order is not. So every stub appends to one call log and the assertions are
-# largely `expect_order`.
+# ORDER IS THE POINT. Every step in the hook's header is an ORDERING claim rather than a value: the
+# target's entry is gone before anything is touched, the fsid is re-randomised before anything
+# mounts the target (or a mount of the target can silently hand you the RUNNING root — same fsid,
+# same devid=1), the slot witness is written after the wholesale copy that would otherwise clobber
+# it, and the target's entry is written back only once its files are on the ESP. So the stubs log
+# every call, the storage stubs log which entries were on the ESP at the time, and many assertions
+# are `expect_order`.
 #
 # HOW IT WORKS: the real, shipped post-install.sh is executed — not a copy — through the test seams
-# documented at its head (ESP, EFI, MNT, EFIMNT, VAR, DEVDIR, DEVTEST, EDITENV, BOOTINFO, SHA256).
-# GRUBENV is deliberately left at its default, so the suite also pins where the hook looks for the
-# block ($ESP/EFI/steamos/grubenv, the `grubenv=` of etc/rauc/system.conf). grub-editenv is stubbed
-# through EDITENV: `list` prints the block's key=value lines, `set` edits keys in place and fails on
-# a missing file, and every write is logged. Stubbed on PATH: exactly the commands that would touch
-# real storage (mount, umount, mkfs.ext4, btrfstune, btrfs, rsync) plus `mountpoint`. Each storage
-# stub models the effect the hook depends on — mkfs empties the backing directory, mount exposes it
-# at the mountpoint, rsync copies — so what the run actually leaves on the target slot and the ESP
-# is asserted, not assumed.
+# documented at its head (ESP, MNT, VAR, DEVDIR, DEVTEST, BOOTINFO) and lib-bls.sh's (BLKID,
+# DT_MODEL). Stubbed on PATH: exactly the commands that would touch real storage (mount, umount,
+# mkfs.ext4, btrfstune, btrfs, rsync) plus `mountpoint` and `blkid`. Each storage stub models the
+# effect the hook depends on — mkfs empties the backing directory, mount exposes it at the
+# mountpoint, rsync copies — so what the run actually leaves on the target slot and the ESP is
+# asserted, not assumed.
 #
-# WHAT IT CANNOT COVER, so that nobody reads a green run as more than it is: whether btrfstune's new
-# fsid actually stops the kernel aliasing the two roots, whether rsync's real --one-file-system
-# skips our offload bind mounts, whether 256M is enough for the copy, whether real grub-editenv
-# accepts the writes, and whether the ESP GRUB reads the keys the way they are asserted here. Those
-# need the device. On macOS, also not the fsid value itself: there is no /proc/sys/kernel/random/uuid,
-# so btrfstune is handed an empty -U and the stub cannot tell. This asserts that the hook asks for
-# the right things, in the right order, and refuses to act on a target it cannot prove.
+# WHAT IT CANNOT COVER: whether btrfstune's new fsid actually stops the kernel aliasing the two
+# roots, whether rsync's real --one-file-system skips our offload bind mounts, and whether OpenABL
+# boots the entry written here. Those need the device. This asserts that the hook asks for the right
+# things, in the right order, and refuses to act on a target it cannot prove.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -50,70 +43,55 @@ OUT=""; RC=0; RAUC_SLOTS=""
 ok()  { PASS=$((PASS+1)); printf '  ok   %s -- %s\n' "$CASE" "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s -- %s\n' "$CASE" "$1"; }
 
-# GNU stat on the device and in CI, BSD stat on a Mac.
-mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
+MODEL="ACME Handheld One"
 
 # --- sandbox ------------------------------------------------------------------------------------
 #
 # Slot devices are regular files under $SB/dev (hence DEVTEST=-e), and each one's "filesystem" is a
 # directory under $SB/fs named after it. `mount` symlinks the mountpoint at that directory, `umount`
-# removes the symlink, `mkfs.ext4` empties it. That is enough to model everything the hook does with
-# a mounted slot, and it means a hook that mounted the WRONG device would read and write visibly
-# wrong contents rather than passing.
+# removes the symlink, `mkfs.ext4` empties it. A hook that mounted the WRONG device would read and
+# write visibly wrong contents rather than passing.
 #
 # Layout in play, mirroring the device:
-#   $SB/efi      = the RUNNING slot's efi partition, mounted at $EFI (EFI/steamos/parts.env)
-#   $SB/esp      = the shared ESP, mounted at $ESP (EFI/steamos/grubenv, EFI/BOOT/bootaa64.efi, ...)
+#   $SB/esp      = the shared ESP, mounted at $ESP: loader/loader.conf
+#   $SB/bootfs/<s>  = slot <s>'s boot partition ($BOOTPARTS/<s>): loader/entries/, vmlinuz-<kver>, ...
 #   $SB/var      = the RUNNING /var
 #   $SB/run/boot = the initramfs handoff ($BOOTINFO)
-#   $SB/fs/retroforge-root-<s>, retroforge-var-<s>, retroforge-efi-<s> = the six slot filesystems
-
-GRUBENV_F=""   # set by sandbox(); the block the hook finds by default under $ESP
+#   $SB/model    = the running devicetree's model ($DT_MODEL)
+#   $SB/fs/retroforge-root-<s>, retroforge-var-<s>, retroforge-boot-<s> = the six slot filesystems
 
 sandbox() {
   SB="$(mktemp -d)"
-  GRUBENV_F="$SB/esp/EFI/steamos/grubenv"
-  mkdir -p "$SB"/{bin,dev,fs,log,run,var,mnt,efimnt} \
-           "$SB/esp/EFI/steamos" "$SB/esp/EFI/BOOT" \
-           "$SB/efi/EFI/steamos"
+  mkdir -p "$SB"/{bin,dev,fs,log,run,var,mnt} "$SB/esp/loader" \
+           "$SB/bootfs/a/loader/entries" "$SB/bootfs/b/loader/entries"
   : >"$SB/log/calls"
-
-  touch "$SB"/dev/retroforge-{root,var,efi}-{A,B}
-  local s b f
+  touch "$SB"/dev/retroforge-{root,var,boot}-{A,B}
+  printf '%s\0' "$MODEL" >"$SB/model"
+  local s r b
   for s in A B; do
-    b="$SB/fs/retroforge-root-$s/usr/lib/retroforge/boot"
-    mkdir -p "$b/fonts" "$b/dtbs" \
-             "$SB/fs/retroforge-efi-$s/EFI/steamos" \
-             "$SB/fs/retroforge-var-$s/lib/retroforge"
-    # The boot files inside each installed root, each naming the root and file it came from, so an
-    # assertion says exactly which root -- and which slot's grub-<slot>.cfg -- a copy was taken from.
-    for f in grub-esp.efi grubaa64.efi grub-a.cfg grub-b.cfg fonts/dejavu-mono.pf2 \
-             dtbs/one.dtb dtbs/two.dtb; do
-      printf 'ROOT-%s %s\n' "$s" "${f##*/}" >"$b/$f"
-    done
-    # What the root still ships for an older hook updating into it (rootfs/lib-assemble-boot.sh).
-    # This hook must not put any of it on the ESP.
-    ln -s grub-esp.efi "$b/steamcl.efi"
-    printf '1.%s\n'         "$s" >"$b/steamcl-version"
-    printf 'OLD-FONT-%s\n'  "$s" >"$b/fonts/default.pf2"
-    # Stale stage 2 on the target efi, so a missed refresh is visible rather than invisible; and the
-    # partition's own parts.env, which an update must never take away.
-    printf 'OLD-EFI-GRUB-%s\n' "$s" >"$SB/fs/retroforge-efi-$s/EFI/steamos/grubaa64.efi"
-    printf 'PARTS-ON-EFI-%s\n' "$s" >"$SB/fs/retroforge-efi-$s/EFI/steamos/parts.env"
+    r="$SB/fs/retroforge-root-$s"
+    b="$r/usr/lib/retroforge/boot"
+    mkdir -p "$r/boot" "$b/dtbs" "$SB/fs/retroforge-boot-$s" "$SB/fs/retroforge-var-$s/lib/retroforge"
+    # Each file names the root it came from, so an assertion says which root a copy was taken from.
+    printf 'ROOT-%s vmlinuz\n' "$s" >"$r/boot/vmlinuz"
+    printf 'ROOT-%s initramfs\n'   "$s" >"$r/boot/initramfs-retroforge.img"
+    printf 'ROOT-%s one.dtb\n' "$s" >"$b/dtbs/qcs8550-acme-one.dtb"
+    printf 'ROOT-%s two.dtb\n' "$s" >"$b/dtbs/qcs8550-acme-two.dtb"
+    printf '# id\tname\tdtb\tmodel\tbootargs\n' >"$b/boards.tsv"
+    printf 'acme-one\tACME One %s\tqcs8550-acme-one\t%s\tirqaffinity=0-2\n' "$s" "$MODEL" >>"$b/boards.tsv"
+    printf 'acme-two\tACME Two\tqcs8550-acme-two\tACME Handheld Two\t\n' >>"$b/boards.tsv"
+    printf 'quiet root-%s-cmdline\n' "$s" >"$b/cmdline"
+    printf 'version=2.0-%s\nkernel=6.18.4\n' "${s,,}" >"$b/release"
     # Stale state on the target /var, so a missing reformat is visible rather than invisible.
     printf 'stale\n' >"$SB/fs/retroforge-var-$s/lib/retroforge/leftover-from-the-last-install"
+    # What the ESP carries for each slot from the build before.
+    # What each slot's boot partition carries from the build before: an older kernel version.
+    mkdir -p "$SB/bootfs/${s,,}/dtbs"
+    printf 'OLD-%s vmlinuz\n' "$s" >"$SB/bootfs/${s,,}/vmlinuz-6.1.0"
+    printf 'OLD-%s initramfs\n'   "$s" >"$SB/bootfs/${s,,}/initramfs-6.1.0.img"
+    printf 'OLD-%s gone.dtb\n'    "$s" >"$SB/bootfs/${s,,}/dtbs/qcs8550-gone.dtb"
+    printf 'OLD-%s-DEBUG\n'       "$s" >"$SB/bootfs/${s,,}/loader/entries/retroforge-debug-${s,,}.conf"
   done
-
-  # The running efi: the parts.env the ESP is refreshed from, plus the partsets a device upgraded
-  # from the steamcl boot chain still carries. Nothing may read or copy those any more.
-  printf 'PARTS-ON-RUNNING-EFI\n' >"$SB/efi/EFI/steamos/parts.env"
-  mkdir -p "$SB/efi/SteamOS/partsets"
-  for f in all shared A B dev; do printf 'partset-%s\n' "$f" >"$SB/efi/SteamOS/partsets/$f"; done
-  printf 'A\n' >"$SB/efi/SteamOS/partsets/self"
-
-  # The old ESP GRUB is stale on purpose.
-  printf 'OLD-ESP-GRUB\n' >"$SB/esp/EFI/BOOT/bootaa64.efi"
-
   boot_from A
   seed_var
   write_stubs
@@ -121,17 +99,16 @@ sandbox() {
 done_() { rm -rf "$SB"; }
 t() { CASE="$1"; RAUC_SLOTS=""; sandbox; }
 
-write_grubenv() {  # <key=value>...
-  { printf '# GRUB Environment Block\n'; printf '%s\n' "$@"; } >"$GRUBENV_F"
-}
-
-# The initramfs handoff, and the grubenv as RAUC leaves it when it starts the hook: its set-primary
-# has already run, so the target is first in ORDER and OK.
+# The initramfs handoff, and the ESP as RAUC leaves it when it starts the hook: its set-primary has
+# already run, so the target's counter is back to +3 and loader.conf's default names it.
 boot_from() {  # <A|B>
   local booted="$1" target=A
   [ "$booted" = A ] && target=B
-  printf 'slot=%s\nsource=partuuid\n' "$booted" >"$SB/run/boot"
-  write_grubenv "ORDER=$target $booted" A_OK=1 A_TRY=0 B_OK=1 B_TRY=0
+  printf 'slot=%s\nsource=bls\n' "$booted" >"$SB/run/boot"
+  rm -f "$SB"/bootfs/[ab]/loader/entries/retroforge-[ab]*.conf
+  printf 'RUNNING-%s-ENTRY\n' "$booted" >"$SB/bootfs/${booted,,}/loader/entries/retroforge-${booted,,}+3.conf"
+  printf 'OLD-%s-ENTRY\n' "$target"     >"$SB/bootfs/${target,,}/loader/entries/retroforge-${target,,}+3.conf"
+  printf 'default retroforge-%s.conf\n' "${target,,}" >"$SB/esp/loader/loader.conf"
 }
 
 # A running /var with the pieces that have to survive an update, plus the two that must not.
@@ -150,7 +127,7 @@ seed_var() {
 write_stubs() {
   cat >"$SB/bin/mount" <<'EOF'
 #!/bin/sh
-echo "mount $*" >>"$SB/log/calls"
+echo "mount $* entries=[$(ls "$SB/bootfs/a/loader/entries" "$SB/bootfs/b/loader/entries" | grep '^retroforge-[ab]+.*conf$' | sort | tr '\n' ' ')]" >>"$SB/log/calls"
 [ -e "$SB/fail-mount" ] && exit 32
 prev=; last=
 for a in "$@"; do prev=$last; last=$a; done
@@ -176,7 +153,7 @@ mkdir -p "$SB/fs/${last##*/}"
 EOF
   cat >"$SB/bin/btrfstune" <<'EOF'
 #!/bin/sh
-echo "btrfstune $*" >>"$SB/log/calls"
+echo "btrfstune $* entries=[$(ls "$SB/bootfs/a/loader/entries" "$SB/bootfs/b/loader/entries" | grep '^retroforge-[ab]+.*conf$' | sort | tr '\n' ' ')]" >>"$SB/log/calls"
 [ -e "$SB/fail-btrfstune" ] && exit 1
 exit 0
 EOF
@@ -199,58 +176,34 @@ cp -a "$prev." "$last" || exit 1
 EOF
   cat >"$SB/bin/mountpoint" <<'EOF'
 #!/bin/sh
-[ -e "$SB/fail-esp" ] && exit 1
+for a in "$@"; do p=$a; done
+case "$p" in
+  */esp)   [ -e "$SB/fail-esp" ] && exit 1 ;;
+  */bootfs/*) [ -e "$SB/fail-boot-${p##*/}" ] && exit 1 ;;
+esac
 exit 0
 EOF
-  # grub-editenv, reached through the hook's EDITENV seam. The block is kept as its signature line
-  # plus key=value lines, which is all `list` shows of a real one. `set` replaces a key in place or
-  # appends it, and refuses a file that is not there -- the hook has to find RAUC's block, not make
-  # one. Every write is logged for the order assertions; `list` is the suite reading the result, so
-  # it is not.
-  cat >"$SB/bin/grub-editenv" <<'EOF'
-#!/usr/bin/env bash
-set -u
-f="${1:-}"; cmd="${2:-}"
-shift 2 2>/dev/null || shift $#
-case "$cmd" in
-  list)
-    [ -f "$f" ] || { echo "grub-editenv: $f: No such file or directory" >&2; exit 1; }
-    sed '/^#/d' "$f" ;;
-  set)
-    echo "grub-editenv $f set $*" >>"$SB/log/calls"
-    [ -f "$f" ] || { echo "grub-editenv: $f: No such file or directory" >&2; exit 1; }
-    [ -e "$SB/fail-editenv" ] && { echo "grub-editenv stub: failing on purpose" >&2; exit 1; }
-    if [ -e "$SB/fail-rearm" ]; then
-      for kv in "$@"; do
-        case "$kv" in ORDER=*) echo "grub-editenv stub: failing the re-arm on purpose" >&2; exit 1 ;; esac
-      done
-    fi
-    for kv in "$@"; do
-      case "$kv" in *=*) ;; *) echo "grub-editenv stub: '$kv' is not key=value" >&2; exit 2 ;; esac
-      k="${kv%%=*}"
-      if grep -q "^$k=" "$f"; then
-        awk -v k="$k=" -v kv="$kv" 'index($0, k) == 1 { print kv; next } { print }' "$f" >"$f.tmp"
-      else
-        { cat "$f"; printf '%s\n' "$kv"; } >"$f.tmp"
-      fi
-      mv "$f.tmp" "$f"
-    done ;;
-  *)
-    echo "grub-editenv $f $cmd $*" >>"$SB/log/calls"
-    echo "grub-editenv stub: unknown command $cmd" >&2; exit 2 ;;
-esac
+  # blkid, through lib-bls.sh's BLKID seam: a partition's PARTUUID is its device's name, upper case
+  # as blkid can print it, so an entry that names the wrong partition says which one.
+  cat >"$SB/bin/blkid" <<'EOF'
+#!/bin/sh
+for a in "$@"; do dev=$a; done
+[ -e "$SB/fail-blkid" ] && exit 2
+[ -e "$dev" ] || exit 2
+basename "$dev" | tr 'a-z' 'A-Z'
 EOF
   chmod +x "$SB/bin"/*
 }
 
 # Run the SHIPPED hook against the sandbox.
-run() { # [KEY=VAL ...]  -- leading assignments are passed to the hook, as in test-publish-bundle.sh
+run() { # [KEY=VAL ...]  -- leading assignments are passed to the hook
   local env_extra=()
   while [ $# -gt 0 ] && [[ $1 == *=* ]]; do env_extra+=("$1"); shift; done
   [ -n "$RAUC_SLOTS" ] && env_extra+=(RAUC_TARGET_SLOTS="$RAUC_SLOTS")
   OUT=$(env PATH="$SB/bin:$PATH" SB="$SB" \
-            ESP="$SB/esp" EFI="$SB/efi" MNT="$SB/mnt" EFIMNT="$SB/efimnt" VAR="$SB/var" \
-            DEVDIR="$SB/dev" DEVTEST=-e EDITENV="$SB/bin/grub-editenv" BOOTINFO="$SB/run/boot" \
+            ESP="$SB/esp" BOOTPARTS="$SB/bootfs" MNT="$SB/mnt" VAR="$SB/var" \
+            DEVDIR="$SB/dev" DEVTEST=-e BOOTINFO="$SB/run/boot" \
+            BLKID=blkid DT_MODEL="$SB/model" \
             "${env_extra[@]}" bash "$HOOK" 2>&1)
   RC=$?
   return 0
@@ -270,7 +223,6 @@ expect_no_call() {
   grep -q -- "$1" "$SB/log/calls" \
     && bad "must not call '$1'; log was: $(tr '\n' ';' <"$SB/log/calls")" || ok "never called: $1"
 }
-# The assertion this file is mostly made of.
 expect_order() {  # <earlier> <later>
   local i j
   i=$(grep -n -m1 -- "$1" "$SB/log/calls" | cut -d: -f1)
@@ -279,8 +231,7 @@ expect_order() {  # <earlier> <later>
   [ -n "$j" ] || { bad "order: '$2' never happened"; return; }
   [ "$i" -lt "$j" ] && ok "'$1' before '$2'" || bad "'$1' came AFTER '$2' (lines $i, $j)"
 }
-# The same, over the hook's own log lines -- the ESP copies are plain cp, so this is where they show.
-expect_said_order() {  # <earlier> <later>
+expect_said_order() {  # <earlier> <later> -- over the hook's own log lines
   local i j
   i=$(printf '%s\n' "$OUT" | grep -n -m1 -- "$1" | cut -d: -f1)
   j=$(printf '%s\n' "$OUT" | grep -n -m1 -- "$2" | cut -d: -f1)
@@ -289,47 +240,39 @@ expect_said_order() {  # <earlier> <later>
   [ "$i" -lt "$j" ] && ok "said '$1' before '$2'" || bad "said '$1' AFTER '$2' (lines $i, $j)"
 }
 
-# The slot state, read back through the stub's `list` the way RAUC would read it.
-envval() { SB="$SB" "$SB/bin/grub-editenv" "$GRUBENV_F" list 2>/dev/null | sed -n "s/^$1=//p" | tail -1; }
-expect_env() {  # <key> <value>
-  local got; got=$(envval "$1")
-  [ "$got" = "$2" ] && ok "grubenv $1=$2" || bad "grubenv $1: expected '$2', got '$got'"
+# The slot state on the ESP.
+entries() { ls "$SB/bootfs/a/loader/entries" "$SB/bootfs/b/loader/entries" | grep '^retroforge-[ab]+.*\.conf$' | sort | tr '\n' ' ' | sed 's/ $//'; }
+default_() { sed -n 's/^default //p' "$SB/esp/loader/loader.conf"; }
+expect_entries() {  # <space-separated names>
+  [ "$(entries)" = "$1" ] && ok "entries: $1" || bad "entries: expected '$1', got '$(entries)'"
 }
-last_env_write() { grep 'grub-editenv' "$SB/log/calls" | tail -1; }
+expect_default() {
+  [ "$(default_)" = "$1" ] && ok "loader.conf default $1" || bad "loader.conf default: expected '$1', got '$(default_)'"
+}
 
-# Contents of the target slot's filesystems, i.e. what the updated slot will actually boot with.
 tvar() { printf '%s' "$SB/fs/retroforge-var-$1"; }
-tefi() { printf '%s' "$SB/fs/retroforge-efi-$1"; }
 expect_file() {  # <path> <content>
-  [ -f "$1" ] || { bad "missing on the target: ${1#"$SB/fs/"}"; return; }
+  [ -f "$1" ] || { bad "missing: ${1#"$SB/"}"; return; }
   local got; got=$(cat "$1")
-  [ "$got" = "$2" ] && ok "${1#"$SB/fs/"} = '$2'" || bad "${1#"$SB/fs/"}: expected '$2', got '$got'"
+  [ "$got" = "$2" ] && ok "${1#"$SB/"} = '$2'" || bad "${1#"$SB/"}: expected '$2', got '$got'"
 }
 expect_absent() {
-  [ -e "$1" ] && bad "must not exist on the target: ${1#"$SB/fs/"}" || ok "absent: ${1#"$SB/fs/"}"
+  [ -e "$1" ] && bad "must not exist: ${1#"$SB/"}" || ok "absent: ${1#"$SB/"}"
 }
-expect_esp() {  # <name> <content>
-  [ -f "$SB/esp/$1" ] || { bad "no /$1 on the ESP"; return; }
-  local got; got=$(cat "$SB/esp/$1")
-  [ "$got" = "$2" ] && ok "/$1 = '$2'" || bad "/$1: expected '$2', got '$got'"
-}
-expect_no_esp() {  # <name>
-  [ -e "$SB/esp/$1" ] && bad "must not exist on the ESP: /$1" || ok "not on the ESP: /$1"
-}
-# Nothing destructive happened and RAUC's own state is exactly as it left it.
+expect_esp() { expect_file "$SB/esp/$1" "$2"; }
+expect_boot() { expect_file "$SB/bootfs/$1/$2" "$3"; }  # <a|b> <path> <content>
+# Nothing destructive happened and RAUC's own arming is exactly as it left it.
 expect_untouched() {
-  expect_no_call 'grub-editenv'
   expect_no_call 'btrfstune'
   expect_no_call 'mkfs.ext4'
   expect_no_call 'mount'
-  expect_env B_OK 1
-  expect_esp EFI/BOOT/bootaa64.efi 'OLD-ESP-GRUB'
+  expect_entries "retroforge-a+3.conf retroforge-b+3.conf"
+  expect_boot b vmlinuz-6.1.0 'OLD-B vmlinuz'
 }
-# Disarmed, and never re-armed: the ESP GRUB skips a slot that is not OK.
+# The target has no entry, so OpenABL boots the running slot.
 expect_nothing_armed() {
-  expect_env B_OK 0
-  expect_env B_TRY 0
-  expect_no_call 'set ORDER='
+  [ -z "$(ls "$SB/bootfs/b/loader/entries" | grep 'conf$')" ] && ok "slot B's partition has no entry" \
+    || bad "slot B still has an entry: $(entries)"
   expect_hasnt 're-armed for a trial boot'
 }
 
@@ -339,12 +282,12 @@ t "the-target-is-the-slot-we-did-not-boot"
 run
 expect_rc 0
 expect_has "target slot B"
-expect_call 'grub-editenv .*set B_OK=0 B_TRY=0'
 expect_call 'btrfstune .*retroforge-root-B'
 expect_call 'btrfs filesystem label .*retroforge-root-B retroforge-root-B'
 expect_call 'mkfs.ext4 .*retroforge-var-B'
-expect_call "mount $SB/dev/retroforge-efi-B"
-expect_env ORDER 'B A'
+expect_call "mount -o ro $SB/dev/retroforge-root-B"
+expect_entries "retroforge-a+3.conf retroforge-b+3.conf"
+expect_default retroforge-b.conf
 done_
 
 t "a-handoff-naming-b-targets-a"
@@ -352,25 +295,17 @@ boot_from B
 run
 expect_rc 0
 expect_has "target slot A"
-expect_call 'grub-editenv .*set A_OK=0 A_TRY=0'
 expect_call 'btrfstune .*retroforge-root-A'
-expect_call 'btrfs filesystem label .*retroforge-root-A retroforge-root-A'
 expect_call 'mkfs.ext4 .*retroforge-var-A'
-expect_file "$(tefi A)/EFI/steamos/grub.cfg" 'ROOT-A grub-a.cfg'
-expect_esp EFI/BOOT/bootaa64.efi 'ROOT-A grub-esp.efi'
-expect_env ORDER 'A B'
-expect_env A_OK 1
-expect_env B_OK 1                # the running slot's values are not the hook's to move
+expect_boot a vmlinuz-6.18.4 'ROOT-A vmlinuz'
+expect_boot b vmlinuz-6.1.0 'OLD-B vmlinuz'
+expect_default retroforge-a.conf
+expect_file "$SB/bootfs/b/loader/entries/retroforge-b+3.conf" 'RUNNING-B-ENTRY'
 expect_no_call 'retroforge-root-B'
 expect_no_call 'retroforge-var-B'
-expect_no_call 'B_OK'
 done_
 
-t "the-handoff-outranks-every-older-witness"
-# Two things on the device still name a slot and must not get a say: the partsets a device upgraded
-# from the steamcl chain carries on its efi (the old answer, through steamos-bootconf this-image),
-# and the running /var's slot witness. Both say B here; the handoff says A, so the target is B.
-printf 'B\n' >"$SB/efi/SteamOS/partsets/self"
+t "the-handoff-outranks-the-var-witness"
 printf 'B\n' >"$SB/var/lib/retroforge/slot"
 run
 expect_rc 0
@@ -380,17 +315,16 @@ expect_no_call 'retroforge-var-A'
 done_
 
 t "the-running-slot-is-never-touched"
-# The failure this rules out is unrecoverable and silent: mkfs on the RUNNING /var. Nothing else in
-# the suite would notice, because every other assertion is about the target.
+# The failure this rules out is unrecoverable and silent: mkfs on the RUNNING /var, or the running
+# slot's entry or kernel replaced.
 run
 expect_rc 0
 expect_no_call 'retroforge-var-A'
 expect_no_call 'retroforge-root-A'
-expect_no_call 'retroforge-efi-A'
-expect_no_call 'A_OK'
-expect_no_call 'A_TRY'
-expect_env A_OK 1
-expect_env A_TRY 0
+expect_no_call 'retroforge-boot-A'
+expect_file "$SB/bootfs/a/loader/entries/retroforge-a+3.conf" 'RUNNING-A-ENTRY'
+expect_boot a vmlinuz-6.1.0 'OLD-A vmlinuz'
+expect_boot a initramfs-6.1.0.img 'OLD-A initramfs'
 done_
 
 t "rauc-disagreeing-is-fatal"
@@ -399,7 +333,7 @@ run
 expect_rc 1
 expect_has "refusing"
 expect_untouched               # it dies before the disarm, so RAUC's own arming is left as it was
-expect_env ORDER 'B A'
+expect_default retroforge-b.conf
 done_
 
 t "rauc-agreeing-proceeds"
@@ -410,8 +344,6 @@ expect_call 'mkfs.ext4 .*retroforge-var-B'
 done_
 
 t "an-unrecognised-rauc-slot-name-is-not-a-veto"
-# The cross-check is RAUC's value against ours, and ours is authoritative. A name we cannot map is
-# no evidence of disagreement, so it must not block an install.
 RAUC_SLOTS="rootfs.9"
 run
 expect_rc 0
@@ -429,7 +361,7 @@ expect_untouched
 done_
 
 t "a-slot-that-is-not-an-image-name-is-refused"
-printf 'slot=dev\nsource=partuuid\n' >"$SB/run/boot"
+printf 'slot=dev\nsource=bls\n' >"$SB/run/boot"
 run
 expect_rc 1
 expect_has "no slot= in"
@@ -449,104 +381,70 @@ rm -f "$SB/dev/retroforge-var-B"
 run
 expect_rc 1
 expect_has "no block device"
-expect_untouched               # the device checks run before the disarm too
-done_
-
-echo "== preflight: every tool the run needs is asserted before step 0 =="
-
-t "a-missing-hasher-dies-before-anything-destructive"
-# The preflight exists because the two ways of losing the comparator fail in OPPOSITE directions and
-# only one of them is survivable. A missing `cmp` (what shipped until 2026-08-05) exits non-zero, so
-# the guard degrades to always-copy: wasteful, but the bytes end up right. A missing hasher inside
-# $(...) yields two EMPTY strings that compare equal, so the ESP is never refreshed at all and a new
-# root boots against the old ESP GRUB. That one is silent and wrong, hence a hard assertion.
-#
-# It has to fire before step 0. By the use site in step 3 the target's fsid is randomised and its
-# /var reformatted, so dying there leaves an unbootable slot and a run that cannot simply be redone.
-run SHA256=retroforge-no-such-hasher
-expect_rc 1
-expect_has "retroforge-no-such-hasher is missing"
 expect_untouched
 done_
 
-t "a-missing-editenv-dies-before-anything-destructive"
-# Without grub-editenv the hook can neither disarm nor re-arm. Found out at step 4, that is a slot
-# fully prepared and never armed; found out at step 0, it is still a run that cannot be made safe.
-run EDITENV=retroforge-no-such-editenv
-expect_rc 1
-expect_has "retroforge-no-such-editenv is missing"
-expect_untouched
-done_
+echo "== preflight: everything the entry needs is asserted before step 0 =="
 
-t "a-missing-grubenv-dies-before-anything-destructive"
-# No block at $ESP/EFI/steamos/grubenv means the ESP is not where it should be, or not RAUC's. The
-# stub's `set` would refuse too, but the hook must not get as far as asking.
-rm -f "$GRUBENV_F"
+t "a-boot-partition-that-is-not-mounted-dies-before-anything-destructive"
+# The automount failed (or the partition is missing): nothing to disarm, nothing to re-arm.
+touch "$SB/fail-boot-b"
 run
 expect_rc 1
-expect_has "no grubenv at $SB/esp/EFI/steamos/grubenv"
-expect_no_call 'grub-editenv'
-expect_no_call 'btrfstune'
-expect_no_call 'mkfs.ext4'
-[ -e "$GRUBENV_F" ] && bad "a grubenv was created" || ok "no grubenv was created"
-expect_esp EFI/BOOT/bootaa64.efi 'OLD-ESP-GRUB'
+expect_has "slot B's boot partition is not mounted"
+expect_untouched
+done_
+
+t "unreadable-partuuids-die-before-anything-destructive"
+touch "$SB/fail-blkid"
+run
+expect_rc 1
+expect_has "cannot read the PARTUUIDs of slot B"
+expect_untouched
+done_
+
+t "an-unreadable-model-dies-before-anything-destructive"
+run DT_MODEL="$SB/no-such-model"
+expect_rc 1
+expect_has "cannot read this device's devicetree model"
+expect_untouched
 done_
 
 echo "== order: every step of the header, as an assertion =="
 
 t "the-target-is-disarmed-before-the-fsid-is-touched"
-# RAUC's set-primary armed the target before calling us. Step 0 takes that back before anything
-# makes the slot half-prepared.
 run
 expect_rc 0
-expect_order 'grub-editenv .*set B_OK=0 B_TRY=0' 'btrfstune'
-expect_order 'grub-editenv .*set B_OK=0 B_TRY=0' 'mkfs.ext4'
+expect_call 'btrfstune .* entries=\[retroforge-a+3.conf \]'
+expect_said_order 'disarmed slot B' 'fsid randomised'
 done_
 
 t "the-fsid-is-randomised-before-anything-mounts-the-target"
-# Step 1 exists because until btrfstune has run the target and the running root share an fsid AND
-# devid=1, and mounting the target can hand you the running root. Every later step mounts it.
 run
 expect_rc 0
-expect_order 'btrfstune' 'mount -o ro'
-expect_call 'btrfstune -f -U'
+expect_order 'btrfstune' 'mount '
+expect_order 'btrfs filesystem label' 'mount '
 done_
 
 t "var-is-reformatted-before-it-is-copied-into"
 run
 expect_rc 0
 expect_order 'mkfs.ext4' 'rsync'
-expect_order 'mkfs.ext4' "mount $SB/dev/retroforge-var-B"
 done_
 
 t "the-target-var-is-unmounted-before-the-root-is-mounted"
 run
 expect_rc 0
-expect_order "umount $SB/mnt" 'mount -o ro'
+expect_order "umount $SB/mnt" "mount -o ro $SB/dev/retroforge-root-B"
 done_
 
-t "the-esp-grub-is-the-last-file-written-to-the-esp"
-# ABL starts /EFI/BOOT/bootaa64.efi if it is there, and the shared ESP has no A/B copy behind it, so
-# the one file with nothing to roll back to goes after everything the ESP GRUB reads.
+t "the-entry-comes-back-only-after-the-slot-files"
+# Until the kernel and initramfs on the ESP are the new root's, an entry for the target would boot
+# the old build's kernel against the new root.
 run
 expect_rc 0
-expect_said_order 'refreshed .*/EFI/steamos/parts.env' 'refreshed .*/EFI/BOOT/bootaa64.efi'
-expect_said_order 'refreshed .*/dtbs/qcom/two.dtb'     'refreshed .*/EFI/BOOT/bootaa64.efi'
-done_
-
-t "the-re-arm-is-the-last-grubenv-write"
-# Two writes and only two: the disarm and the re-arm. The re-arm comes after the target efi is
-# written and unmounted and after the ESP GRUB is in place -- the slot is genuinely bootable by then.
-run
-expect_rc 0
-case "$(last_env_write)" in
-  *"set ORDER=B A B_OK=1 B_TRY=0") ok "the last grubenv write is the re-arm" ;;
-  *) bad "the last grubenv write is not the re-arm: $(last_env_write)" ;;
-esac
-n=$(grep -c 'grub-editenv' "$SB/log/calls")
-[ "$n" = 2 ] && ok "two grubenv writes" || bad "expected 2 grubenv writes, got $n"
-expect_order "umount $SB/efimnt" 'set ORDER='
-expect_said_order 'refreshed .*/EFI/BOOT/bootaa64.efi' 're-armed for a trial boot'
+expect_call "mount -o ro $SB/dev/retroforge-root-B .* entries=\[retroforge-a+3.conf \]"
+expect_said_order 'installed in' 're-armed for a trial boot'
 done_
 
 echo "== /var: wholesale, minus two files named in writing =="
@@ -633,222 +531,141 @@ expect_rc 0
 [ -d "$(tvar B)/lib/overlays/etc/work" ]  && ok "work/ created"  || bad "no overlay work/ on the target"
 done_
 
-echo "== stage 2 on the target efi partition =="
-
-t "the-stage-2-comes-out-of-the-new-root"
-# Not out of the bundle: grubaa64.efi and grub-<slot>.cfg are boot software owned by the same build
-# that ships /boot/vmlinuz.efi and /lib/modules/<ver> inside the rootfs, so taking them from the root
-# makes the pairing true by construction. The target efi started with stale OLD-EFI-GRUB content,
-# and the root carries both slots' configs, so the grub.cfg must be the TARGET's.
-run
-expect_rc 0
-expect_call 'mount -o ro .*retroforge-root-B'
-expect_file "$(tefi B)/EFI/steamos/grubaa64.efi" 'ROOT-B grubaa64.efi'
-expect_file "$(tefi B)/EFI/steamos/grub.cfg" 'ROOT-B grub-b.cfg'
-expect_file "$(tefi B)/EFI/steamos/fonts/dejavu-mono.pf2" 'ROOT-B dejavu-mono.pf2'
-expect_has "stage-2 grub.cfg + font installed on $SB/dev/retroforge-efi-B"
-done_
-
-t "the-efi-partition-is-copied-onto-not-wiped"
-# parts.env on an efi partition says where this medium's partitions are, written once by whoever
-# laid the disk out. An update cannot rebuild it, so it must still be there afterwards.
-run
-expect_rc 0
-expect_file "$(tefi B)/EFI/steamos/parts.env" 'PARTS-ON-EFI-B'
-done_
-
-t "the-efi-partition-gets-no-partsets"
-# steamcl read SteamOS/partsets off the efi partition; the stage-2 grub.cfg reads parts.env. The
-# running efi still carries the old partsets here, and none of it may follow onto the target.
-run
-expect_rc 0
-expect_absent "$(tefi B)/SteamOS"
-done_
-
-t "a-root-with-no-stage-2-is-fatal-and-leaves-the-esp-alone"
-rm -f "$SB/fs/retroforge-root-B/usr/lib/retroforge/boot/grubaa64.efi"
-run
-expect_rc 1
-expect_has "carries no stage-2 GRUB"
-expect_nothing_armed
-expect_esp EFI/BOOT/bootaa64.efi 'OLD-ESP-GRUB'
-done_
-
-t "a-root-from-before-the-esp-grub-is-refused"
-# A root without grub-esp.efi predates the GRUB boot chain: its userspace drives a boot conf the ESP
-# GRUB only follows. Going back past the switch is a reflash, so neither its efi partition nor the
-# ESP may be written.
-rm -f "$SB/fs/retroforge-root-B/usr/lib/retroforge/boot/grub-esp.efi"
-run
-expect_rc 1
-expect_has "predates the GRUB boot chain"
-expect_no_call "mount $SB/dev/retroforge-efi-B"
-expect_file "$(tefi B)/EFI/steamos/grubaa64.efi" 'OLD-EFI-GRUB-B'
-expect_esp EFI/BOOT/bootaa64.efi 'OLD-ESP-GRUB'
-expect_no_esp EFI/steamos/parts.env
-expect_no_esp dtbs/qcom/one.dtb
-expect_nothing_armed
-done_
-
 echo "== the shared ESP =="
 
-t "the-esp-grub-is-refreshed-from-the-new-root"
-# ABL starts /EFI/BOOT/bootaa64.efi, so that is the copy that matters, and it is the same build as
-# the stage 2 just written.
+t "the-slot-files-come-out-of-the-new-root"
+# Not out of the bundle: the kernel, initramfs and DTBs ship inside the rootfs, so taking them from
+# the root makes the pairing true by construction.
 run
 expect_rc 0
-expect_esp EFI/BOOT/bootaa64.efi 'ROOT-B grub-esp.efi'
-expect_has "refreshed $SB/esp/EFI/BOOT/bootaa64.efi"
+expect_boot b vmlinuz-6.18.4 'ROOT-B vmlinuz'
+expect_boot b initramfs-6.18.4.img 'ROOT-B initramfs'
+expect_boot b dtbs/qcs8550-acme-one.dtb 'ROOT-B one.dtb'
+expect_boot b dtbs/qcs8550-acme-two.dtb 'ROOT-B two.dtb'
+expect_absent "$SB/bootfs/b/dtbs/qcs8550-gone.dtb"
+expect_absent "$SB/bootfs/b/vmlinuz-6.1.0"
+expect_absent "$SB/bootfs/b/initramfs-6.1.0.img"
+[ -z "$(find "$SB/bootfs/b" -name '*.new')" ] && ok "no temporary file left on boot-b" || bad "$(find "$SB/bootfs/b" -name '*.new')"
 done_
 
-t "an-identical-esp-grub-is-left-untouched"
-# The skip is not an optimisation. The shared ESP is the only write in the whole update with no A/B
-# copy behind it, so every needless rewrite of the file ABL starts is a power-cut window with
-# nothing to roll back to. Seed the ESP with content already identical to the new root's and assert
-# the file is NOT rewritten -- by mtime, because `cp -f` truncates in place and keeps the inode.
-#
-# WHY THIS CASE EXISTS: the comparison was `cmp -s` from 58e48a8 until 2026-08-05, and cmp is
-# diffutils, which is not in PKGS and has never been on the image. On hardware it was "command not
-# found" -- a non-zero exit, indistinguishable from "the files differ" -- so the skip never once
-# happened in three releases and every OTA rewrote the ESP. run() appends the HOST's PATH after
-# $SB/bin and the host has diffutils, which is precisely why a suite asserting only content could
-# not see it. Assert the skip itself, not the bytes.
-printf 'ROOT-B grub-esp.efi\n' >"$SB/esp/EFI/BOOT/bootaa64.efi"
-touch -t 200101010000 "$SB/esp/EFI/BOOT/bootaa64.efi"
-before=$(mtime "$SB/esp/EFI/BOOT/bootaa64.efi")
+t "the-esp-gets-nothing-but-the-default"
 run
 expect_rc 0
-after=$(mtime "$SB/esp/EFI/BOOT/bootaa64.efi")
-[ "$before" = "$after" ] && ok "bootaa64.efi was not rewritten" \
-  || bad "bootaa64.efi was rewritten despite identical content"
-expect_hasnt "refreshed $SB/esp/EFI/BOOT/bootaa64.efi"
-expect_esp EFI/BOOT/bootaa64.efi 'ROOT-B grub-esp.efi'
-# The dtbs genuinely changed, so the same run must still refresh them -- a skip that skips
-# everything would pass the assertions above and be just as wrong.
-expect_esp dtbs/qcom/one.dtb 'ROOT-B one.dtb'
+[ "$(ls -A "$SB/esp")" = loader ] && [ "$(ls -A "$SB/esp/loader")" = loader.conf ] \
+  && ok "the ESP holds loader.conf alone" || bad "the ESP holds $(cd "$SB/esp" && find . -mindepth 1 | tr '\n' ' ')"
 done_
 
-t "the-esp-gets-parts-env-and-the-dtbs"
-# parts.env comes from the RUNNING efi (where whoever laid the disk out wrote it), not from the
-# target's; OpenABL's \dtbs\qcom comes from the new root.
+t "the-entry-is-written-for-this-board-from-the-new-root"
 run
 expect_rc 0
-expect_esp EFI/steamos/parts.env 'PARTS-ON-RUNNING-EFI'
-expect_esp dtbs/qcom/one.dtb 'ROOT-B one.dtb'
-expect_esp dtbs/qcom/two.dtb 'ROOT-B two.dtb'
+e="$SB/bootfs/b/loader/entries/retroforge-b+3.conf"
+grep -qx 'title RetroForge (Slot B)' "$e" && ok "titled RetroForge (Slot B)" || bad "$(cat "$e")"
+grep -qx 'version 2.0-b' "$e" && ok "the new root's build version" || bad "$(cat "$e")"
+grep -qx 'sort-key retroforge' "$e" && ok "sorts with the slot entries" || bad "$(cat "$e")"
+grep -qx 'linux /vmlinuz-6.18.4' "$e" && ok "the new root's kernel, by version" || bad "$(cat "$e")"
+grep -qx 'initrd /initramfs-6.18.4.img' "$e" && ok "the new root's initramfs, by version" || bad "$(cat "$e")"
+grep -q '^devicetree' "$e" && bad "names a devicetree: $(grep devicetree "$e")" || ok "no devicetree: OpenABL's Device model picks it"
+grep -qx 'options quiet root-B-cmdline irqaffinity=0-2 root=PARTUUID=retroforge-root-b rootfstype=btrfs rootwait ro retroforge.var=PARTUUID=retroforge-var-b retroforge.slot=B rauc.slot=B' "$e" \
+  && ok "the new root's command line, the board's args and slot B's PARTUUIDs" || bad "$(grep options "$e")"
+d="$SB/bootfs/b/loader/entries/retroforge-debug-b.conf"
+grep -qx 'title RetroForge (Slot B, debug)' "$d" && ok "the debug entry is titled RetroForge (Slot B, debug)" || bad "$(cat "$d")"
+grep -q '^sort-key' "$d" && bad "the debug entry has a sort-key: it would rank with the slot entries" \
+                         || ok "the debug entry has no sort-key, so it lists after the slot entries"
+grep -qx 'linux /vmlinuz-6.18.4' "$d" && ok "the debug entry boots the same kernel" || bad "$(cat "$d")"
+grep -qx 'options root-B-cmdline irqaffinity=0-2 root=PARTUUID=retroforge-root-b rootfstype=btrfs rootwait ro retroforge.var=PARTUUID=retroforge-var-b retroforge.slot=B rauc.slot=B loglevel=7 retroforge.splash=0 systemd.show_status=1' "$d" \
+  && ok "the debug entry drops quiet and boots verbosely" || bad "$(grep options "$d")"
 done_
 
-t "no-parts-env-on-the-running-efi-is-not-an-error"
-# A medium from before parts.env existed has none to copy, and the ESP GRUB falls back to a card's
-# built-in indices. Logged, not fatal.
-rm -f "$SB/efi/EFI/steamos/parts.env"
+t "an-unknown-board-leaves-the-esp-alone"
+printf 'Somebody Else\0' >"$SB/model"
 run
-expect_rc 0
-expect_has "no parts.env on $SB/efi"
-expect_no_esp EFI/steamos/parts.env
-expect_esp dtbs/qcom/one.dtb 'ROOT-B one.dtb'
-expect_esp EFI/BOOT/bootaa64.efi 'ROOT-B grub-esp.efi'
-expect_env B_OK 1
+expect_rc 1
+expect_has "is not a board that root knows"
+expect_boot b vmlinuz-6.1.0 'OLD-B vmlinuz'
+expect_file "$SB/bootfs/a/loader/entries/retroforge-a+3.conf" 'RUNNING-A-ENTRY'
+expect_nothing_armed
 done_
 
-t "nothing-of-the-steamcl-chain-goes-onto-the-esp"
-# The root still ships steamcl.efi, steamcl-version and fonts/default.pf2 for an older hook updating
-# into it. This hook installs the ESP GRUB and nothing else in /EFI/BOOT.
+t "a-root-from-before-the-bls-chain-is-refused"
+# Going back past the switch is a reflash: such a root has no board table, and its own hook and
+# bootctl drive a GRUB state nothing reads any more.
+rm -f "$SB/fs/retroforge-root-B/usr/lib/retroforge/boot/boards.tsv"
 run
-expect_rc 0
-expect_no_esp EFI/BOOT/steamcl-version
-expect_no_esp EFI/BOOT/steamcl-restricted
-expect_no_esp EFI/BOOT/fonts
-expect_no_esp EFI/retroforge
+expect_rc 1
+expect_has "predates the BLS boot chain"
+expect_boot b vmlinuz-6.1.0 'OLD-B vmlinuz'
+expect_nothing_armed
+done_
+
+t "a-root-with-no-kernel-is-fatal"
+rm -f "$SB/fs/retroforge-root-B/boot/vmlinuz"
+run
+expect_rc 1
+expect_has "has no /boot/vmlinuz"
+expect_boot b vmlinuz-6.1.0 'OLD-B vmlinuz'
+expect_nothing_armed
 done_
 
 t "an-esp-that-is-not-mounted-is-fatal"
-: >"$SB/fail-esp"
+# Checked before anything is written: the default could not be moved to the new slot.
+touch "$SB/fail-esp"
 run
 expect_rc 1
-expect_has "ESP is not mounted"
-expect_nothing_armed
-expect_esp EFI/BOOT/bootaa64.efi 'OLD-ESP-GRUB'
-expect_no_esp EFI/steamos/parts.env
-expect_no_esp dtbs/qcom/one.dtb
+expect_has "the ESP is not mounted"
+expect_untouched
 done_
 
 echo "== the end state, and every way of not reaching it =="
 
-t "a-completed-run-ends-armed-target-first"
-# Seeded as a handler run OUTSIDE RAUC would find it -- no set-primary, so the running slot is first
-# -- and with tries the target counted while it sat idle. Both belong to the root that was there
-# before: the re-arm puts the target first and gives the trial all three of its tries.
-write_grubenv 'ORDER=A B' A_OK=1 A_TRY=0 B_OK=1 B_TRY=2
+t "a-completed-run-ends-armed-with-three-tries"
 run
 expect_rc 0
-expect_env ORDER 'B A'
-expect_env B_OK 1
-expect_env B_TRY 0
-expect_env A_OK 1
-expect_env A_TRY 0
-expect_has "slot B re-armed for a trial boot"
+expect_entries "retroforge-a+3.conf retroforge-b+3.conf"
+expect_default retroforge-b.conf
+expect_has "re-armed for a trial boot"
+ls "$SB/esp/loader" "$SB/bootfs/b/loader/entries" | grep -q '\.new$' && bad "a temporary file was left on the ESP" \
+  || ok "no temporary file left on the ESP"
+expect_absent "$SB/mnt/usr"
 done_
 
-t "the-grubenv-is-edited-not-recreated"
-# The block is shared: the stage-2 configs keep the board choice in it (saved_entry) and the ESP
-# GRUB its own note (rf_bcsync). The hook moves the target's two values and ORDER, nothing else.
-write_grubenv 'ORDER=B A' A_OK=1 A_TRY=0 B_OK=1 B_TRY=0 saved_entry=ayaneo-pocket-ace rf_bcsync=1
+t "a-target-that-had-run-out-of-tries-gets-them-back"
+mv "$SB/bootfs/b/loader/entries/retroforge-b+3.conf" "$SB/bootfs/b/loader/entries/retroforge-b+0-3.conf"
 run
 expect_rc 0
-expect_env saved_entry ayaneo-pocket-ace
-expect_env rf_bcsync 1
-expect_no_call 'grub-editenv .* create'
+expect_entries "retroforge-a+3.conf retroforge-b+3.conf"
+done_
+
+t "a-handler-run-outside-rauc-still-moves-the-default"
+printf 'default retroforge-a.conf\n' >"$SB/esp/loader/loader.conf"
+run
+expect_rc 0
+expect_default retroforge-b.conf
 done_
 
 t "a-failure-at-the-fsid-leaves-nothing-armed"
-# The whole point of the disarm. RAUC armed the slot before calling us; between step 0 and the last
-# line the target has a freshly mkfs'd /var and no stage 2, so a state pointing at it boots
-# nothing. The failure mode has to be "the install failed, run it again", not "one bad boot, hope
-# the fall-back fires".
-: >"$SB/fail-btrfstune"
+touch "$SB/fail-btrfstune"
 run
 expect_rc 1
-expect_has "fsid"
-expect_no_call 'mkfs.ext4'
 expect_nothing_armed
+expect_default retroforge-b.conf   # names an entry that is not there: OpenABL boots A
+expect_no_call 'mkfs.ext4'
 done_
 
 t "a-failure-during-the-copy-leaves-nothing-armed"
-: >"$SB/fail-rsync"
+touch "$SB/fail-rsync"
 run
 expect_rc 1
 expect_nothing_armed
-expect_esp EFI/BOOT/bootaa64.efi 'OLD-ESP-GRUB'
+expect_boot b vmlinuz-6.1.0 'OLD-B vmlinuz'
 done_
 
-t "the-disarm-failing-stops-the-install-before-it-starts"
-# If we cannot take RAUC's arming back we cannot make the window safe, and proceeding would spend
-# the safety net on a failure we chose to create.
-: >"$SB/fail-editenv"
+t "a-failure-mounting-the-root-leaves-nothing-armed"
+touch "$SB/fail-mount"
 run
 expect_rc 1
-expect_has "cannot disarm"
-expect_no_call 'btrfstune'
-expect_no_call 'mkfs.ext4'
-expect_no_call 'mount'
+expect_nothing_armed
 done_
-
-t "the-re-arm-failing-is-fatal"
-# Everything is in place but the slot is not armed. That has to read as a failed install, not as a
-# success that silently never boots the new slot.
-: >"$SB/fail-rearm"
-run
-expect_rc 1
-expect_has "cannot re-arm slot B"
-expect_call 'set ORDER=B A B_OK=1 B_TRY=0'   # asked for, and refused
-expect_env B_OK 0
-expect_env B_TRY 0
-expect_hasnt 're-armed for a trial boot'
-done_
-
-# --- summary ------------------------------------------------------------------------------------
 
 echo
-printf '%s passed, %s failed\n' "$PASS" "$FAIL"
-[ "$FAIL" = 0 ] || exit 1
+echo "$PASS passed, $FAIL failed"
+[ "$FAIL" = 0 ]

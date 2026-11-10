@@ -37,7 +37,7 @@ done < <(shipped)
 
 echo "--- every path the components name is one that ships ---"
 # The files staged beside them from elsewhere in the tree, and the link assemble makes.
-FOREIGN="genpart.sh lib-gpt.sh lib-homestage.sh lib-slotwrite.sh partition-table.txt confirm"
+FOREIGN="genpart.sh lib-gpt.sh lib-homestage.sh lib-slotwrite.sh lib-bls.sh partition-table.txt confirm"
 missing=""
 while read -r name; do
   shipped | grep -qx "$name" && continue
@@ -83,7 +83,7 @@ guard_tools="$(sed -n 's/^INSTALLER_TOOLS="\(.*\)"$/\1/p' "$GUARD")"
 recon_tools="$(sed -n '/^recon() {/,/^}/p' "$INST/retroforge-install" \
   | sed -n '/for t in/,/; do/p' | sed -e 's/.*for t in//' -e 's/; do//' -e 's/\\//' -e 's/"\$[A-Z0-9_]*"//g')"
 [ -n "${recon_tools// /}" ] && ok "recon()'s list was read" || bad "could not read recon()'s tool list"
-for t in $recon_tools sgdisk mdir sfdisk sha256sum curl gamescope seatd-launch python3 zstd grub-editenv pgrep; do
+for t in $recon_tools sgdisk mdir sfdisk sha256sum curl gamescope seatd-launch python3 zstd pgrep; do
   case " $guard_tools " in *" $t "*) ;; *) bad "$t is called on the install path but the guard does not assert it" ;; esac
 done
 ok "tool list compared"

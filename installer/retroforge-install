@@ -34,22 +34,26 @@
 #   ------------------ everything above is reversible; nothing below is
 #   CONFIRM            §4d. The last point at which the disk is untouched
 #   carve              userdata shrinks, its stale superblock is invalidated, our eight are appended
-#   mkfs               esp, efi-a, efi-b, home. NOT var-a (seed_var reformats it) and NOT var-b
+#   mkfs               esp, boot-a, boot-b, home. NOT var-a (seed_var reformats it) and NOT var-b
 #   rauc               root-a streamed and verified; the handler randomises its fsid and seeds var-a
 #   /home              the empty player home, staged into the partition just created exactly as
 #                      the card stages it
-#   efi-a / efi-b      stage-2 grub.cfg, parts.env -- the map of THIS disk
-#   ESP                grubenv with RAUC's slot state, parts.env, \dtbs\qcom, then the ESP GRUB
-#   bootaa64.efi       THE LAST BYTE WRITTEN. See below
+#   ESP                loader.conf; then slot A's kernel, initramfs and DTBs on boot-a
+#   slot A's entry     THE FILE THAT FLIPS THE DEVICE (its debug entry follows it). See below
 #
-# WHY bootaa64.efi IS LAST, and it is a hardware finding rather than a convention. ABL's test is
-# CONTENT-based: it chainloads /EFI/BOOT/bootaa64.efi from an internal ESP if that file exists, and
-# measured on the Pocket ACE 2026-08-21 an internal ESP that exists but is EMPTY does not divert it
-# at all -- the device came straight back to the card. So every interruption before that one copy
-# leaves a device that still boots the card and can simply be re-run, and only after it
-# does recovery need ABL's "force external". That is the difference between a recoverable device and
-# one the user believes we bricked, and it is bought by ordering alone. refresh_esp_stage1() writes
-# that file last for the same reason.
+# WHY THE ENTRY IS LAST, and it is a hardware finding rather than a convention. The bootloader's
+# test is CONTENT-based: OpenABL boots what it finds on the internal disk's filesystems -- a Boot
+# Loader Specification entry, here -- and measured on the Pocket ACE 2026-08-21 an internal ESP that
+# exists but is EMPTY does not divert it at all -- the device came straight back to the card. So
+# every interruption before that one rename leaves a device that still boots the card and can
+# simply be re-run, and only after it does recovery need the bootloader's "force external". That is
+# the difference between a recoverable device and one the user believes we bricked, and it is
+# bought by ordering alone.
+#
+# The board the entry is written for is the one the card booted with: the running devicetree's
+# model, looked up in the new root's board table. It is checked against the card's own table in
+# recon, before anything is touched, so a board the build does not know is refused while the disk
+# is still untouched.
 #
 # WHAT THIS SCRIPT DOES NOT DO, deliberately:
 #   - it does not join a network (§4b) and it does not resolve latest.json. It is handed URLs.
@@ -83,7 +87,6 @@ DEVTEST=${DEVTEST:--b}
 # these code paths would mean an offline test with the privileges to destroy the developer's disk.
 REQUIRE_ROOT=${REQUIRE_ROOT:-1}
 SGDISK=${SGDISK:-sgdisk}
-SHA256=${SHA256:-sha256sum}
 KEYRING=${KEYRING:-/etc/rauc/keyring.pem}
 
 # The session user. The card's OS has one and a recovery medium would not: `player` is in `input`, so
@@ -93,8 +96,9 @@ KEYRING=${KEYRING:-/etc/rauc/keyring.pem}
 PGREP=${PGREP:-pgrep}
 SESSION_UID=${PLAYER_UID:-1000}
 SESSION_WAIT=${RETROFORGE_SESSION_WAIT:-5}
-# The board the running card booted with, read to save the first internal boot from the board menu.
-CARD_GRUBENV=${RETROFORGE_CARD_GRUBENV:-/esp/EFI/steamos/grubenv}
+# The running card's own boot data: its board table is what recon checks this device's board
+# against before anything is touched.
+RUNNING_BOOTDIR=${RETROFORGE_RUNNING_BOOTDIR:-/usr/lib/retroforge/boot}
 
 # The consent program. A FIXED PATH with a seam that names WHO renders the screen -- never a value
 # that means "consent given". There is deliberately no variable, flag or file that
@@ -117,6 +121,8 @@ CARVE=${RETROFORGE_CARVE:-$(find_component carve.sh install || true)}
 SESSION=${RETROFORGE_RAUC_SESSION:-$(find_component rauc-session.sh install || true)}
 HOMESTAGE=${RETROFORGE_HOMESTAGE:-$(find_component lib-homestage.sh images || true)}
 SLOTWRITE=${RETROFORGE_SLOTWRITE:-$(find_component lib-slotwrite.sh \
+            rootfs/overlay/usr/lib/retroforge/install || true)}
+BLSLIB=${RETROFORGE_BLSLIB:-$(find_component lib-bls.sh \
             rootfs/overlay/usr/lib/retroforge/install || true)}
 # The running-root source only: the handler rauc-session.sh names for a bundle, run here directly,
 # and the table the slot size comes from.
@@ -219,7 +225,7 @@ recon() {
   [ "$REQUIRE_ROOT" = 0 ] || [ "$(id -u)" = 0 ] || die "must run as root"
 
   local t missing=""
-  for t in "$SGDISK" "$SHA256" \
+  for t in "$SGDISK" \
            mkfs.vfat mkfs.ext4 mkfs.btrfs btrfstune btrfs blkid \
            mount umount tar rauc dbus-daemon gdbus partprobe udevadm pgrep; do
     command -v "$t" >/dev/null 2>&1 || missing="$missing $t"
@@ -237,8 +243,8 @@ recon() {
       || die "cannot find post-install-fresh.sh -- the copied root would keep the card's fsid and get no /var"
     [ -n "$PARTTABLE" ] && [ -r "$PARTTABLE" ] || die "cannot find partition-table.txt -- the root slot's size is unknown"
   fi
-  for c in "$SLOTWRITE" "$HOMESTAGE"; do
-    [ -n "$c" ] && [ -r "$c" ] || die "cannot find lib-slotwrite.sh / lib-homestage.sh"
+  for c in "$SLOTWRITE" "$BLSLIB" "$HOMESTAGE"; do
+    [ -n "$c" ] && [ -r "$c" ] || die "cannot find lib-slotwrite.sh / lib-bls.sh / lib-homestage.sh"
   done
   [ -r "$KEYRING" ] || die "no readable RAUC keyring at $KEYRING -- nothing would be verified"
   [ -x "$CONFIRM" ] || die "no consent program at $CONFIRM -- an installer that cannot take consent cannot install"
@@ -248,8 +254,20 @@ recon() {
 
   # shellcheck source=../rootfs/overlay/usr/lib/retroforge/install/lib-slotwrite.sh
   . "$SLOTWRITE"
+  # shellcheck source=../rootfs/overlay/usr/lib/retroforge/install/lib-bls.sh
+  . "$BLSLIB"
   # shellcheck source=../image/lib-homestage.sh
   . "$HOMESTAGE"
+
+  # The board the installed disk's entry will be written for. Checked here, before the carve, so a
+  # device whose model the build does not know is refused with its disk untouched; arm_esp reads it
+  # again against the INSTALLED root's table, which is what the entry is actually written from.
+  local model
+  model="$(bls_running_model)"
+  [ -n "$model" ] || die "cannot read this device's devicetree model -- the installed disk's boot entry could not name the board"
+  [ -n "$(bls_board_row "$RUNNING_BOOTDIR/boards.tsv" "$model")" ] \
+    || die "this device's model '$model' is not a board this build knows"
+  log "board: $model"
 }
 
 # =================================================================================================
@@ -618,7 +636,7 @@ carve() {
     PART["$name"]="$idx"
   done <<<"$map"
 
-  for name in RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+  for name in RETROFORGE retroforge-boot-A retroforge-boot-B retroforge-root-A retroforge-root-B \
               retroforge-var-A retroforge-var-B retroforge-home; do
     [ -n "${PART[$name]:-}" ] || die "the carve did not report an index for $name"
   done
@@ -632,7 +650,7 @@ carve() {
   # would have waited for.
   #
   # MEASURED on the Pocket ACE, 2026-08-22, second install onto a disk that already carried ours:
-  # seven of the eight symlinks were present and retroforge-efi-B was not, so the run died on
+  # seven of the eight symlinks were present and retroforge-boot-B was not, so the run died on
   # "not a block device" -- on a disk whose userdata had already been shrunk and zeroed. The wait
   # is bounded (10s) and costs nothing when the node is already there, which is every other run.
   wait_for_dev() {  # <path> -> 0 once it exists, non-zero after ~10s
@@ -675,9 +693,9 @@ carve() {
 # and it is the only line here that implements it.
 make_filesystems() {
   step "filesystems"
-  mkfs_esp "${DEV[RETROFORGE-ESP]}";           log "esp    ${DEV[RETROFORGE-ESP]}"
-  mkfs_efi "${DEV[retroforge-efi-A]}" A;       log "efi-a  ${DEV[retroforge-efi-A]}"
-  mkfs_efi "${DEV[retroforge-efi-B]}" B;       log "efi-b  ${DEV[retroforge-efi-B]}"
+  mkfs_esp "${DEV[RETROFORGE]}";           log "esp    ${DEV[RETROFORGE]}"
+  mkfs_boot "${DEV[retroforge-boot-A]}" A;       log "boot-a  ${DEV[retroforge-boot-A]}"
+  mkfs_boot "${DEV[retroforge-boot-B]}" B;       log "boot-b  ${DEV[retroforge-boot-B]}"
   if [ "$INTENT" = fresh ] || [ "$ERASE_HOME" = 1 ]; then
     mkfs_home "${DEV[retroforge-home]}";       log "home   ${DEV[retroforge-home]} (recreated)"
   else
@@ -789,16 +807,20 @@ seed_home() {
 }
 
 # =================================================================================================
-# 10. the efi partitions
+# 10. the ESP and boot-a, and the last file
 # =================================================================================================
-# Both of them, both fully populated, and B populated even though nothing will boot it yet: B stays
-# out of the ESP GRUB's way because the grubenv says B_OK=0 (arm_esp), and its stage 2 being ready
-# means the first OTA has nothing to lay down but a root and a var.
+# THE FILES COME OUT OF THE ROOT WE JUST WROTE, never off the card: the kernel, initramfs and DTBs
+# the entry names, and the board table and command line it is written from, all ship inside that
+# rootfs, so there is no way to install a root whose entry does not boot it.
 #
-# THE FILES COME OUT OF THE ROOT WE JUST WROTE, never off the card. grubaa64.efi and
-# grub-<slot>.cfg are boot software owned by the same build that ships /boot/vmlinuz.efi and
-# /lib/modules/<ver> inside that rootfs, so taking them from there makes the pairing true by
-# construction: there is no way to install a root whose stage 2 does not boot it.
+# Slot A only. B stays empty, as on a release card, and has no entry, so OpenABL never tries it; the
+# first OTA writes B's root, its files and its entries on boot-b.
+#
+# Ordered inside the step as carefully as the steps are ordered against each other:
+#   ESP           loader.conf `default retroforge-a.conf`
+#   boot-a         slot A's kernel, initramfs and DTBs
+#   entry         boot-a's \loader\entries\retroforge-a+3.conf -- the file that flips the bootloader
+#                 from the card to this disk -- and after it the debug entry, which would flip it too.
 ROOTMNT=""
 mount_new_root() {
   ROOTMNT="$RUNDIR/root-a"
@@ -807,92 +829,36 @@ mount_new_root() {
     || die "the freshly written root carries no /usr/lib/retroforge/boot -- it is not a retroforge rootfs"
 }
 
-write_efi_partitions() {
-  step "efi-a / efi-b"
-  local bootdir="$ROOTMNT/usr/lib/retroforge/boot"
-
-  # parts.env: WHERE OUR EIGHT ACTUALLY ARE on this disk. On a card they are 1..8; here they are
-  # whatever genpart.sh --append found room for, which is neither row order nor contiguous. Stage 2
-  # cannot address anything without this, and it is the one artifact whose contents are per-disk.
-  local envkv=()
-  local kv
-  while read -r kv; do envkv+=("$kv"); done < <(
-    for name in RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A \
-                retroforge-root-B retroforge-var-A retroforge-var-B retroforge-home; do
-      printf '%s=%s\n' "$name" "${PART[$name]}"
-    done | parts_env_from_genpart_map
-  )
-
-  local slot mnt
-  for slot in A B; do
-    mnt="$RUNDIR/efi-${slot,,}"
-    mount_at "${DEV[retroforge-efi-$slot]}" "$mnt"
-    write_efi_partition "$mnt" "$slot" "$bootdir"
-    write_parts_env "$mnt" "${envkv[@]}"
-    sync
-    log "efi-${slot,,}: stage 2, parts.env"
-  done
-  record "efi: parts.env ${envkv[*]}"
-  # efi-a stays mounted: arm_esp copies its parts.env onto the ESP.
-  unmount_at "$RUNDIR/efi-b"
-}
-
-# =================================================================================================
-# 11. the shared ESP, and the last byte
-# =================================================================================================
-# Ordered inside the step as carefully as the steps are ordered against each other:
-#   grubenv       the pristine env block from the root, with RAUC's slot state set in it by the
-#                 root's own grub-editenv: A first and OK, B not OK. RAUC makes B OK itself the
-#                 first time it writes it.
-#   extras        parts.env (from efi-a, still mounted) and OpenABL's \dtbs\qcom
-#   stage 1       refresh_esp_stage1, whose own last write is bootaa64.efi -- the byte that flips
-#                 ABL from the card to this disk.
-EDITENV=${EDITENV:-}
-# saved_entry only: rf_board_ok means "this disk has confirmed a boot on it", and it has not yet.
-# Best-effort, and shaped like a board id or left out: without it the first boot shows the board menu.
-carry_board() {  # <editenv> <grubenv>
-  local board
-  [ -r "$CARD_GRUBENV" ] || { log "no card grubenv at $CARD_GRUBENV; the first boot will ask for the board"; return 0; }
-  board="$("$1" "$CARD_GRUBENV" list 2>/dev/null | sed -n 's/^saved_entry=//p')" || board=""
-  case "$board" in
-    ''|*[!a-z0-9-]*) log "no usable saved board on the card; the first boot will ask for the board"; return 0 ;;
-  esac
-  "$1" "$2" set "saved_entry=$board" || { warn "could not carry the board over"; return 0; }
-  log "board: $board, as saved on the card"
-  record "boot: board $board carried over from the card"
-}
-
 arm_esp() {
   step "ESP"
-  local esp="$RUNDIR/esp" bootdir="$ROOTMNT/usr/lib/retroforge/boot"
-  mount_at "${DEV[RETROFORGE-ESP]}" "$esp"
+  local esp="$RUNDIR/esp" boota="$RUNDIR/boot-a" bootdir="$ROOTMNT/usr/lib/retroforge/boot" entry debug
+  local u_root u_var
+  u_root="$(part_uuid "$DISK" "${PART[retroforge-root-A]}")"
+  u_var="$(part_uuid "$DISK" "${PART[retroforge-var-A]}")"
+  # Built before anything is written, so a root that does not know this board fails here.
+  entry="$(bls_device_entry "$bootdir" A "$u_root" "$u_var")"
+  debug="$(bls_device_entry "$bootdir" A "$u_root" "$u_var" debug)"
 
-  mkdir -p "$esp/EFI/steamos" || die "cannot create the ESP directories"
-  [ -f "$bootdir/grubenv" ] \
-    || die "the installed root carries no pristine grubenv at /usr/lib/retroforge/boot/grubenv"
-  cp -f "$bootdir/grubenv" "$esp/EFI/steamos/grubenv" || die "cannot install the grubenv"
-
-  # grub-editenv comes out of the ROOT WE JUST WROTE by preference, so the tool and the block are
-  # the pair that shipped together; the running image's own copy is the fallback.
-  local editenv="${EDITENV:-$ROOTMNT/usr/bin/grub-editenv}"
-  [ -x "$editenv" ] || editenv="$(command -v grub-editenv 2>/dev/null || true)"
-  [ -n "$editenv" ] && [ -x "$editenv" ] || die "no grub-editenv to arm the slot state with"
-  "$editenv" "$esp/EFI/steamos/grubenv" set "ORDER=A B" "A_OK=1" "A_TRY=0" "B_OK=0" "B_TRY=0" \
-    || die "grub-editenv could not arm the slot state"
-  carry_board "$editenv" "$esp/EFI/steamos/grubenv"
+  mount_at "${DEV[RETROFORGE]}" "$esp"
+  bls_set_default "$esp" A
   sync
-  log "slot state armed: A first, B not OK"
-  record "boot: grubenv ORDER=A B, A_OK=1, B_OK=0"
-
-  refresh_esp_extras "$esp" "$RUNDIR/efi-a" "$bootdir"
-
-  # THE LAST WRITE OF THE INSTALL.
-  refresh_esp_stage1 "$esp" "$bootdir"
   unmount_at "$esp"
-  unmount_at "$RUNDIR/efi-a"
+  log "the ESP has a loader.conf defaulting to A"
+
+  mount_at "${DEV[retroforge-boot-A]}" "$boota"
+  bls_install_slot_files "$boota" "$ROOTMNT"
+  log "slot A's kernel, initramfs and DTBs on boot-a"
+
+  # THE WRITE THAT FLIPS THE DEVICE. The debug entry comes after it, not before: it is uncounted and
+  # bootable too, so written first it would flip the device on its own.
+  bls_write_entry "$boota" A "$entry"$'\n'
+  bls_write_debug "$boota" A "$debug"$'\n'
+  sync
+  unmount_at "$boota"
   unmount_at "$ROOTMNT"
-  record "esp: ESP GRUB written; the device now boots internally"
-  log "ESP GRUB written -- this disk is now what ABL starts"
+  record "boot: entry $(bls_entry_name A "$BLS_TRIES") for '$(bls_running_model)', root PARTUUID $u_root"
+  record "esp: slot A's boot entry written; the device now boots internally"
+  log "slot A's boot entry written -- this disk is now what the bootloader starts"
 }
 
 # =================================================================================================
@@ -908,7 +874,6 @@ main() {
   carry_wifi
   seed_home
   mount_new_root
-  write_efi_partitions
   arm_esp
   sync
 

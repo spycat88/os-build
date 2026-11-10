@@ -41,7 +41,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export RETROFORGE_SELECT_FIXTURE=1
 . "$ROOT/tests/lib-gptfixture.sh"
 
-OUR_NAMES=(RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+OUR_NAMES=(RETROFORGE retroforge-boot-A retroforge-boot-B retroforge-root-A retroforge-root-B \
            retroforge-var-A retroforge-var-B retroforge-home)
 BOARDS=("AYANEO Pocket S2" "AYANEO Pocket ACE" "AYN Odin 2" "KONKR Pocket FIT" "MANGMI Pocket Max")
 
@@ -88,8 +88,8 @@ for board in "${BOARDS[@]}"; do
   [ "$(udfield "$img" 'First sector')" = "$ud_start_before" ] \
     && ok "$board: userdata still starts where it did" \
     || bad "$board: userdata moved to $(udfield "$img" 'First sector'), was $ud_start_before"
-  # The map is the output contract: eight name=index lines the spine turns into parts.env.
-  [ "$(printf '%s\n' "$out" | grep -cE '^(RETROFORGE-ESP|retroforge-[a-z]+-?[AB]?)=[0-9]+$')" = 8 ] \
+  # The map is the output contract: eight name=index lines the spine resolves its partitions by.
+  [ "$(printf '%s\n' "$out" | grep -cE '^(RETROFORGE|retroforge-[a-z]+-?[AB]?)=[0-9]+$')" = 8 ] \
     && ok "$board: emitted eight name=index lines" \
     || bad "$board: the name=index map is not eight lines"
 done
@@ -492,9 +492,9 @@ if rows_for 'AYANEO Pocket ACE (after a ROCKNIX uninstall)' /dev/sda \
 
   # A GPT ENTRY IS NOT A FILESYSTEM, and a re-carve is where that bites. The sectors our eight
   # occupy were somebody else's one layout ago, so a new partition inherits their superblocks.
-  # MEASURED on the Pocket ACE 2026-08-22: the new efi-B carried a stale vfat signature at 0x0 and
+  # MEASURED on the Pocket ACE 2026-08-22: the new boot-B carried a stale vfat signature at 0x0 and
   # a stale btrfs one at 0x10040; libblkid calls two conflicting signatures ambiguous and refuses,
-  # udev's blkid builtin fails EPERM, and /dev/disk/by-partuuid/<efi-B> is never created. The
+  # udev's blkid builtin fails EPERM, and /dev/disk/by-partuuid/<boot-B> is never created. The
   # install died resolving a partition that was present, correct and readable.
   #
   # Planted at BOTH offsets that mattered, then re-carved, because one signature probes fine and

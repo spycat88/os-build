@@ -11,7 +11,7 @@
 # eventual target is, and so does every other fixture in this repo. 296 + 252 + 127 + 85 + 70 green
 # assertions never touched the 4Kn path.
 #
-# MEASURED on an AYANEO Pocket ACE, 2026-08-21: the ESP at 256M (65376 clusters) and efi-A/B at 64M
+# MEASURED on an AYANEO Pocket ACE, 2026-08-21: the ESP at 256M (65376 clusters) and boot-A/B at 64M
 # (16320) were both invalid FAT32 at 4096-byte sectors, against a floor of 65525. The device could
 # not boot from internal storage, and the two halves failed in different components with
 # unrelated-looking messages -- ABL's "Failed to load EFI: Not Found" for the ESP, steamcl's
@@ -103,7 +103,7 @@ for ss in 512 4096; do
     fi
 
     # A margin of a handful of clusters is decided by mkfs.fat's reserved-sector arithmetic rather
-    # than by us, and moves with its version. efi-a/b at 64M sat 7 clusters above the FAT12 floor.
+    # than by us, and moves with its version. boot-a/b at 64M sat 7 clusters above the FAT12 floor.
     [ $(( cl - lo )) -ge 2000 ] && [ $(( hi - cl )) -ge 2000 ] \
       && ok "and not within 2000 clusters of either boundary" \
       || bad "$cl is within 2000 clusters of a boundary (${lo}..${hi}) -- too tight to rely on"

@@ -1,75 +1,75 @@
 #!/usr/bin/env bash
-# retroforge-bootctl — the boot-health confirmation, plus a by-hand view of RAUC's slot state.
+# retroforge-bootctl — RAUC's bootloader backend, the boot-health confirmation, and a by-hand view
+# of the slot state.
 #
-# RAUC owns the slot state: /etc/rauc/system.conf says bootloader=grub, so ORDER, A_OK/A_TRY and
-# B_OK/B_TRY live in the ESP's grubenv and RAUC writes them with grub-editenv. The ESP GRUB reads
-# them to pick the slot (boot/gen-esp-cfg.sh). This tool never writes them itself; it asks RAUC.
+# The slot state is the Boot Loader Specification entries OpenABL boots, each on its slot's own
+# boot partition (rootfs/overlay/usr/lib/retroforge/install/lib-bls.sh has the whole layout): each
+# slot's entry carries a +N boot counter in its file name, and the ESP's \loader\loader.conf
+# `default` names the primary slot. /etc/rauc/system.conf says bootloader=custom with this file as the backend, so RAUC calls
+# the first five commands below itself, with the slot's bootname (A or B).
 #
+#   get-current      the slot this system booted (A|B), from the initramfs handoff.
+#   get-primary      the slot OpenABL boots next: the loader.conf default if it has tries left,
+#                    else the other slot if it has.
+#   set-primary <self|A|B>
+#                    boot that slot next: its counter back to three tries, and the loader.conf
+#                    default. A slot with no entry yet (mid-install) only gets the default; the
+#                    update hook writes its entry once the slot is bootable.
+#   get-state <self|A|B>
+#                    good while the slot's entry has tries left, bad when it has none or no entry.
+#   set-state <self|A|B> <good|bad>
+#                    good: the counter back to three tries. bad: to none, so the next boot goes to
+#                    the other slot. retroforge-boot-bad.service demotes with `set-state self bad`.
 #   mark-good [--require-marker] [--wait SECONDS]
-#                    confirm THIS boot (retroforge-boot-good.service): rauc status mark-good booted,
-#                    which ends the trial (TRY=0, OK=1), and record the board as confirmed
-#                    (rf_board_ok) so its retries skip the stage-2 menu. Then finish the ESP from the running root
-#                    where an older root's update hook could not (parts.env, OpenABL's \dtbs\qcom).
+#                    confirm THIS boot (retroforge-boot-good.service): on a fresh card's first
+#                    boot, write the slot and debug entries for the board it came up on and drop
+#                    the setup entries; then rauc status mark-good booted, which comes back here as
+#                    set-state <slot> good.
 #        --require-marker  re-test the session marker before confirming; without it, exit 1
 #        --wait SECONDS    hold that long first, and exit 0 WITHOUT a verdict if signalled
 #                          during the wait (a shutdown is not evidence of a bad boot)
-#   set-state <self|A|B> <good|bad>
-#                    rauc status mark-good|mark-bad. retroforge-boot-bad.service demotes the booted
-#                    slot with `set-state self bad`; the next boot goes to the other one.
-#   set-primary <self|A|B>
-#                    rauc status mark-active: boot that slot next (this starts its trial).
-#   get-current      the slot this system booted (A|B), from the initramfs handoff.
-#   get-primary      the slot the ESP GRUB picks next, by RAUC's rule over the grubenv.
-#   get-state <self|A|B>
-#                    good|bad, by RAUC's rule: good iff <slot>_OK=1 and <slot>_TRY=0.
-#   status           the grubenv's slot state and board choice.
+#   status           the entries, the default, and what boots next.
 #
-# THE CONTRACT IS THE EXIT STATUS, as it was when this was RAUC's backend: a unit that runs it reads
-# non-zero as failure, so every legal call exits 0 -- including no-ops. tests/test-bootctl.sh
-# executes THIS file (not a copy) against a stubbed rauc and grub-editenv.
+# THE CONTRACT IS THE EXIT STATUS, as RAUC's custom backend interface has it: non-zero is failure,
+# so every legal call exits 0 -- including no-ops. tests/test-bootctl.sh executes THIS file (not a
+# copy) against a sandbox ESP and a stubbed rauc.
 #
 # Who decides what:
 #   * "Is this slot OK?" is the OS's call. The boot service confirms (mark-good); a failed health
 #     check demotes (retroforge-boot-bad.service -> set-state self bad). The bootloader never does.
-#   * "Did a slot fail to come up?" is the ESP GRUB's TRY count: three tries without a mark-good and
-#     it boots the other slot.
+#   * "Did a slot fail to come up?" is OpenABL's boot counting: three boots without a mark-good and
+#     the slot has no tries left, so OpenABL boots the other one.
 set -euo pipefail
 
 # TEST SEAMS. BOOTINFO is the initramfs handoff (image/initramfs/init writes it on every boot,
 # including degraded ones); mark-good uses it to tell a slot boot from a cmdline-fallback boot.
-# SESSION_MARKER is the ready marker retroforge-boot-good.path watches. RAUC and EDITENV are the
-# two external tools; GRUBENV is RAUC's grubenv (system.conf `grubenv=`). ESP, EFI and BOOTDIR are
-# where mark-good finishes the ESP from: the shared ESP, the booted slot's efi partition (mounted
-# by the initramfs), and this root's boot payload.
+# SESSION_MARKER is the ready marker retroforge-boot-good.path watches. RAUC is the one external
+# tool. ESP is the shared ESP, BOOTPARTS where the two slots' boot partitions are mounted (<BOOTPARTS>/a
+# and /b, automounted by /etc/fstab), BOOTDIR this root's boot payload (board table, command line,
+# release, OpenABL's DTBs), and DEVDIR the boot disk's partition links the slot entries' PARTUUIDs
+# are read from. lib-bls.sh adds two of its own: BLKID and DT_MODEL.
 BOOTINFO=${BOOTINFO:-/run/retroforge/boot}
 SESSION_MARKER=${SESSION_MARKER:-/run/retroforge/session/ready}
 RAUC=${RAUC:-rauc}
-EDITENV=${EDITENV:-grub-editenv}
 ESP=${ESP:-/esp}
-EFI=${EFI:-/efi}
-GRUBENV=${GRUBENV:-$ESP/EFI/steamos/grubenv}
+BOOTPARTS=${BOOTPARTS:-/run/retroforge/bootfs}
 BOOTDIR=${BOOTDIR:-/usr/lib/retroforge/boot}
+DEVDIR=${DEVDIR:-/dev/retroforge}
 
 PROG=${0##*/}
 die()  { printf '%s: %s\n' "$PROG" "$*" >&2; exit 1; }
 warn() { printf '%s: WARNING: %s\n' "$PROG" "$*" >&2; }
 log()  { printf '%s: %s\n' "$PROG" "$*"; }
 
-# The ESP writers are shared with the update hook and the installer, resolved relative to this
-# file because rootfs/overlay mirrors the device layout (/usr/bin/../lib/retroforge/install).
-SLOTWRITE="$(cd "$(dirname "$0")" && pwd)/../lib/retroforge/install/lib-slotwrite.sh"
+# The boot entry writers are shared with the update hook and the installer, resolved relative to
+# this file because rootfs/overlay mirrors the device layout (/usr/bin/../lib/retroforge/install).
+LIBDIR="$(cd "$(dirname "$0")" && pwd)/../lib/retroforge/install"
+[ -r "$LIBDIR/lib-bls.sh" ] || die "cannot read $LIBDIR/lib-bls.sh"
+# shellcheck source=../lib/retroforge/install/lib-bls.sh
+. "$LIBDIR/lib-bls.sh"
 
 booted_slot() {  # -> A|B, or "" when this boot did not come from a slot
   sed -n 's/^slot=//p' "$BOOTINFO" 2>/dev/null || true
-}
-
-rauc_slot() {  # <self|A|B> -> RAUC's name for it (booted, rootfs.0, rootfs.1)
-  case ${1:-} in
-    self) echo booted ;;
-    A)    echo rootfs.0 ;;
-    B)    echo rootfs.1 ;;
-    *)    die "invalid slot '${1:-}' (expected A, B or self)" ;;
-  esac
 }
 
 resolve_slot() {  # <self|A|B> -> A|B
@@ -82,11 +82,21 @@ resolve_slot() {  # <self|A|B> -> A|B
   esac
 }
 
-env_get() {  # <name> -> its value in the grubenv, or "" when unset
-  "$EDITENV" "$GRUBENV" list 2>/dev/null | sed -n "s/^$1=//p" | head -1
+esp_ready() {
+  ls "$ESP" >/dev/null 2>&1 || true        # trigger the fstab automount if it is not up
+  [ -d "$ESP" ] || die "no ESP at $ESP"
 }
 
-# --- slot state, through RAUC -------------------------------------------------------------------
+slotfs() {  # <A|B> -> where that slot's boot partition is mounted
+  local d; d="$BOOTPARTS/$(bls_lc "$1")"
+  ls "$d" >/dev/null 2>&1 || true          # trigger the fstab automount
+  [ -d "$d" ] || die "slot $1's boot partition is not mounted at $d"
+  printf '%s\n' "$d"
+}
+
+primary() { bls_primary "$ESP" "$(slotfs A)" "$(slotfs B)"; }
+
+# --- slot state ---------------------------------------------------------------------------------
 
 get_current() {
   local s; s=$(booted_slot)
@@ -96,39 +106,67 @@ get_current() {
   esac
 }
 
-slot_good() {  # <A|B> -> 0 iff RAUC calls it good: <slot>_OK=1 and <slot>_TRY=0
-  [ "$(env_get "${1}_OK")" = 1 ] && [ "$(env_get "${1}_TRY")" = 0 ]
-}
-
 get_primary() {
-  local order s
-  order=$(env_get ORDER)
-  [ -n "$order" ] || die "no ORDER in $GRUBENV"
-  for s in $order; do
-    case $s in A|B) slot_good "$s" && { echo "$s"; return 0; } ;; esac
-  done
-  die "no slot in ORDER '$order' is good"
+  esp_ready
+  primary || die "neither slot has an entry with tries left"
 }
 
 get_state() {  # <self|A|B>
   local s; s=$(resolve_slot "${1:-}")
-  if slot_good "$s"; then echo good; else echo bad; fi
+  bls_state "$(slotfs "$s")" "$s"
 }
 
 set_state() {  # <self|A|B> <good|bad>
-  local slot; slot=$(rauc_slot "${1:-}")
+  local s fs; s=$(resolve_slot "${1:-}")
+  fs=$(slotfs "$s")
   case ${2:-} in
-    good) "$RAUC" status mark-good "$slot" ;;
-    bad)  "$RAUC" status mark-bad "$slot" ;;
+    good)
+      bls_set_tries "$fs" "$s" "$BLS_TRIES" \
+        || die "slot $s has no boot entry on $fs -- it cannot be good" ;;
+    bad)
+      # No entry is already as bad as it gets.
+      bls_set_tries "$fs" "$s" 0 || log "slot $s has no boot entry; nothing to demote" ;;
     *) die "bad slot state value '${2:-}' (expected good or bad)" ;;
   esac
-  sync -f "$GRUBENV" 2>/dev/null || sync
 }
 
 set_primary() {  # <self|A|B>
-  local slot; slot=$(rauc_slot "${1:-}")
-  "$RAUC" status mark-active "$slot"
-  sync -f "$GRUBENV" 2>/dev/null || sync
+  local s; s=$(resolve_slot "${1:-}")
+  esp_ready
+  bls_set_tries "$(slotfs "$s")" "$s" "$BLS_TRIES" \
+    || log "slot $s has no boot entry yet; only the default moves"
+  bls_set_default "$ESP" "$s"
+}
+
+# --- the first boot of a fresh card -------------------------------------------------------------
+# A card leaves the build with setup entries on boot-a, one per board, because one image serves every
+# board and only the user can say which this is (lib-bls.sh). The boot being confirmed came from one
+# of them, so the running devicetree names the board: write the slot and debug entries for it, for
+# every slot the card carries files for, make the booted slot the default, and only then drop the
+# setup entries -- an interruption anywhere before that leaves the menu, never nothing.
+#
+# Each slot's entries come from the boot data of the root in THAT slot, which on a card is the same
+# build in both; the running root's is what is readable here, and the card is fresh, so it is used
+# for both.
+commit_board() {  # <booted-slot>
+  local booted="$1" s fs text debug root var n=0
+  for s in A B; do
+    fs=$(slotfs "$s")
+    bls_slot_files_present "$fs" || continue
+    root=$(bls_dev_partuuid "$DEVDIR/retroforge-root-$s")
+    var=$(bls_dev_partuuid "$DEVDIR/retroforge-var-$s")
+    text=$(bls_device_entry "$BOOTDIR" "$s" "$root" "$var")
+    debug=$(bls_device_entry "$BOOTDIR" "$s" "$root" "$var" debug)
+    bls_write_debug "$fs" "$s" "$debug"$'\n'
+    bls_write_entry "$fs" "$s" "$text"$'\n'
+    log "slot $s: boot entries written ($BLS_ENTRIES/$(bls_entry_name "$s" "$BLS_TRIES"), $(bls_debug_name "$s"))"
+    n=$((n + 1))
+  done
+  bls_entry_file "$(slotfs "$booted")" "$booted" >/dev/null || die "slot $booted has no kernel on its boot partition -- cannot write its entry"
+  bls_set_default "$ESP" "$booted"
+  bls_remove_setup "$(slotfs A)"
+  bls_remove_setup "$(slotfs B)"
+  log "board '$(bls_running_model)' committed: $n slot entr$([ "$n" = 1 ] && echo y || echo ies), setup entries removed"
 }
 
 # --- boot health --------------------------------------------------------------------------------
@@ -184,45 +222,32 @@ mark_good() {
     die "no session marker at $SESSION_MARKER -- refusing to confirm this boot"
   fi
 
+  esp_ready
+  if ! bls_entry_file "$(slotfs "$bs")" "$bs" >/dev/null || bls_has_setup "$(slotfs A)"; then
+    commit_board "$bs"
+  fi
+
   "$RAUC" status mark-good booted || die "rauc status mark-good booted failed"
   echo "boot confirmed good (slot $bs)"
-
-  # The board this boot came up on (the stage-2 config saved it as saved_entry) is now known good:
-  # its retries no longer show the stage-2 menu (rf_board_ok, ours, beside RAUC's variables).
-  local board
-  board=$(env_get saved_entry)
-  if [ -n "$board" ] && [ "$(env_get rf_board_ok)" != "$board" ]; then
-    "$EDITENV" "$GRUBENV" set "rf_board_ok=$board" || warn "could not record $board as a confirmed board"
-  fi
-  sync -f "$GRUBENV" 2>/dev/null || sync
-
-  # Only after the verdict, and never able to take it back: what an older root's hook did not write
-  # when it installed this root (it knows neither file). A failure here is a warning; the ESP GRUB
-  # has a fall-back for both.
-  if [ -r "$SLOTWRITE" ]; then
-    # shellcheck source=../lib/retroforge/install/lib-slotwrite.sh
-    if ( . "$SLOTWRITE" && refresh_esp_extras "$ESP" "$EFI" "$BOOTDIR" ); then
-      true
-    else
-      warn "could not finish the ESP (parts.env, \\dtbs\\qcom) -- the ESP GRUB falls back without them"
-    fi
-  else
-    warn "cannot read $SLOTWRITE -- the ESP is left as it is"
-  fi
 }
 
 # --- diagnostics --------------------------------------------------------------------------------
 
 status() {
-  local list
+  local f s fs
   echo "booted slot: $(booted_slot || true)"
-  if list=$("$EDITENV" "$GRUBENV" list 2>/dev/null); then
-    echo "grubenv ($GRUBENV):"
-    printf '%s\n' "$list" | grep -E '^(ORDER|[AB]_OK|[AB]_TRY|saved_entry|rf_bcsync)=' | sed 's/^/  /' || true
-  else
-    echo "grubenv: cannot read $GRUBENV (is the ESP mounted at $ESP?)"
-  fi
-  echo "next boot:   $(get_primary 2>/dev/null || echo '<undetermined>')"
+  ls "$ESP" >/dev/null 2>&1 || true
+  for s in A B; do
+    fs="$BOOTPARTS/$(bls_lc "$s")"
+    ls "$fs" >/dev/null 2>&1 || true
+    echo "slot $s:      $(bls_state "$fs" "$s")  ($fs/$BLS_ENTRIES)"
+    for f in "$fs/$BLS_ENTRIES"/*.conf; do
+      [ -e "$f" ] && echo "  ${f##*/}"
+    done
+  done
+  echo "default:     $(bls_default "$ESP")"
+  bls_has_setup "$BOOTPARTS/a" && echo "setup:       the board is not committed yet (fresh card)"
+  echo "next boot:   $(bls_primary "$ESP" "$BOOTPARTS/a" "$BOOTPARTS/b" 2>/dev/null || echo '<undetermined>')"
 }
 
 usage() {

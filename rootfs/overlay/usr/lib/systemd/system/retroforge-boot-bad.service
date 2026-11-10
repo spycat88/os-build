@@ -2,8 +2,8 @@
 # hence no [Install] -- when the boot could not be confirmed: the session marker vanished under
 # the 30s re-check, or the confirmation itself could not be written.
 #
-# `set-state self bad` is `rauc status mark-bad booted` (the booted slot's _OK=0 in the ESP's
-# grubenv), so the NEXT boot goes to the other slot. It is idempotent, and on a degraded boot where
+# `set-state self bad` puts the booted slot's boot entry at +0 (no tries left), so OpenABL sorts it
+# last and the NEXT boot goes to the other slot. It is idempotent, and on a degraded boot where
 # the booted slot cannot be identified at all it fails harmlessly rather than guessing a slot.
 #
 # WHY A WHOLE UNIT FOR ONE COMMAND. systemd has no per-service "run this if the service failed"

@@ -433,7 +433,7 @@ PHASES = [
     ("filesystems", "Creating filesystems"),
     ("root slot", "Installing RetroForge"),
     ("/home", "Setting up /home"),
-    ("efi-a / efi-b", "Writing the boot slots"),
+    ("boot-a / boot-b", "Writing the boot slots"),
     ("ESP", "Writing the boot partition"),
     ("done", "Done"),
 ]

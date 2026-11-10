@@ -42,9 +42,9 @@ dead card. That is a setting, not a fault.
 
 | # | Partition | Size | FS | Label |
 |---|---|---|---|---|
-| 1 | `esp` | 256M | vfat | `RETROFORGE-ESP` |
-| 2 | `efi-a` | 128M | vfat | `retroforge-efi-A` |
-| 3 | `efi-b` | 128M | vfat | `retroforge-efi-B` |
+| 1 | `esp` | 128M | vfat | `RETROFORGE` |
+| 2 | `boot-a` | 128M | vfat | `retroforge-boot-A` |
+| 3 | `boot-b` | 128M | vfat | `retroforge-boot-B` |
 | 4 | `rootfs-a` | 2G | btrfs | `retroforge-root-A` |
 | 5 | `rootfs-b` | 2G | btrfs | `retroforge-root-B` |
 | 6 | `var-a` | 256M | ext4 | `retroforge-var-A` |
@@ -56,11 +56,11 @@ dead card. That is a setting, not a fault.
 `image/partition-table.txt` is the single source of truth for sizes, typecodes and labels;
 `image/genpart.sh` emits the `sgdisk` script from it. Three facts drive most of what follows:
 
-- **The shared ESP carries the slot state, not a kernel.** RAUC's `ORDER`, `A_OK`/`A_TRY` and
-  `B_OK`/`B_TRY` in `/EFI/steamos/grubenv` decide which slot boots; the ESP GRUB (as
-  `/EFI/BOOT/bootaa64.efi`) is what ABL starts, and it gives a slot three tries. Each slot's *own*
-  efi partition (efi-a/efi-b) carries that slot's stage-2 `grub.cfg`, which picks the board. ABL
-  reads partition 1 only.
+- **Each slot boots from its own boot partition.** boot-a/boot-b carry that slot's Boot Loader
+  Specification entry (`/loader/entries/retroforge-<slot>+N.conf`, `+N` being its tries left), its
+  debug entry, its kernel, initramfs and DTBs. OpenABL reads the entries of every partition of the
+  disk as one list; the shared ESP carries only `/loader/loader.conf`, whose `default` names the
+  primary slot. A slot gets three tries, then OpenABL boots the other one ([boot/README.md](../boot/README.md)).
 - **`/var` is per-slot, and `/etc` rides on it** (an overlayfs whose upper dir is
   `/var/lib/overlays/etc/upper`). A slot switch therefore carries `/etc` with it.
 - **`/home` is shared and survives everything** — including the paired SSH keys in
@@ -133,34 +133,34 @@ cat work/repo/aarch64/.stamps/gamescope.hash  # what was built, vs. inputhash.sh
 
 `make-sdcard.sh` lays the **full** GPT — ESP + root-A/-B + var-A/-B + home, with `/home` carrying an
 empty `player` home (`image/lib-homestage.sh`, shared with the internal installer) that grows to fill
-the card on first boot. Each `efi-*` partition carries that slot's stage-2 `grub.cfg` and
-`parts.env`; the ESP carries the ESP GRUB, the grubenv, `parts.env` and OpenABL's Device model list
-(`/dtbs/qcom`).
+the card on first boot. boot-a carries slot A's kernel, initramfs and DTBs and one setup entry per
+board (OpenABL shows them as a menu on the first boot); boot-b carries B's files when B is
+populated; the ESP carries `/loader/loader.conf`.
 
 **Whether slot B is populated follows the build mode**, and `RETROFORGE_SLOT_B=0|1` overrides it:
 
 * **Dev card** (`RETROFORGE_DEV=1`): B is populated, carrying a distinct btrfs fsid, because a slot
   switch cannot be proven against a slot that does not boot. Set `RETROFORGE_SLOT_B=0` for a faster
   local loop, at the cost of a card whose first slot switch can only exercise the failover path.
-* **Release card**: B is left empty **and the grubenv says `B_OK=0`**. B would be a byte-identical
-  copy of an already-compressed root, surviving release compression whole — a second root's worth of
-  download for a failover window that closes the first time RAUC writes the slot. `B_OK=0` (and the
-  ESP GRUB's check for a kernel) is what keeps it from being tried. The first update writes B in
-  full and RAUC marks it OK.
+* **Release card**: B is left empty, with no files and no entry on boot-b. B would be a
+  byte-identical copy of an already-compressed root, surviving release compression whole — a second
+  root's worth of download for a failover window that closes the first time RAUC writes the slot.
+  With no entry, OpenABL never tries it. The first update writes B's root, files and entries.
 
 Run `verify-card` before you commit a card to a device — it asserts the built image rather than
 the source tree, which is the only place the GPT, the ESP contents and the per-slot filesystem
 identities are checked at all.
 
-**The board comes from OpenABL's Device model when it is set.** One image serves every supported
-board (the README's table is the roster), so the DTB is the one thing the card cannot know.
-OpenABL installs the DTB of its Device model (it lists the ones in the ESP's `/dtbs/qcom`) before it
-starts the ESP GRUB, and the stage-2 config boots the entry for that model with the slot's own DTB.
-With no Device model, **the first boot stops at the stage-2 board menu and waits**; the choice is
-written to `/EFI/steamos/grubenv` and every boot after that takes it with the menu hidden. The menu
-comes back for 3 seconds when a board that has never had a boot confirmed is tried again — which is
-how a wrong board shows itself and how to get back from it — and when no slot has tries left. With a
-Device model set, change the board in OpenABL's menu instead.
+**Set OpenABL's Device model once per device.** One image serves every supported board (the
+README's table is the roster), so the DTB is the one thing the card cannot know. The entries name no
+devicetree: OpenABL installs the DTB of its Device model, read from the `/dtbs` of the partition
+the booted entry sits on, so each slot boots with its own DTBs. On *Firmware default* Linux gets the
+firmware's Android tree and will not come up.
+
+**The first boot stops at a board menu and waits.** The setup entries differ only in the board's
+kernel arguments, so pick the one that matches the Device model. The first healthy boot then writes
+the slot entries for the board it came up on (by the running devicetree's `model`) and removes the
+setup entries, so the menu does not come back.
 
 ### Update a dev card instead of reflashing it
 
@@ -301,10 +301,9 @@ so budget minutes of SD-card writes for a one-package bump.
 
 The post-install hook makes the freshly written slot bootable: it re-randomises the target's btrfs
 fsid (both slots otherwise share an fsid *and* `devid=1`, and mounting one can hand you the other),
-copies `/var` across, installs this build's stage-2 grub.cfg + font onto the target's efi
-partition, refreshes the shared ESP's `parts.env`, `/dtbs/qcom` and ESP GRUB if they changed, and
-finally arms the target for its trial boot in the grubenv (first in `ORDER`, OK, `TRY=0`). Reboot to
-land on the new slot.
+copies `/var` across, replaces the target's boot partition's kernel, initramfs and DTBs with the new
+root's, writes its debug entry and its entry with three tries, and makes it the ESP `loader.conf`
+default. Reboot to land on the new slot.
 
 ## Read and steer the boot state
 
@@ -321,21 +320,22 @@ any of it. On a dev card, `ssh -i work/dev-ssh/id_ed25519 root@<device>`; on a r
 read the state off the card offline (below). `rauc install` is the deliberate exception — it goes
 through rauc's D-Bus service and its open bus policy, which is why it works as `player`.
 
-The slot state is RAUC's own (`bootloader=grub`), so `retroforge-bootctl` and `rauc status` agree
-by construction. It lives in the ESP's grubenv:
+RAUC drives the slot state through its custom backend (`bootloader=custom`, with
+`retroforge-bootctl` as the backend), so the two agree by construction. The state is the entry file
+names on each slot's boot partition, plus the ESP's `loader.conf` default:
 
-- **`<slot>_OK`** — a hard demote when 0. `set-state <slot> bad` clears it (and the boot-health unit's
-  failure path does exactly that, via `retroforge-boot-bad.service`); RAUC's set-primary and a
-  completed install set it again.
-- **`<slot>_TRY`** — the trial count. The ESP GRUB bumps it before every boot of that slot,
-  `mark-good` clears it after a healthy session, and after three tries without one the ESP GRUB
-  boots the other slot. A healthy boot *clears* it, so mask `retroforge-boot-good.{path,service}`
-  before a test reboot if you want to watch it count.
+- **The counter** — `retroforge-a+3.conf` has three tries left. OpenABL renames it before every
+  boot of that slot (`+2-1`, `+1-2`, `+0-3`), and at `+0` it boots the other slot. `mark-good` puts
+  it back to `+3` after a healthy session, so mask `retroforge-boot-good.{path,service}` before a
+  test reboot if you want to watch it count.
+- **A demote** — `set-state <slot> bad` (the boot-health unit's failure path, via
+  `retroforge-boot-bad.service`) sets the counter to `+0`; RAUC's set-primary and a completed
+  install set it back to `+3`.
 
 > **What that means in practice.** A slot that boots but comes up broken IS demoted — the health
 > unit fails and the next boot goes to the other slot. A slot that never gets far enough to run
-> systemd at all is skipped after its third try. Each retry and each fall-back shows the stage-2
-> board menu for 3 seconds.
+> systemd at all is skipped after its third try. Each slot also has an uncounted
+> `RetroForge (Slot X, debug)` entry in OpenABL's menu, which boots it verbosely.
 
 ## Recovery: when it does not boot
 
@@ -343,7 +343,8 @@ There is no serial console. Power off, pull the card, and read it on your workst
 
 **If the device has an internal Linux install, an inserted card will NOT boot — pick "force
 external" in the bootloader.** ABL's Linux mode tries internal storage first and only falls
-through to the card when no internal ESP carries `/EFI/BOOT/bootaa64.efi` or `/KERNEL`. So on a
+through to the card when no internal drive carries a boot entry (ours are on boot-a/boot-b),
+`/EFI/BOOT/bootaa64.efi` or `/KERNEL`. So on a
 device installed to internal storage — ours, or **ROCKNIX**, or another distribution's —
 inserting a card and rebooting changes nothing, which reads exactly like a dead card or a bricked
 machine. Select force external in ABL and the card boots normally. This is the recovery path for
@@ -353,7 +354,7 @@ Since ROCKNIX runs the same ABL, a device that already had ROCKNIX installed to 
 is the most likely version of this, and it is not a retroforge fault to debug — it is the
 [boot-order rule](#prerequisite-the-device-already-runs-openabl) working as designed.
 
-Nothing on the SD-card-only path is affected: with no internal ESP present, ABL falls through to
+Nothing on the SD-card-only path is affected: with no internal install present, ABL falls through to
 the card unaided and no option needs setting.
 
 **A card is the recovery medium.** Force external boots it, and re-running an install from its Settings
@@ -380,24 +381,28 @@ sudo journalctl -D /mnt/.retroforge/offload/var/log/journal --list-boots
 sudo journalctl -D /mnt/.retroforge/offload/var/log/journal _BOOT_ID=<id>
 ```
 
-The ESP carries the slot state that decided the boot:
+The boot partitions and the ESP carry the slot state that decided the boot:
 
 ```sh
-sudo mount /dev/sdX1 /mnt-esp                 # RETROFORGE-ESP
-grub-editenv /mnt-esp/EFI/steamos/grubenv list   # ORDER, A_OK/A_TRY, B_OK/B_TRY, saved_entry
+sudo mount /dev/sdX2 /mnt-a                   # retroforge-boot-A
+ls /mnt-a/loader/entries                      # retroforge-a+N-M.conf: N tries left, M used
+sudo mount /dev/sdX1 /mnt-esp                 # RETROFORGE
+cat /mnt-esp/loader/loader.conf               # default retroforge-<primary>.conf
 ```
 
-`<slot>_OK=0` on the slot that just failed means it was demoted — by the health unit's failure path,
-by hand, or by an interrupted install. `<slot>_TRY=3` means it used its three tries without a
-healthy session. `tests/test-bootctl.sh` and `tests/test-stage2-grub.sh` document the semantics.
+`+0` on the slot that just failed means it used its tries without a healthy session, or was demoted
+by the health unit's failure path, by hand, or by an interrupted update. No entry at all means an
+update was interrupted before it re-armed the slot. `tests/test-bootctl.sh` and
+`tests/test-bls.sh` document the semantics.
 
 The initramfs is written to **degrade loudly rather than brick**: if it cannot assemble the
 `/etc` overlay it falls back to a writable un-overlaid root and says so via `/dev/kmsg`. A device
 that boots to a shell with a strange `/etc` is that path, not a corrupt image.
 
-A torn write to the ESP or to a slot's efi partition — a lost grubenv, a missing stage-2 config —
-is a **reflash**; the post-install hook refuses to update a card whose ESP has no grubenv. That is
-the acknowledged failure mode of the design, not a bug to work around.
+Every entry write is one rename or one create, so a power cut leaves the old state or the new one.
+A slot whose boot partition is damaged is recovered by the next update to that slot, which rewrites
+its files and entries; while it is, OpenABL boots the other slot. A card from before this boot
+chain (GRUB) cannot be updated across it: that is a **reflash**.
 
 ## Before a push
 

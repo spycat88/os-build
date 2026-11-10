@@ -70,7 +70,7 @@ storage_disk_of() { # <dev path or kernel name> -> disk kernel name, or empty
 # missing handoff must not stop a single-disk device mounting /home); here the same absence has to
 # fail CLOSED, which is why this reads the file rather than calling that helper.
 #
-# IT IS A key=value FILE, NOT A DEVICE NODE. `slot=`, `source=`, `root=`, `var=`, `efi=` — the
+# IT IS A key=value FILE, NOT A DEVICE NODE. `slot=`, `source=`, `root=`, `var=` — the
 # resolved node is the `root=` line, written by the initramfs as findfs output. Reading the whole
 # file and treating it as a path is what the first version of this did, and the result was not a
 # crash: storage_disk_of simply failed, storage_boot_disk answered "unknown", and every card on an
@@ -108,7 +108,7 @@ storage_is_sd() { # <disk kernel name>
 # format-device.sh calls the storage cards it makes retroforge-library.
 storage_is_retroforge_partition() { # <partition device>
     case "$(lsblk -no PARTLABEL "$1" 2>/dev/null | head -n1)" in
-        RETROFORGE-ESP|retroforge-efi-[AB]|retroforge-root-[AB]|retroforge-var-[AB]|retroforge-home) return 0 ;;
+        RETROFORGE|retroforge-boot-[AB]|retroforge-root-[AB]|retroforge-var-[AB]|retroforge-home) return 0 ;;
     esac
     return 1
 }

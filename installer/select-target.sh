@@ -201,7 +201,7 @@ examine() {
   local idx start end code name
   while read -r idx start end code name; do
     [ "$code" = "EF00" ] || continue
-    [ "$name" = "RETROFORGE-ESP" ] && continue
+    [ "$name" = "RETROFORGE" ] && continue
     if esp_is_bootable "$disk" "$start" "$ss"; then
       say "  $disk: partition $idx ($name) is a bootable ESP that is not ours -- remove the other OS first"
       return 1

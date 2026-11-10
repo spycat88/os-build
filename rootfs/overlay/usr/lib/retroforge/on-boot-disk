@@ -9,14 +9,13 @@
 # udev enumerated first. udev creates ONE symlink per duplicate name, so the loser gets no link at
 # all — the choice is not merely ambiguous, it is invisible.
 #
-# The BOOTLOADER half of this problem was closed by naming root/var/efi on the kernel cmdline by
-# PARTUUID (boot/gen-grub-cfg.sh derives them with `probe --part-uuid` off the disk the ESP GRUB
-# booted from). Everything the RUNNING system resolves was left on labels, and four things
+# The BOOTLOADER half of this problem was closed by naming root and var on the kernel cmdline by
+# PARTUUID (each slot's boot entry is written with the UUIDs of the disk it sits on). Everything the RUNNING system resolves was left on labels, and four things
 # resolve partitions after switch_root:
 #
-#   /esp     /etc/fstab      the shared ESP — the grubenv, where RAUC clears a slot's tries. The ESP
-#                            GRUB counts them on the booted disk's ESP; if the OS cleared them on the
-#                            OTHER disk's ESP the count climbs every boot until the ESP GRUB fails
+#   /esp     /etc/fstab      the shared ESP — the boot entries, where RAUC resets a slot's tries.
+#                            OpenABL counts them on the booted disk's ESP; if the OS reset them on the
+#                            OTHER disk's ESP the count runs down every boot until OpenABL fails
 #                            over, and the other install's slot state is stamped over.
 #   /home    /etc/fstab      the player user's home and rauc's data-directory.
 #   home     grow-home.sh    which then runs systemd-repart on that partition's PARENT DISK — i.e.

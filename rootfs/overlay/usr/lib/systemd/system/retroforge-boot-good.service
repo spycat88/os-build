@@ -15,14 +15,16 @@
 # itself good on its first iteration. --require-marker re-tests the marker after the sleep, and
 # retroforge-session's EXIT trap removes it, so "still there" means "the same session stayed up".
 #
-# THE CONFIRMATION IS RAUC'S: mark-good runs `rauc status mark-good booted`, which sets the booted
-# slot's TRY back to 0 in the ESP's grubenv (the ESP GRUB bumped it before handing over), so the
-# ESP GRUB stops counting this boot as a failed try.
+# THE CONFIRMATION IS RAUC'S: mark-good runs `rauc status mark-good booted`, which (through
+# retroforge-bootctl, RAUC's backend) puts the booted slot's boot counter back to three tries: the
+# entry OpenABL renamed from retroforge-a+3.conf to retroforge-a+2-1.conf before this boot is
+# retroforge-a+3.conf again, so this boot no longer counts as a failed try. On a fresh card's first
+# boot it first writes the slot entries for the board this boot came up on.
 #
 # THE FAILURE PATH DEMOTES, through OnFailure= in [Unit]. If this unit fails -- the marker vanished
 # under the 30s re-check, or the confirmation could not be written -- retroforge-boot-bad.service
-# marks the RUNNING slot bad (`set-state self bad` -> rauc status mark-bad booted, <slot>_OK=0), so
-# the NEXT boot tries the other slot. That is the OS half of "is this slot OK?"; the bootloader
+# marks the RUNNING slot bad (`set-state self bad`: its entry's counter to +0), so the NEXT boot
+# tries the other slot. That is the OS half of "is this slot OK?"; the bootloader
 # never decides it.
 #
 # It is a separate unit rather than an Exec*= line here because systemd has no per-service
@@ -30,13 +32,13 @@
 # "Unknown key name" and ignores it, and the demote silently never happens. That is exactly how
 # this shipped once already.
 #
-# THIS IS ONE OF TWO ROLLBACK TRIGGERS, both live. The other is the ESP GRUB's try count
-# (boot/gen-esp-cfg.sh): a slot that never reaches this unit at all -- no session, no path unit
+# THIS IS ONE OF TWO ROLLBACK TRIGGERS, both live. The other is OpenABL's boot counting (the +N
+# in the entry's file name): a slot that never reaches this unit at all -- no session, no path unit
 # firing -- has used its three tries after three boots, and the fourth goes to the other slot.
 #
-# NOTE FOR ANYONE TESTING THAT COUNT: this unit's mark-good CLEARS the TRY, so a healthy boot
+# NOTE FOR ANYONE TESTING THAT COUNT: this unit's mark-good RESETS the counter, so a healthy boot
 # erases the evidence. Mask this unit before the test reboot, or `retroforge-bootctl status` shows
-# TRY=0 whether or not the bootloader is counting.
+# +3 whether or not the bootloader is counting.
 #
 # THERE IS DELIBERATELY NO TIMEOUT THAT MARKS GOOD ANYWAY. If the session never comes up, the
 # path unit never fires and the image is never confirmed. That is the property this whole

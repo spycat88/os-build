@@ -13,8 +13,8 @@
 # script's arithmetic, which is the only one that is right. See the block at the mode itself.
 #
 # On success it prints the name=index map on stdout and exits 0 -- the same shape genpart.sh emits,
-# because that map is what `write_parts_env` turns into /EFI/steamos/parts.env, and stage 2 on this
-# disk cannot assume 1..8. Every mode produces it, so the caller does not branch to find its
+# because that map is how the installer finds the partitions whose PARTUUIDs the boot entry names:
+# on this disk nothing can assume 1..8. Every mode produces it, so the caller does not branch to find its
 # partitions; `uninstall` prints `userdata=<index>` instead, there being no eight left to name.
 #
 # THE MODE IS THE USER'S INTENT AND IT IS AN ARGUMENT, never inferred. The disk only distinguishes
@@ -71,7 +71,7 @@ fi
 # The GPT names of our eight, in layout order. Deletion is BY NAME and only by name: an index is
 # never trusted from a caller or from arithmetic, because the difference between deleting p9 and
 # deleting p8 is the difference between our ESP and somebody's `abl`.
-OUR_NAMES=(RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+OUR_NAMES=(RETROFORGE retroforge-boot-A retroforge-boot-B retroforge-root-A retroforge-root-B \
            retroforge-var-A retroforge-var-B retroforge-home)
 
 ANDROID_FLOOR_GIB="${ANDROID_FLOOR_GIB:-1}"
@@ -160,10 +160,10 @@ drop_residue() {
 
 # A GPT ENTRY IS NOT A FILESYSTEM. A newly appended partition inherits whatever bytes were already
 # under it, and on any disk that has carried a layout before, those sectors were somebody else's --
-# our own previous ESP, efi-B or root-A, one layout ago.
+# our own previous ESP, boot-B or root-A, one layout ago.
 #
-# MEASURED on the Pocket ACE, 2026-08-22, re-installing after the ESP went 512M -> 256M and the efi
-# partitions 64M -> 128M: the new efi-B (p14) came up carrying a stale vfat superblock at 0x0 AND a
+# MEASURED on the Pocket ACE, 2026-08-22, re-installing after the ESP went 512M -> 256M and the boot
+# partitions 64M -> 128M: the new boot-B (p14) came up carrying a stale vfat superblock at 0x0 AND a
 # stale btrfs one at 0x10040. libblkid's safeprobe calls two conflicting signatures ambiguous and
 # refuses to answer, systemd-udevd's blkid builtin then fails with EPERM, and so udev never
 # publishes ID_PART_ENTRY_* or /dev/disk/by-partuuid/<uuid> for that partition AT ALL. The install

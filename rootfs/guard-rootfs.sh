@@ -382,14 +382,14 @@ fi
 #
 # Every part of an A/B update is inert until something needs it, and each missing piece fails at a
 # different and unhelpful moment: no `rauc` binary is a missing command at install time; a missing
-# keyring means bundles verify against NOTHING while still reporting success; a missing ESP GRUB or
-# stage-2 config under /usr/lib/retroforge/boot means the post-install hook cannot refresh the ESP
-# and the slot's efi partition, so the updated slot boots a boot chain that does not match it; and a
-# missing grub-editenv fails every slot-state call RAUC's grub backend makes.
+# keyring means bundles verify against NOTHING while still reporting success; a missing board table
+# or command line under /usr/lib/retroforge/boot means the post-install hook of the root BEFORE this
+# one refuses to install it (it reads them to write the slot's boot entry); and a missing
+# retroforge-bootctl fails every slot-state call RAUC's custom backend makes.
 #
-# lib-slotwrite.sh is on the list because the hook SOURCES it: since the primitives were factored out
-# for the internal installer to share, a root without it has a post-install that dies on its first
-# line. RAUC would then report a failed install of a slot it had already written -- recoverable, but
+# lib-slotwrite.sh and lib-bls.sh are on the list because the hook SOURCES them: since the primitives
+# were factored out for the internal installer to share, a root without them has a post-install that
+# dies on its first line. RAUC would then report a failed install of a slot it had already written -- recoverable, but
 # only from the other slot, and the build is the cheap place to notice.
 #
 # The exec bit on the hook is checked because it is exactly the failure this project has already
@@ -399,17 +399,15 @@ fi
 echo "  7. RAUC update path"
 rauc_ok=1
 for f in usr/bin/rauc etc/rauc/keyring.pem etc/rauc/system.conf \
-         usr/bin/grub-editenv \
+         usr/bin/retroforge-bootctl \
          usr/lib/systemd/system/retroforge-boot-good.service \
          usr/lib/systemd/system/retroforge-boot-bad.service \
-         usr/lib/retroforge/boot/grub-esp.efi usr/lib/retroforge/boot/steamcl.efi \
-         usr/lib/retroforge/boot/steamcl-version usr/lib/retroforge/boot/fonts/default.pf2 \
-         usr/lib/retroforge/boot/grubaa64.efi usr/lib/retroforge/boot/grub-a.cfg \
-         usr/lib/retroforge/boot/grub-b.cfg \
-         usr/lib/retroforge/boot/fonts/dejavu-mono.pf2 \
-         boot/vmlinuz.efi boot/initramfs-retroforge.img \
+         usr/lib/retroforge/boot/boards.tsv usr/lib/retroforge/boot/cmdline \
+         usr/lib/retroforge/boot/release \
+         boot/vmlinuz boot/initramfs-retroforge.img \
          usr/lib/rauc/post-install.sh \
-         usr/lib/retroforge/install/lib-slotwrite.sh; do
+         usr/lib/retroforge/install/lib-slotwrite.sh \
+         usr/lib/retroforge/install/lib-bls.sh; do
   if [ ! -s "$STAGE/$f" ]; then
     rauc_ok=0
     bad "/$f is missing or empty — the A/B update path is not installable"
@@ -419,16 +417,26 @@ if [ -e "$STAGE/usr/lib/rauc/post-install.sh" ] && [ ! -x "$STAGE/usr/lib/rauc/p
   rauc_ok=0
   bad "/usr/lib/rauc/post-install.sh is not executable — RAUC would report a successful install of a slot that was never finished"
 fi
-# steamcl.efi is what an older root's hook copies onto the ESP when it installs this root, so it has
-# to BE the ESP GRUB; anything else there would put the steamcl chain back.
-if [ -e "$STAGE/usr/lib/retroforge/boot/steamcl.efi" ] \
-   && [ "$(readlink "$STAGE/usr/lib/retroforge/boot/steamcl.efi")" != grub-esp.efi ]; then
+if [ -e "$STAGE/usr/bin/retroforge-bootctl" ] && [ ! -x "$STAGE/usr/bin/retroforge-bootctl" ]; then
   rauc_ok=0
-  bad "/usr/lib/retroforge/boot/steamcl.efi is not a link to grub-esp.efi — an older root's update hook would install something other than the ESP GRUB"
+  bad "/usr/bin/retroforge-bootctl is not executable — every slot-state call RAUC makes would fail"
 fi
-if ! grep -qx 'bootloader=grub' "$STAGE/etc/rauc/system.conf" 2>/dev/null; then
+if ! grep -qx 'bootloader=custom' "$STAGE/etc/rauc/system.conf" 2>/dev/null \
+   || ! grep -qx 'bootloader-custom-backend=/usr/bin/retroforge-bootctl' "$STAGE/etc/rauc/system.conf" 2>/dev/null; then
   rauc_ok=0
-  bad "/etc/rauc/system.conf does not say bootloader=grub — RAUC would not drive the grubenv the ESP GRUB reads"
+  bad "/etc/rauc/system.conf does not hand the slot state to retroforge-bootctl (bootloader=custom) — RAUC would not drive the boot entries OpenABL reads"
+fi
+# The board table is what every entry is written from: an empty one is a root no update can arm.
+if [ -s "$STAGE/usr/lib/retroforge/boot/boards.tsv" ] \
+   && ! grep -qv '^#' "$STAGE/usr/lib/retroforge/boot/boards.tsv"; then
+  rauc_ok=0
+  bad "/usr/lib/retroforge/boot/boards.tsv has no boards — no boot entry could be written for this root"
+fi
+# systemd-bless-boot would drop the boot counter from the booted slot's entry on the first healthy
+# boot, and the slot would never be counted again (lib-bls.sh resets it to three instead).
+if [ "$(readlink "$STAGE/etc/systemd/system/systemd-bless-boot.service" 2>/dev/null)" != /dev/null ]; then
+  rauc_ok=0
+  bad "systemd-bless-boot.service is not masked — it would strip the boot counter off the booted slot's entry"
 fi
 # btrfstune is what re-randomises the target slot's fsid. Without it the hook dies mid-install,
 # and a slot that shares an fsid with the running root can silently hand you the wrong filesystem.
@@ -462,25 +470,14 @@ unset keyring project_ca img_mode
 # recovery medium, which writes an ESP that does not exist yet: the constants it cannot mint on the
 # device, out of the root whose boot chain they belong to.
 #
-# grubenv is the shared ESP's env block: RAUC's slot state and the user's board choice. The installer
-# starts from this pristine copy so an install and a card carry the same object (boot/grub.sh emits
-# it and asserts it is pristine). The 1024 is re-checked here because it is the length nothing
-# downstream complains about: grub_envblk_open only requires the signature to FIT, so a short block
-# reads back perfectly and is simply not the object a card carries.
-if [ ! -s "$STAGE/usr/lib/retroforge/boot/grubenv" ]; then
-  bad "/usr/lib/retroforge/boot/grubenv is missing — an internal install cannot seed the ESP's env block"
-elif [ "$(wc -c <"$STAGE/usr/lib/retroforge/boot/grubenv")" != 1024 ]; then
-  bad "/usr/lib/retroforge/boot/grubenv is $(wc -c <"$STAGE/usr/lib/retroforge/boot/grubenv") bytes, not 1024 — it would read back fine and still not match what a card carries"
-else
-  echo "    ok  installer artifacts: grubenv (1024 B, pristine)"
-fi
-# OpenABL's Device model list for the ESP's \dtbs\qcom: one per DTB the root boots.
+# The DTBs the installer (and the update hook) copy onto the slot's boot partition, which OpenABL
+# lists and installs as its Device models. One per DTB the root boots.
 # A missing directory is a count of 0, not an exit: find fails on it, and under pipefail that would
 # end the guard here with every later assertion unrun.
 n_esp_dtbs=$({ find "$STAGE/usr/lib/retroforge/boot/dtbs" -maxdepth 1 -name '*.dtb' 2>/dev/null || true; } | wc -l | tr -d ' ')
 n_dtbs=$({ find "$STAGE/boot/dtbs" -maxdepth 1 -name '*.dtb' 2>/dev/null || true; } | wc -l | tr -d ' ')
 if [ "$n_esp_dtbs" -gt 0 ] && [ "$n_esp_dtbs" = "$n_dtbs" ]; then
-  echo "    ok  installer artifacts: $n_esp_dtbs ESP DTBs for OpenABL's Device model list"
+  echo "    ok  installer artifacts: $n_esp_dtbs slot DTBs for OpenABL's Device models"
 else
   bad "/usr/lib/retroforge/boot/dtbs has $n_esp_dtbs DTBs for $n_dtbs in /boot/dtbs — OpenABL could not list every board"
 fi
@@ -556,7 +553,7 @@ cmp -s "$STAGE/usr/lib/retroforge/install/lib-homestage.sh" "$ROOT/image/lib-hom
 [ "$(readlink "$STAGE/usr/lib/retroforge/install/confirm" 2>/dev/null)" = confirm-ui ] \
   || bad "/usr/lib/retroforge/install/confirm does not point at confirm-ui — an installer that cannot take consent cannot install"
 # tests/test-installer-shipped.sh keeps this list a superset of what recon() and the components call.
-INSTALLER_TOOLS="sgdisk sfdisk mdir sha256sum dd mkfs.vfat mkfs.ext4 mkfs.btrfs btrfstune btrfs blkid mount umount tar rauc dbus-daemon gdbus partprobe udevadm curl gamescope seatd-launch python3 zstd grub-editenv pgrep"
+INSTALLER_TOOLS="sgdisk sfdisk mdir sha256sum dd mkfs.vfat mkfs.ext4 mkfs.btrfs btrfstune btrfs blkid mount umount tar rauc dbus-daemon gdbus partprobe udevadm curl gamescope seatd-launch python3 zstd pgrep"
 # -L as well: a link with an absolute target does not resolve inside a staged tree.
 missing_tools=""
 for t in $INSTALLER_TOOLS; do
@@ -568,10 +565,12 @@ done
 [ -n "$missing_tools" ] || echo "    ok  installer artifacts: ${INSTALLER_TOOLS// /, }"
 
 # The primitives the hook and the installer share. Asserted here as well as on the RAUC list above,
-# because the two readers fail differently: without it an OTA dies on post-install.sh's first line,
-# while an install has no way to write parts.env and leaves stage 2 guessing the SD card's 1..8.
+# because the two readers fail differently: without them an OTA dies on post-install.sh's first line,
+# while an install has no way to write the ESP's boot entry and leaves a disk nothing boots.
 [ -s "$STAGE/usr/lib/retroforge/install/lib-slotwrite.sh" ] \
   || bad "/usr/lib/retroforge/install/lib-slotwrite.sh is missing — neither an update nor an install can write a slot"
+[ -s "$STAGE/usr/lib/retroforge/install/lib-bls.sh" ] \
+  || bad "/usr/lib/retroforge/install/lib-bls.sh is missing — neither an update nor an install can write a boot entry"
 
 # --- the two halves of adaptive streaming, both of which fail SILENTLY --------------------------
 # Adaptive updates (ota/rauc/manifest.raucm.in) cut a release-to-release OTA from 3.90G to ~125M
@@ -631,7 +630,7 @@ if [ "$rauc_ok" = 1 ] && [ -s "$STAGE/etc/rauc/system.conf" ]; then
   fi
 fi
 if [ "$rauc_ok" = 1 ]; then
-  echo "    ok  rauc + keyring + system.conf + /usr/lib/retroforge/boot stage-1/2 mirror + /boot kernel + executable hook"
+  echo "    ok  rauc + keyring + system.conf (custom backend) + /usr/lib/retroforge/boot data + /boot kernel + executable hook"
   echo "    ok  a codeSigning-EKU bundle verifies through the shipped system.conf; an unrelated CA does not"
 fi
 
@@ -678,13 +677,13 @@ if [ -s "$BD_RULE" ] && ! grep -q '/usr/lib/retroforge/on-boot-disk' "$BD_RULE";
   bootdisk_ok=0
   bad "69-retroforge-bootdisk.rules does not name /usr/lib/retroforge/on-boot-disk — its PROGRAM points somewhere else"
 fi
-for row in RETROFORGE-ESP:/esp retroforge-home:/home; do
+for row in RETROFORGE:/esp retroforge-home:/home; do
   if ! grep -q "^/dev/retroforge/${row%%:*}[[:space:]]" "$STAGE/etc/fstab" 2>/dev/null; then
     bootdisk_ok=0
     bad "/etc/fstab does not mount ${row##*:} from /dev/retroforge/${row%%:*} — that mount follows whichever disk udev enumerated first"
   fi
 done
-if grep -qE '^(PARTLABEL|LABEL)=(RETROFORGE-ESP|retroforge-home)[[:space:]]' "$STAGE/etc/fstab" 2>/dev/null; then
+if grep -qE '^(PARTLABEL|LABEL)=(RETROFORGE|retroforge-home)[[:space:]]' "$STAGE/etc/fstab" 2>/dev/null; then
   bootdisk_ok=0
   bad "/etc/fstab still carries a bare PARTLABEL=/LABEL= row for the ESP or home — the scoped link and the label row would race for the same mountpoint"
 fi

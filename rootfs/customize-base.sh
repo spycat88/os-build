@@ -117,11 +117,12 @@ BOOTSTRAP_PKGS=(base)
 #                       selects one only when the user picks it. Needs CONFIG_SCHED_CLASS_EXT. Overlay.
 #   rauc                A/B update client, the snapshot's 1.15.2 (must be >= 1.15.1: 1.14 cannot
 #                       install a dm-verity bundle on a kernel >= 6.19).
-#                       Reads /etc/rauc/system.conf: bootloader=grub over the ESP's grubenv.
+#                       Reads /etc/rauc/system.conf: bootloader=custom, retroforge-bootctl over
+#                       the ESP's boot entries.
 #   btrfs-progs         `btrfstune -U` in the post-install hook, so the two slots never share an fsid.
 #   rsync               the post-install hook copies the running /var into the new slot's /var.
 #   gptfdisk            sgdisk: the internal installer reads and writes the GPT with it.
-#   dosfstools          mkfs.vfat: the installer's ESP and both efi partitions.
+#   dosfstools          mkfs.vfat: the installer's ESP and both boot partitions.
 #   mtools              mdir: reads a foreign ESP's content, which is how select-target.sh recognises
 #                       another distribution's install. It refuses to run without it.
 #   parted              partprobe: re-reads the table after the carve; recon() requires it outright.

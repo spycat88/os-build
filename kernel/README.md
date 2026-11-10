@@ -8,12 +8,12 @@ our own. Mainline/Linaro `sm8x50` base with vendor cherry-picks as needed.
 The build is **unified**: one `Image` for every supported SoC/board, built from the
 union of all fragments, patches and device trees. There is no SoC argument.
 
-The kernel is staged as **`vmlinuz.efi`**, an EFI zboot image: the `Image`, gzip-compressed,
-behind a PE stub that decompresses it. Stage-2 GRUB boots `($slotroot)/boot/vmlinuz.efi` and
-needs no decompressor of its own (`grubaa64.efi` has none, which is why the plain `Image` used to
-be staged). Reading is what costs: GRUB gets ~7 MB/s off the card through the firmware, so the
-58M `Image` was 8.1 s of the boot on the Air X. `build.sh` deletes any stale `out/Image` or
-`out/Image.gz` — nothing reads them.
+The kernel is staged as **`vmlinuz`**: `Image.gz`, the `Image` gzip-compressed (no EFI zboot
+wrapper). OpenABL boots the copy the slot's Boot Loader Specification entry names
+(`/vmlinuz-<kernel version>` on the slot's boot partition), inflating it itself before it starts
+the kernel's EFI stub. Reading is what costs: the loader gets ~7 MB/s off the card through the
+firmware, so the 58M uncompressed `Image` was 8.1 s of the boot on the Air X. `build.sh` deletes
+any stale `out/Image` or `out/Image.gz` — nothing reads them.
 
 | Path | Purpose |
 |---|---|
@@ -25,7 +25,7 @@ be staged). Reading is what costs: GRUB gets ~7 MB/s off the card through the fi
 | `patches/` | Out-of-tree patches applied before build (lexical order) |
 | `dts/qcom/` | Device trees injected into the kernel source before build; boards are **discovered** from the top-level `.dts` files |
 | `embed.list` | `/lib/firmware`-relative paths baked into the Image (`CONFIG_EXTRA_FIRMWARE`), the union of every SoC's early-boot blobs |
-| `build.sh` | Fetch pinned source → patch → inject DTs → merge configs → build `vmlinuz.efi` + all dtbs + modules; stage to `out/` |
+| `build.sh` | Fetch pinned source → patch → inject DTs → merge configs → build `Image.gz` (staged as `vmlinuz`) + all dtbs + modules; stage to `out/` |
 
 ## Key decision: cut platform gates, not drivers
 The base `defconfig` is deliberately "boots every arm64 board", so it enables every top-level
@@ -63,7 +63,7 @@ pages.** Standardized across all five SoCs.
   version (tarball URL + sha256 + dereferenced tag + the bump history). Do not restate the
   version here; one source of truth.
 - ✅ Config symbols validated against that tree (see header of `kernel.config`).
-- ✅ Builds `vmlinuz.efi` + all board dtbs and stages loadable modules to `out/modroot`
+- ✅ Builds `vmlinuz` + all board dtbs and stages loadable modules to `out/modroot`
   for the rootfs assembler — the `=m` handheld-panel drivers (display) ride along.
 - ✅ The patch stack applies with **zero rejects and zero fuzz**, and `build.sh` now
   enforces it — it applies with `--fuzz=0` rather than patch(1)'s default of 2. Fuzz is not

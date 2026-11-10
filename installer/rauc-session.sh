@@ -21,8 +21,8 @@
 #                    get_bootname_slot() (install.c:1267) skips it when choosing which slot to
 #                    activate -- so boot_mark_slot comes back NULL and r_mark_active() is never
 #                    called. No bootloader backend runs, which is right: the boot state this
-#                    install will have does not exist yet. The orchestrator arms the grubenv itself,
-#                    last, once the disk is genuinely bootable.
+#                    install will have does not exist yet. The orchestrator writes the boot entry
+#                    itself, last, once the disk is genuinely bootable.
 #   bootloader=noop  belt to that brace, AND NOT AN OMISSION -- the plan said the field was
 #                    optional and it is not. Measured on the Pocket ACE 2026-08-21: leaving it out
 #                    gets "No bootloader selected in system config" and the service exits before it

@@ -15,13 +15,13 @@
 # the event's CURRENT_TAGS property stale when the last current tag goes, so PID1, which reads the
 # event, still saw every partition as ready (Air X: 170 units left, and the automount jobs ran).
 #
-# 99-zz so it runs after systemd's 99-systemd.rules. Our own partitions (retroforge-*/RETROFORGE-*,
+# 99-zz so it runs after systemd's 99-systemd.rules. Our own partitions (retroforge-*/RETROFORGE,
 # an internal install's) are never matched, and neither is anything that is not internal storage:
 # SD cards and USB disks keep their units and their automount.
 ACTION=="remove", GOTO="retroforge_hide_oem_end"
 SUBSYSTEM!="block", GOTO="retroforge_hide_oem_end"
 ENV{DEVTYPE}!="partition", GOTO="retroforge_hide_oem_end"
-ENV{ID_PART_ENTRY_NAME}=="retroforge-*|RETROFORGE-*", GOTO="retroforge_hide_oem_end"
+ENV{ID_PART_ENTRY_NAME}=="retroforge-*|RETROFORGE", GOTO="retroforge_hide_oem_end"
 
 # eMMC (the SM6115 boards): the MMC core types an eMMC "MMC" and an SD card "SD".
 KERNEL=="mmcblk*p*", ATTRS{type}=="MMC", ENV{SYSTEMD_READY}="0"

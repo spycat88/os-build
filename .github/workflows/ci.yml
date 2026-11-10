@@ -40,15 +40,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      # grub-common carries grub-editenv, and tests/test-install.sh SKIPS its strongest case
-      # without it: that our hand-rolled parts.env block is byte-identical to one GRUB's own tool
-      # writes. The suites otherwise inherit the runner's PATH, which is exactly how a check ends up
-      # asserting nothing on the only machine that runs it unattended. Install it so the case runs.
+      # The suites inherit the runner's PATH, which is exactly how a check ends up asserting nothing
+      # on the only machine that runs it unattended, so the tools they skip without are installed.
       # device-tree-compiler for tests/test-hw-dtb.sh, which compiles fabricated devicetrees to
       # check tools/check-hw-paths.py's naming rules; without dtc that half of the suite is skipped.
       # xxhash for tests/test-steam-x86-guest.sh: the image checks FEX's RootFS with xxhsum -H3, and
       # without it the suite falls back to a stand-in hash and skips the XXH3 known-answer case.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends grub-common device-tree-compiler xxhash
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends device-tree-compiler xxhash
       # 354 checks over the update path: the initramfs READS the slot state, retroforge-bootctl
       # WRITES it, and the post-install hook drives both while reformatting a partition. Pure
       # shell against temp-dir sandboxes — no build, no container, no root, no device.

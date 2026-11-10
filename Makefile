@@ -282,7 +282,7 @@ OVERLAY_DB      := work/repo/$(OVERLAY_ARCH)/retroforge.db.tar.zst
 # customize-base off a byte-identical repo.
 OVERLAY_STAMP   := work/repo/$(OVERLAY_ARCH)/.overlay.stamp
 BASE_STAMP   := work/.base.stamp
-KERNEL       := $(OUT)/vmlinuz.efi
+KERNEL       := $(OUT)/vmlinuz
 ROOTFS       := $(OUT)/images/rootfs.img
 # Sibling image the assembler emits alongside the root (see image/partition-table.txt):
 # the writable state partition, which also carries the /etc overlay upper.
@@ -302,10 +302,9 @@ SPLASH_SRC   := apps/retroforge-splash/Makefile apps/retroforge-splash/src/retro
 # The asset is sized from the widest panel in the device registry (image/mksplash.sh reads it and
 # fails the build when it outgrows the render box), so a new board's conf has to re-run it.
 SPLASH_GEOM  := $(wildcard rootfs/overlay/usr/lib/retroforge/devices/*.conf)
-# GRUB (boot/grub.sh). Co-products in the same out/boot: grub-esp.efi (the ESP GRUB), grub-a.cfg,
-# grub-b.cfg, fonts/, grubenv (the pristine env block the ESP gets), grub-editenv (for RAUC on the
-# device) and steamcl-version (what an older root's update hook expects beside the ESP GRUB).
-GRUB         := $(OUT)/boot/grubaa64.efi
+# The boot data every Boot Loader Specification entry is written from (boot/gen-bls.sh): the board
+# table, with out/boot/cmdline as its co-product.
+BOOTDATA     := $(OUT)/boot/boards.tsv
 SDCARD       := $(OUT)/images/sdcard.img
 # The LD_PRELOAD library PortMaster's gptokeyb2 runs with (apps/retroforge-gptk-interpose; its exclusive
 # pad grab under sdl2-compat). aarch64, built in the container like the splash.
@@ -355,8 +354,8 @@ ASSEMBLE_SRC += installer/shipped-files \
 
 # Kernel inputs: any change re-triggers the (full, from-scratch) kernel build. The unified
 # kernel globs every fragment/patch/dts, and bakes the firmware embed list.
-# There is no cmdline file to list: the common boot args live in boot/gen-grub-cfg.sh and land on
-# the `linux` line of the generated grub.cfg, so nothing in kernel/build.sh reads one.
+# There is no cmdline file to list: the common boot args live in boot/gen-bls.sh and land in each
+# boot entry's `options`, so nothing in kernel/build.sh reads one.
 # kernel/build.sh IS here (added 2026-07-26): it is the recipe itself — it decides the config
 # merge, the firmware embed and the =m/=y assertions, so editing it changes the Image but make
 # could not see that. Editing it alone used to be a silent no-op that only showed up as a stale
@@ -399,7 +398,7 @@ RETROFORGE_CCACHE ?= $(if $(CI),0,1)
 # ==============================================================================
 .PHONY: help all image toolchain kernel fw-linux fw-qcom base overlay verify-lock check-hw-paths \
         rootfs relock \
-        initramfs splash plugin gptk-interpose hidemenu mesa-x86 grub sdcard verify-card test test-disk bundle sign-bundle publish-bundle \
+        initramfs splash plugin gptk-interpose hidemenu mesa-x86 bootdata sdcard verify-card test test-disk bundle sign-bundle publish-bundle \
         clean clean-base clean-overlay clean-ccache distclean
 
 # An always-out-of-date prerequisite, for rules that must re-evaluate their own inputs every run
@@ -420,7 +419,7 @@ all: sdcard ## Alias for `sdcard` (the full bring-up image)
 image: $(ROOTFS) ## Read-only Btrfs root only (out/images/rootfs.img)
 
 toolchain: $(BUILD_STAMP) ## Build the retroforge-build cross-compile docker image
-kernel:    $(KERNEL)       ## Build vmlinuz.efi + all dtbs + modules (in build container)
+kernel:    $(KERNEL)       ## Build vmlinuz + all dtbs + modules (in build container)
 fw-linux:  $(FW_LINUX)     ## Fetch open linux-firmware blobs (host, network)
 fw-qcom:   $(FW_QCOM)      ## Fetch device-proprietary firmware from the qcom-firmwares repo (host, network)
 overlay:   $(OVERLAY_DB)   ## Rebuild from-source overlay pkgs (patched gamescope) -> work/repo/<arch>/
@@ -432,7 +431,7 @@ plugin:    $(PLUGIN_ZIP) ## Build the RetroForge OpenGamepadUI plugin zip (host,
 hidemenu:  $(HIDEMENU_LIB) ## Build the melonDS second-window menu shim, libretroforge-hidemenu.so (in container)
 mesa-x86:  $(MESA_X86_STAMP) ## Build our x86_64 + i686 Mesa for the FEX guest's overlay (x86_64 container)
 gptk-interpose: $(GPTK_LIB) ## Build PortMaster gptokeyb2's pad interposer (in container)
-grub:      $(GRUB)         ## Build the ESP GRUB + per-slot grub.cfg (in container)
+bootdata:  $(BOOTDATA)     ## Generate the board table + boot cmdline the BLS entries are written from
 sdcard:    $(SDCARD)       ## Build the flashable SD-card image (in container)
 
 # Asserts the BUILT card the way guard-rootfs.sh asserts the built tree — the guard stops at the
@@ -479,7 +478,7 @@ test: verify-lock ## Run every offline suite (host, no build needed)
 	bash $(TESTS_DIR)/test-power-led.sh
 	bash $(TESTS_DIR)/test-suspend.sh
 	bash $(TESTS_DIR)/test-gamescope-display.sh
-	bash $(TESTS_DIR)/test-stage2-grub.sh
+	bash $(TESTS_DIR)/test-bls.sh
 	bash $(TESTS_DIR)/test-device-env.sh
 	bash $(TESTS_DIR)/test-partition-table.sh
 	bash $(TESTS_DIR)/test-units.sh
@@ -540,7 +539,7 @@ test: verify-lock ## Run every offline suite (host, no build needed)
 # stays green while asserting nothing".
 #
 # It depends on $(SIGN_STAMP), NOT $(BUILD_STAMP): the suite needs rauc, openssl and mksquashfs,
-# and building the aarch64 cross-toolchain + GRUB's autotools to get them is what made this the
+# and building the aarch64 cross-toolchain to get them is what made this the
 # slowest thing in `ci`. Both images come from the same build/Dockerfile, so the rauc pin they
 # share cannot drift. Anyone who already has the full image loses nothing — the signing stage is
 # its own first layer, so docker reuses it rather than fetching anything twice.
@@ -766,19 +765,19 @@ $(SSHKEY_STAMP):
 	@mkdir -p $(@D) && rm -f work/.rootfs-sshkey-* && touch $@
 	@echo "[retroforge] root SSH key: $(SSHKEY_HASH)"
 
-# $(INITRAMFS) and $(GRUB) are prerequisites because the root CARRIES its own boot
-# half: /boot/{Image,initramfs-retroforge.img,dtbs} that the slot's stage 2 boots, plus the
-# /usr/lib/retroforge/boot mirror the RAUC hook refreshes the ESP and the slot's efi partition FROM.
+# $(INITRAMFS) and $(BOOTDATA) are prerequisites because the root CARRIES its own boot
+# half: /boot/{vmlinuz,initramfs-retroforge.img,dtbs} that the slot's boot entry boots, plus the
+# /usr/lib/retroforge/boot data the RAUC hook writes the slot's entry FROM.
 # That is what makes "this root and the software that boots it came from one build" true by
 # construction. No cycle: the initramfs is built from work/base, never from the assembled root.
-$(ROOTFS): $(KERNEL) $(INITRAMFS) $(GRUB) boot/esp-dtbs.sh $(BASE_STAMP) $(FW_LINUX) $(FW_QCOM) $(PLUGIN_ZIP) $(GPTK_LIB) $(HIDEMENU_LIB) $(MESA_X86_DEP) $(ASSEMBLE_SRC) $(MODE_STAMP) $(VERSION_STAMP) $(SCRAPER_STAMP) $(SSHKEY_STAMP) $(DEV_CA) | $(BUILD_STAMP)
+$(ROOTFS): $(KERNEL) $(INITRAMFS) $(BOOTDATA) boot/splash-dtbs.sh $(BASE_STAMP) $(FW_LINUX) $(FW_QCOM) $(PLUGIN_ZIP) $(GPTK_LIB) $(HIDEMENU_LIB) $(MESA_X86_DEP) $(ASSEMBLE_SRC) $(MODE_STAMP) $(VERSION_STAMP) $(SCRAPER_STAMP) $(SSHKEY_STAMP) $(DEV_CA) | $(BUILD_STAMP)
 	$(DOCKER) $(DEV_ENV) $(SCRAPER_ENV) $(ID_ENV) -e RETROFORGE_DEBUG -e RETROFORGE_X86_MESA $(BUILD_IMG) \
 	  $(ROOTFS_DIR)/assemble-rootfs.sh /src/work/base
 
 # ==============================================================================
 # Boot stage + bootable media (container)
 # ==============================================================================
-# The initramfs mounts the slot's root + var + efi partition, stacks the /etc overlay, and
+# The initramfs mounts the slot's root + var + boot partition, stacks the /etc overlay, and
 # switch_roots. It is staged out of the base rootfs (bash + util-linux), so the base is a prereq.
 $(INITRAMFS): $(IMAGE_DIR)/mkinitramfs.sh $(IMAGE_DIR)/initramfs/init $(SPLASH_BIN) $(SPLASH_ASSET) $(BASE_STAMP) | $(BUILD_STAMP)
 	$(INBUILD) $(IMAGE_DIR)/mkinitramfs.sh /src/work/base
@@ -805,20 +804,11 @@ $(MESA_X86_STAMP): $(MESA_X86_SRC)
 $(SPLASH_ASSET): $(IMAGE_DIR)/mksplash.sh $(IMAGE_DIR)/png2nds1.py $(IMAGE_DIR)/splash/logo.svg $(IMAGE_DIR)/splash/logo.png $(SPLASH_GEOM) | $(BUILD_STAMP)
 	$(INBUILD) $(IMAGE_DIR)/mksplash.sh
 
-# The ESP GRUB + the two per-slot grub.cfg files + grubenv. The patch set and the board catalog are
-# prerequisites because both change the artifact: a new patch changes grubaa64.efi, and a new
-# board row changes the configs generated beside it. image/partition-table.txt is in there for
-# the same reason -- the configs address partitions by index out of that file.
-#
-# THE CO-PRODUCTS ARE NOT SEPARATE TARGETS, and the cost is worth
-# knowing: make only stats grubaa64.efi, so deleting a co-product on its own does NOT retrigger this
-# rule. It fails at the consumer instead -- rootfs/assemble-rootfs.sh and image/make-sdcard.sh both
-# check each file by name and name this script in the error. Loud, and one recipe run rather than
-# four. Giving grubenv its own rule would mean either running boot/grub.sh twice or minting the
-# block outside it, which is the second writer that shipping it as an artifact exists to remove.
-$(GRUB): boot/grub.sh boot/gen-grub-cfg.sh boot/gen-esp-cfg.sh boot/grub.pin boot/boards.map \
-         $(IMAGE_DIR)/partition-table.txt $(wildcard boot/patches/grub/*.patch) | $(BUILD_STAMP)
-	$(INBUILD) boot/grub.sh
+# The board table + common cmdline. Pure text (no toolchain); the catalog and the DTS sources are
+# prerequisites because a new board row or a changed root `model` changes the table. The cmdline is
+# a co-product: make only stats boards.tsv, and the consumers check both by name.
+$(BOOTDATA): boot/gen-bls.sh boot/boards.map $(wildcard kernel/dts/qcom/*.dts kernel/dts/qcom/*.dtsi)
+	bash boot/gen-bls.sh $(OUT)/boot
 
 # var.img and var-b.img are co-products of the same assembler run as rootfs.img.
 $(VARIMG): $(ROOTFS)
@@ -830,7 +820,7 @@ $(VARIMG_B): $(ROOTFS)
 # slot B for a dev card and leaves it empty for a release card, and an unforwarded RETROFORGE_DEV
 # would build every card release-shaped. No mode stamp is needed on top: $(ROOTFS) already depends
 # on $(MODE_STAMP), so flipping the mode rebuilds the rootfs and this rule with it.
-$(SDCARD): $(ROOTFS) $(VARIMG) $(VARIMG_B) $(GRUB) boot/esp-dtbs.sh $(IMAGE_DIR)/make-sdcard.sh | $(BUILD_STAMP)
+$(SDCARD): $(ROOTFS) $(VARIMG) $(VARIMG_B) $(BOOTDATA) boot/splash-dtbs.sh $(IMAGE_DIR)/make-sdcard.sh | $(BUILD_STAMP)
 	$(DOCKER) -e RETROFORGE_DEV -e RETROFORGE_SLOT_B $(BUILD_IMG) $(IMAGE_DIR)/make-sdcard.sh
 
 # Signed RAUC OTA bundle (Phase 4). Dev builds mint an ephemeral cert. For a real signature use
@@ -891,7 +881,7 @@ publish-bundle: ## Publish BUNDLE=<file.raucb> to the OTA bucket (host; needs th
 # the artifacts from inside a throwaway container as root, like clean-base. (out/.build-image.stamp
 # is host-owned and deliberately kept so the toolchain image isn't rebuilt.)
 clean: ## Remove built artifacts (out/), keep firmware/base caches + toolchain stamp
-	$(CTR_RUN) --rm -v $(CURDIR)/out:/wo $(BUSYBOX) rm -rf /wo/vmlinuz.efi /wo/Image /wo/Image.gz /wo/dtbs /wo/modroot /wo/images /wo/boot /wo/initramfs.cpio.zst /wo/initramfs.cpio.gz
+	$(CTR_RUN) --rm -v $(CURDIR)/out:/wo $(BUSYBOX) rm -rf /wo/vmlinuz /wo/vmlinuz.efi /wo/Image /wo/Image.gz /wo/dtbs /wo/modroot /wo/images /wo/boot /wo/initramfs.cpio.zst /wo/initramfs.cpio.gz
 
 # work/base is root-owned (the bootstrap's pacman writes it as root inside a container), so a
 # plain rm fails for the build user — remove it from inside a throwaway container as root.

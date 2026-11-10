@@ -3,37 +3,43 @@
 #
 # Runs after RAUC has written and unmounted the target slot. A freshly written slot is NOT usable
 # until this has run: the bytes are an exact copy of the running slot, so it shares an fsid, it has
-# no per-slot identity in /var, and its efi partition still carries the OLD build's stage 2.
+# no per-slot identity in /var, and its boot partition still carries the OLD build's kernel.
 #
 # Order is load-bearing:
 #
-#   0. disarm     -- RAUC armed the target BEFORE calling us; take that back until it is real.
+#   0. disarm     -- RAUC armed the target BEFORE calling us; take that back until it is real: every
+#                    entry on the target's boot partition goes.
 #   1. fsid       -- MUST come before anything mounts the target. Until btrfstune has run, the
 #                    target and the running root share an fsid AND devid=1, which is the pair
 #                    btrfs keys its in-kernel device list on: the second one scanned is treated as
 #                    the first having MOVED, so mounting the target can silently hand you the
 #                    RUNNING root. Every later step here mounts the target, so this is step 1.
 #   2. /var       -- per-slot identity. Without it the updated slot boots as a different device.
-#   3. boot files -- the target's efi partition gets this build's stage-2 grub.cfg + boot font, and
-#                    the shared ESP gets parts.env, OpenABL's \dtbs\qcom and this build's ESP GRUB
-#                    (content-identical when unchanged), the ESP GRUB last.
-#   4. re-arm     -- the grubenv names the target first, OK and with all three tries.
+#   3. boot files -- the target root's kernel, initramfs and DTBs go onto the target's boot partition.
+#   4. re-arm     -- the target's debug entry, then its boot entry, written for this device's board
+#                    with all three tries, and the ESP loader.conf's default moved to it.
 #
-# WHY THE BOOT FILES COME OUT OF THE NEW ROOT AND NOT THE BUNDLE: grub-esp.efi and grub-<slot>.cfg
-# are boot software owned by the same build that ships /boot/vmlinuz.efi and /lib/modules/<ver> inside the
-# rootfs. Taking them from the root makes the pairing true by construction -- there is no bundle
-# layout to keep in sync, and no way to install a root whose stage 2 does not boot it.
+# WHY THE BOOT FILES COME OUT OF THE NEW ROOT AND NOT THE BUNDLE: the kernel, the initramfs, the
+# DTBs, the board table, the command line and the versions the entry is written from all ship inside the rootfs
+# (/boot and /usr/lib/retroforge/boot). Taking them from the root makes the pairing true by
+# construction -- there is no bundle layout to keep in sync, and no way to install a root whose
+# entry does not boot it.
 #
-# THE SLOT STATE IS RAUC'S (bootloader=grub): ORDER, A_OK/A_TRY and B_OK/B_TRY in the ESP's grubenv.
-# This hook writes it directly, with the same grub-editenv RAUC uses, because RAUC is mid-install
-# and cannot be asked; it only ever moves the TARGET's two values and ORDER.
+# THE SLOT STATE IS THE BOOT ENTRIES (lib-bls.sh): each slot's entry, on its own boot partition,
+# carries a +N boot counter that OpenABL counts down, and the ESP loader.conf's default is the primary. RAUC drives it through its custom
+# backend, retroforge-bootctl; this hook writes it with the same library directly, because RAUC is
+# mid-install and cannot be asked. It only ever touches the TARGET's boot partition and the default.
 #
 # WHO AM I: the booted slot is the initramfs handoff's slot= (retroforge.slot= on the command line
-# the stage-2 entry booted), and the target is the other one. RAUC's exported slot names are used
+# the booted entry carries), and the target is the other one. RAUC's exported slot names are used
 # only to cross-check, and a disagreement is fatal rather than resolved by preference.
 #
-# A ROOT FROM BEFORE THE ESP GRUB IS REFUSED: it has no grub-esp.efi to install, and its own userspace
-# drives a boot conf the ESP GRUB only follows. Going back past the switch is a reflash.
+# THE BOARD is this device's: the running devicetree's model, looked up in the TARGET root's board
+# table, so the new entry carries the new build's DTB name and board arguments.
+#
+# A ROOT FROM BEFORE THE BLS BOOT CHAIN IS REFUSED: it has no boot data to write an entry from,
+# and its own update hook and bootctl drive a GRUB state that nothing reads any more. Going back
+# past the switch is a reflash.
 set -euo pipefail
 
 PROG=${0##*/}
@@ -42,49 +48,42 @@ die()  { printf '[%s] ERROR: %s\n' "$PROG" "$1" >&2; exit 1; }
 
 # Test seams, documented exactly as retroforge-bootctl documents its own. The offline suite
 # (tests/test-post-install.sh) executes THIS file -- not a copy -- so what it asserts is the
-# artifact that ships; overriding them points it at a sandbox ESP/efi/var and fake slot devices.
+# artifact that ships; overriding them points it at a sandbox ESP/var and fake slot devices.
 # Nothing here is otherwise conditional on being under test, and the defaults are what every real
 # invocation uses. DEVTEST is the one assertion the sandbox cannot keep: an unprivileged test has
 # no block devices to offer, so it relaxes -b to -e. Everything a wrong answer here would destroy
-# lives behind DEVDIR, so treat both as the pair they are.
-ESP=${ESP:-/esp}              # the shared ESP (ESP GRUB + grubenv); mounted by fstab
-EFI=${EFI:-/efi}              # the RUNNING slot's efi partition (parts.env); initramfs mount
+# lives behind DEVDIR, so treat both as the pair they are. lib-bls.sh adds BLKID and DT_MODEL.
+ESP=${ESP:-/esp}              # the shared ESP (loader.conf, OpenABL's DTBs); mounted by fstab
+BOOTPARTS=${BOOTPARTS:-/run/retroforge/bootfs}   # <BOOTPARTS>/a and /b: the slots' boot partitions (fstab automounts)
 MNT=${MNT:-/run/retroforge/rauc-target}
-EFIMNT=${EFIMNT:-/run/retroforge/rauc-efi}
 VAR=${VAR:-/var}
 # /dev/retroforge/, NOT /dev/disk/by-partlabel/: the same GPT names exist on every retroforge medium, so
-# by-partlabel would let this hook reformat the /var and rewrite the efi partition of the OTHER disk
+# by-partlabel would let this hook reformat the /var and read the partition UUIDs of the OTHER disk
 # when two are attached. The links here are scoped to the disk we booted from
 # (/usr/lib/udev/rules.d/69-retroforge-bootdisk.rules), which is the disk rauc just wrote a slot on --
 # etc/rauc/system.conf names its slot devices through the same links, so the two cannot disagree.
 DEVDIR=${DEVDIR:-/dev/retroforge}
 DEVTEST=${DEVTEST:--b}
-# The slot-state editor RAUC itself runs, and the block it edits (system.conf `grubenv=`). BOOTINFO
-# is the initramfs handoff that names the booted slot.
-EDITENV=${EDITENV:-grub-editenv}
-GRUBENV=${GRUBENV:-$ESP/EFI/steamos/grubenv}
+# The initramfs handoff that names the booted slot.
 BOOTINFO=${BOOTINFO:-/run/retroforge/boot}
-# The hasher, a seam for the same reason EDITENV is one: the suite runs this script with the HOST's PATH
-# appended, so it cannot make a tool absent, and the assertion below would be untestable as a bare
-# command name. Overriding it with a name that does not exist is how the offline suite reaches the
-# die() -- there is no other way in, and an assertion nothing can exercise is what put a dead `cmp`
-# in this file for three releases.
-SHA256=${SHA256:-sha256sum}
 
 # The shared half of this hook. Everything a RAUC bundle does not carry has to be written twice --
 # once here and once by the internal installer, onto a disk with no retroforge on it -- and two copies
 # of that logic drift in the direction "the installed system boots, the updated one does not", which
-# is discoverable only on hardware. So they live in one file and this sources it.
+# is discoverable only on hardware. So they live in two libraries and this sources both.
 #
 # Resolved RELATIVE TO THIS SCRIPT, with no seam, because rootfs/overlay/ mirrors the device layout
 # exactly: /usr/lib/rauc/../retroforge/install/ and rootfs/overlay/usr/lib/rauc/../retroforge/install/ are
-# both right, so the offline suite exercises the shipped path rather than a test-only one. Sourced
-# AFTER the seams above so the library picks up an overridden $SHA256 rather than its own default.
+# both right, so the offline suite exercises the shipped path rather than a test-only one.
 SELFDIR="$(cd "$(dirname "$0")" && pwd)"
 SLOTWRITE="$SELFDIR/../retroforge/install/lib-slotwrite.sh"
+BLSLIB="$SELFDIR/../retroforge/install/lib-bls.sh"
 [ -r "$SLOTWRITE" ] || die "cannot read $SLOTWRITE -- this root is missing the slot-write primitives"
+[ -r "$BLSLIB" ] || die "cannot read $BLSLIB -- this root is missing the boot entry primitives"
 # shellcheck source=../retroforge/install/lib-slotwrite.sh
 . "$SLOTWRITE"
+# shellcheck source=../retroforge/install/lib-bls.sh
+. "$BLSLIB"
 
 # --- which slot did we just write? --------------------------------------------------------------
 # The booted slot comes from the initramfs handoff, NOT from RAUC: RAUC names slots as they appear
@@ -109,45 +108,48 @@ if [ -n "${RAUC_TARGET_SLOTS:-}" ]; then
   fi
 fi
 
-case "$target" in
-  A) dev_root=$DEVDIR/retroforge-root-A; dev_var=$DEVDIR/retroforge-var-A; dev_efi=$DEVDIR/retroforge-efi-A ;;
-  B) dev_root=$DEVDIR/retroforge-root-B; dev_var=$DEVDIR/retroforge-var-B; dev_efi=$DEVDIR/retroforge-efi-B ;;
-esac
+dev_root=$DEVDIR/retroforge-root-$target
+dev_var=$DEVDIR/retroforge-var-$target
+dev_boot=$DEVDIR/retroforge-boot-$target
 # shellcheck disable=SC2086  # DEVTEST is a predicate, not a path
 [ $DEVTEST "$dev_root" ] || die "no block device at $dev_root"
 # shellcheck disable=SC2086
 [ $DEVTEST "$dev_var" ]  || die "no block device at $dev_var"
 # shellcheck disable=SC2086
-[ $DEVTEST "$dev_efi" ]  || die "no block device at $dev_efi"
-log "target slot $target ($dev_root, $dev_efi)"
+[ $DEVTEST "$dev_boot" ] || die "no block device at $dev_boot"
+log "target slot $target ($dev_root)"
 
-# The one external tool this script asserts, and it is asserted HERE -- before step 0, ahead of
-# everything destructive -- rather than at its use site down in step 3. A comparator that is merely
-# ABSENT does not announce itself: `cmp -s` was used until 2026-08-05, diffutils has never been in
-# PKGS, and "command not found" is a non-zero exit that reads exactly like "the files differ". The
-# ESP refresh below degraded to unconditional copy for three releases without a single failed
-# install. Dying at the use site would be worse than useless: by then the target's fsid is
-# randomised and its /var reformatted, so the slot is already unbootable and the run cannot be
-# retried cleanly. Fail while nothing has been touched.
-command -v "$SHA256" >/dev/null || die "$SHA256 is missing -- cannot compare the ESP boot files"
-command -v "$EDITENV" >/dev/null || die "$EDITENV is missing -- cannot write the slot state"
-ls "$ESP" >/dev/null 2>&1 || true         # trigger the fstab automount if it is not up
-[ -f "$GRUBENV" ] || die "no grubenv at $GRUBENV -- is the ESP mounted at $ESP?"
+# What the entry is written from, asserted HERE -- before step 0, ahead of everything destructive --
+# rather than at its use site in step 4. By then the target's fsid is randomised and its /var
+# reformatted, so a failure would leave the slot unbootable with a run that cannot be retried cleanly.
+# Fail while nothing has been touched.
+
+ls "$ESP" >/dev/null 2>&1 || true         # trigger the fstab automounts if they are not up
+mountpoint -q "$ESP" || die "the ESP is not mounted at $ESP"
+TFS="$BOOTPARTS/${target,,}"
+ls "$TFS" >/dev/null 2>&1 || true
+mountpoint -q "$TFS" || die "slot $target's boot partition is not mounted at $TFS"
+# The partition UUIDs the entry names. The partitions are this disk's and an update never changes
+# the GPT, so these are read now and are what they will be at step 4.
+uuid_root=$(bls_dev_partuuid "$dev_root")
+uuid_var=$(bls_dev_partuuid "$dev_var")
+[ -n "$uuid_root" ] && [ -n "$uuid_var" ] \
+  || die "cannot read the PARTUUIDs of slot $target (root '$uuid_root', var '$uuid_var')"
+[ -n "$(bls_running_model)" ] || die "cannot read this device's devicetree model -- the entry could not name the board"
 
 # --- 0. DISARM ----------------------------------------------------------------------------------
 # RAUC has ALREADY armed this slot by the time we run. Its order is fixed and not ours to change:
-# it calls the bootloader's set-primary (ORDER with the target first, <target>_OK=1, <target>_TRY=0)
-# and only THEN starts the post-install handler. So on entry the grubenv says "boot the target next"
-# while the target is not yet bootable -- its /var is the previous install's or freshly mkfs'd, and
-# its efi partition still holds the other build's stage 2.
+# it calls the backend's set-primary (the target's counter to three tries, loader.conf's default
+# to it) and only THEN starts the post-install handler. So on entry the ESP says "boot the target
+# next" while the target is not yet bootable -- its /var is the previous install's or freshly
+# mkfs'd, and the kernel on its boot partition is the other build's.
 #
-# So: take the arming back for the duration of the work, and re-arm at the very end once the slot
-# is genuinely bootable. An interrupted post-install then leaves nothing pointing at a
-# half-prepared slot: the ESP GRUB skips a slot that is not OK, and the failure mode becomes "the
-# install failed, run it again" instead of "one bad boot, hope the fall-back fires".
-"$EDITENV" "$GRUBENV" set "${target}_OK=0" "${target}_TRY=0" \
-  || die "cannot disarm the target slot before preparing it"
-sync
+# So: take the target's entry away for the duration of the work, and write a fresh one at the very
+# end once the slot is genuinely bootable. An interrupted post-install then leaves nothing pointing
+# at a half-prepared slot: with no entry for the target, loader.conf's default matches nothing and
+# OpenABL boots the running slot, and the failure mode becomes "the install failed, run it again"
+# instead of "three bad boots, then the fall-back".
+bls_remove "$TFS" "$target"
 log "disarmed slot $target for the duration of the install (re-armed at the end)"
 
 # --- 1. fsid ------------------------------------------------------------------------------------
@@ -158,9 +160,8 @@ btrfstune -f -U "$(cat /proc/sys/kernel/random/uuid)" "$dev_root" >/dev/null \
 # The LABEL is the other identity the byte copy got wrong. rootfs/assemble-rootfs.sh bakes
 # retroforge-root-A into the image, RAUC writes that image verbatim to whichever slot it targets,
 # and nothing else corrects it -- so without this, both partitions answer to retroforge-root-A.
-# Stage 2 normally addresses the root by partition index, so this is not what makes the slot boot;
-# it is what makes `blkid` honest and what keeps stage 2's documented fallback (search --label)
-# from resolving to the wrong slot. Cheap, and the window where it is wrong is this hook's own.
+# The entry addresses the root by PARTUUID, so this is not what makes the slot boot; it is what
+# makes `blkid` honest. Cheap, and the window where it is wrong is this hook's own.
 btrfs filesystem label "$dev_root" "retroforge-root-${target^^}" >/dev/null \
   || die "cannot label $dev_root as retroforge-root-${target^^}"
 log "fsid randomised, label set to retroforge-root-${target^^}"
@@ -172,43 +173,34 @@ log "fsid randomised, label set to retroforge-root-${target^^}"
 # because on a fresh disk there is no running system whose /var describes the device).
 seed_var "$dev_var" "$target" "$MNT" "$VAR"
 
-# --- 3. boot files: the target's efi partition + the shared ESP ---------------------------------
+# --- 3. boot files: the target's kernel onto its boot partition ----------------------------------
 # Safe to mount the root now: the fsid was re-randomised in step 1, so this cannot alias the
 # running root.
 mount -o ro "$dev_root" "$MNT" || die "cannot mount the target root to read its boot files"
-trap 'umount "$MNT" 2>/dev/null || true; umount "$EFIMNT" 2>/dev/null || true' EXIT
+trap 'umount "$MNT" 2>/dev/null || true' EXIT
 
 BOOTDIR="$MNT/usr/lib/retroforge/boot"
-[ -f "$BOOTDIR/grub-esp.efi" ] \
-  || die "the installed root has no ESP GRUB (/usr/lib/retroforge/boot/grub-esp.efi): it predates the GRUB boot chain, and going back past it is a reflash"
+[ -f "$BOOTDIR/boards.tsv" ] && [ -f "$BOOTDIR/cmdline" ] && [ -f "$BOOTDIR/release" ] \
+  || die "the installed root has no BLS boot data (/usr/lib/retroforge/boot/{boards.tsv,cmdline,release}): it predates the BLS boot chain, and going back past it is a reflash"
 
-mkdir -p "$EFIMNT"
-mount "$dev_efi" "$EFIMNT" || die "cannot mount the target efi partition ($dev_efi)"
+# The entry texts first, while nothing has moved: an unknown board dies here, with every file
+# untouched.
+entry=$(bls_device_entry "$BOOTDIR" "$target" "$uuid_root" "$uuid_var")
+debug=$(bls_device_entry "$BOOTDIR" "$target" "$uuid_root" "$uuid_var" debug)
 
-# The efi partitions are not RAUC slots (etc/rauc/system.conf declares only rootfs.0/rootfs.1, and
-# the bundle carries only rootfs.img), so the only thing that ever writes them on an update is this
-# block. write_efi_partition carries the rest of the reasoning, including why it copies onto the
-# partition rather than wiping it -- parts.env lives there and an update cannot rebuild it.
-write_efi_partition "$EFIMNT" "$target" "$BOOTDIR"
-log "stage-2 grub.cfg + font installed on $dev_efi"
-
-umount "$EFIMNT"; rmdir "$EFIMNT" 2>/dev/null || true; trap 'umount "$MNT" 2>/dev/null || true' EXIT
-
-# The shared ESP is refreshed from the installed root too, so the ESP GRUB is the same build that
-# owns the stage 2 written above.
-mountpoint -q "$ESP" || die "the ESP is not mounted at $ESP"
-refresh_esp_extras "$ESP" "$EFI" "$BOOTDIR"
-refresh_esp_stage1 "$ESP" "$BOOTDIR"
+mountpoint -q "$TFS" || die "slot $target's boot partition is not mounted at $TFS"
+bls_install_slot_files "$TFS" "$MNT"
+log "kernel, initramfs and DTBs of slot $target installed in $TFS"
 
 umount "$MNT"; trap - EXIT
 
 # --- 4. re-arm ----------------------------------------------------------------------------------
-# The direct inverse of step 0, plus ORDER: RAUC's set-primary already put the target first, but a
-# handler run outside RAUC has no such step, and the order is the one thing the next boot reads
-# before anything else. TRY=0 gives the trial all three of its tries: whatever the target counted
-# while it sat idle belongs to the root that was there before.
-"$EDITENV" "$GRUBENV" set "ORDER=$target $booted" "${target}_OK=1" "${target}_TRY=0" \
-  || die "cannot re-arm slot $target for its trial boot"
-sync
+# The direct inverse of step 0, plus the default: RAUC's set-primary already moved it, but a handler
+# run outside RAUC has no such step, and the default is the one thing the next boot reads first. A
+# fresh entry has all three tries: whatever the target counted before belongs to the root that was
+# there.
+bls_write_debug "$TFS" "$target" "$debug"$'\n'
+bls_write_entry "$TFS" "$target" "$entry"$'\n'
+bls_set_default "$ESP" "$target"
 
-log "slot $target re-armed for a trial boot; reboot to try it"
+log "slot $target re-armed for a trial boot ($BLS_ENTRIES/$(bls_entry_name "$target" "$BLS_TRIES")); reboot to try it"

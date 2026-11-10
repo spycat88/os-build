@@ -51,8 +51,8 @@
 		stdout-path = "serial0:115200n8";
 		/*
 		 * SoC-specific kernel args moved to RETROFORGE_BOOTARGS in the board
-		 * catalog boot/boards.map (Phase 5): the stage-2 GRUB builds the full cmdline in the
-		 * menuentry's linux line, and the EFI stub overwrites /chosen/bootargs
+		 * catalog boot/boards.map (Phase 5): each boot entry carries the full cmdline in its
+		 * options line, and the EFI stub overwrites /chosen/bootargs
 		 * with it, so a bootargs property here would be dead. irqaffinity pins
 		 * IRQs to the SoC's little cores (CPU topology differs per SoC), and
 		 * this MCU controller (045e:028e, Xbox-standard) needs the USB

@@ -88,8 +88,8 @@ emit() {
 #   partition NUMBER, while start sector 0 uses the first sector of the LARGEST FREE BLOCK -- two
 #   different rules. On a GPT with a hole at index 2, a partition created with 0 becomes p2 while
 #   sitting physically last. So the index of each of our eight is DISCOVERED after creation, by GPT
-#   name, and the name=index map is this mode's output. That map is what write_parts_env turns into
-#   the /EFI/steamos/parts.env stage 2 reads (phase 1b) -- on this disk stage 2 cannot assume 1..8.
+#   name, and the name=index map is this mode's output. The installer resolves each partition (and
+#   the PARTUUIDs its boot entry names) through that map -- on this disk nothing can assume 1..8.
 #
 #   ATTRIBUTES CANNOT USE INDEX 0. `sgdisk --attributes=0:set:63` in its own invocation exits 4 and
 #   sets nothing: 0 resolves to the first free number again, which after creation is the NEXT one.

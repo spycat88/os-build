@@ -19,7 +19,7 @@ ACTION=="remove", GOTO="retroforge_bootdisk_end"
 SUBSYSTEM!="block", GOTO="retroforge_bootdisk_end"
 ENV{DEVTYPE}!="partition", GOTO="retroforge_bootdisk_end"
 ENV{ID_PART_ENTRY_SCHEME}!="gpt", GOTO="retroforge_bootdisk_end"
-ENV{ID_PART_ENTRY_NAME}!="retroforge-*|RETROFORGE-*", GOTO="retroforge_bootdisk_end"
+ENV{ID_PART_ENTRY_NAME}!="retroforge-*|RETROFORGE", GOTO="retroforge_bootdisk_end"
 
 # PROGRAM is a MATCH key: the SYMLINK is added only on exit 0. on-boot-disk exits 0 for "on the boot
 # disk" AND for "the boot disk cannot be determined" — see its header for why the second is
