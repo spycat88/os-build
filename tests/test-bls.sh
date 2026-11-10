@@ -281,8 +281,6 @@ printf 'default retroforge-b.conf\n' >"$E/loader/loader.conf"
 [ "$(bls_primary "$E" "$FA" "$FB")" = A ] && ok "a bad default falls through to the good slot, as OpenABL does" || bad "primary=$(bls_primary "$E" "$FA" "$FB")"
 rm "$FA/loader/entries/retroforge-a+1-2.conf"
 bls_primary "$E" "$FA" "$FB" >/dev/null && bad "named a primary with no good slot" || ok "no good slot: status 1"
-: >"$FA/loader/entries/retroforge-setup-x.conf"
-bls_has_setup "$FA" && ok "setup entries are seen" || bad "bls_has_setup missed one"
 
 CASE="bls_set_tries"
 fresh
@@ -310,9 +308,8 @@ bls_set_default "$E" A 5
 grep -qx 'timeout 5' "$E/loader/loader.conf" && grep -qx 'default retroforge-a.conf' "$E/loader/loader.conf" \
   && ok "a timeout is written when asked" || bad "$(cat "$E/loader/loader.conf")"
 [ -z "$(find "$E" "$FA" "$FB" -name '*.new')" ] && ok "no temporary file left behind" || bad "$(find "$E" "$FA" "$FB" -name '*.new')"
-: >"$FB/loader/entries/retroforge-setup-x.conf"
 bls_remove "$FB" B
-[ -z "$(ls "$FB/loader/entries")" ] && ok "bls_remove takes the entry, the debug entry and any setup entries" \
+[ -z "$(ls "$FB/loader/entries")" ] && ok "bls_remove takes the entry and the debug entry" \
   || bad "$(ls "$FB/loader/entries" | tr '\n' ' ')"
 [ -e "$FA/loader/entries/retroforge-a+0.conf" ] && ok "and nothing of the other slot" || bad "$(ls "$FA/loader/entries" | tr '\n' ' ')"
 

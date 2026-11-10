@@ -240,8 +240,6 @@ if use_fs "${DEV[retroforge-boot-A]}" "$T/boot-a"; then
   done
   grep -q '^title RetroForge (Slot A)$' "$boota/loader/entries/retroforge-a+3.conf" 2>/dev/null \
     && ok "the entry is titled RetroForge (Slot A)" || bad "the entry's title is not 'RetroForge (Slot A)'"
-  ls "$boota/loader/entries/"retroforge-setup-*.conf >/dev/null 2>&1 \
-    && bad "setup entries are present -- the boot menu would come up" || ok "no setup entries"
   ls "$boota/dtbs/"*.dtb >/dev/null 2>&1 \
     && ok "/dtbs on boot-a carries the DTBs OpenABL installs and lists as Device models" \
     || bad "/dtbs on boot-a is empty -- OpenABL has no devicetree to install for slot A"

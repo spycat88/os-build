@@ -5,11 +5,11 @@
 # /home. RAUC writes the inactive rootfs/var slot, then the bootloader switches on success.
 #
 # boot-a/boot-b are each a slot's BOOT partition: its Boot Loader Specification entries
-# (\loader\entries\retroforge-<slot>+N.conf and a debug entry), and the kernel, initramfs and DTBs
-# they name, copied out of the slot's root. OpenABL ranks the entries of every FAT filesystem on the
-# boot drive as one list, so a slot with no tries left falls behind the other slot's entry whichever
-# partition is scanned first. The shared ESP keeps what is per-disk rather than per-slot: loader.conf
-# (the primary slot) and OpenABL's Device model DTBs. A slot's tree is ~30M; these are 128M for a
+# (\loader\entries\retroforge-<slot>+N.conf and a debug entry), the kernel and initramfs they name,
+# and the DTBs OpenABL picks its Device model's from, copied out of the slot's root. OpenABL ranks
+# the entries of every FAT filesystem on the boot drive as one list, so a slot with no tries left
+# falls behind the other slot's entry whichever partition is scanned first. The shared ESP keeps
+# only what is per-disk rather than per-slot: loader.conf (the primary slot). A slot's tree is ~30M; these are 128M for a
 # filesystem reason, not a capacity one -- see the FAT block near the rows.
 #
 # All 8 partitions mirror the SteamOS layout exactly (esp, boot-A/B, rootfs-A/B, var-A/B, home).
@@ -20,10 +20,10 @@
 #              a separate SD-card image. And home must stay LAST on disk: retroforge-grow-home
 #              expands it to fill the card on first boot, so nothing may follow it.
 #
-# boot-a/boot-b are typed 0700 (Microsoft basic data), NOT ef00 — exactly as SteamOS types
-# them. Only p1 is an EFI System partition, and keeping exactly one avoids handing a
-# firmware scan two candidates. OpenABL reads every FAT filesystem on the boot drive whatever its
-# type, so they do not need ef00.
+# EVERY FAT PARTITION, the ESP included, is typed 0700 (Microsoft basic data), NOT ef00. OpenABL
+# reads every FAT filesystem on the boot drive whatever its type, so nothing here needs ef00, and a
+# basic data partition is one Windows mounts and lets the user browse when the card is plugged in;
+# an EFI System partition it hides. "ESP" is this table's name for p1, not its type.
 #
 # CORRECTION 2026-08-24: this block used to say "the ROCKNIX ABL finds the ESP by type GUID".
 # That is WRONG, and it is load-bearing enough to correct rather than leave — it is the only
@@ -32,15 +32,13 @@
 # partition type `0xc` (W95 FAT32 LBA) with the 0x80 bootable flag, carrying
 # /EFI/BOOT/bootaa64.efi — an MBR table, a plain FAT partition, no EFI System Partition type
 # GUID anywhere on the disk — and ABL boots it. ABL finds the loader by CONTENT, which is what
-# [[abl-internal-efi-path-works]] already said. p1 stays ef00 here because this image has no
-# user-facing files on its ESP and there is nothing to gain by changing it.
+# [[abl-internal-efi-path-works]] already said.
 #
-# The ESP carries GPT bit 63 ("no-auto") for the same reason home does: that GUID would make
-# systemd's gpt-auto generator auto-mount it at /efi or /boot, where nothing
-# of ours expects it.
+# The ESP carries no GPT attribute bits. Bit 63 ("no-auto") used to keep systemd's gpt-auto generator
+# off it, but gpt-auto only mounts an ef00 partition, so a 0700 one needs nothing; and on a basic
+# data partition Windows reads bit 63 as "do not assign a drive letter", which would hide it again.
 # The ESP's one and only mount definition is the /esp entry rootfs/assemble-rootfs.sh puts in
-# /etc/fstab — bit 63 disables the competing generator without touching the type GUID the
-# firmware scans by.
+# /etc/fstab.
 #
 # Root slots are 2G. They carry the OS (gamescope session, shell, emulators, firmware, modules).
 # The root is sealed read-only and baked with zstd (assemble-rootfs.sh), so content compresses well.
@@ -68,7 +66,7 @@
 # usable card is 16G (leaving ~10G of /home); 64G+ is the sane target for ROMs.
 #
 # 'attrs' is a comma-separated list of GPT attribute bits to set, or '-' for none. Only bit 63
-# ("no-auto") is used today, on home and on the ESP — each for its own reason, both above.
+# ("no-auto") is used today, on home only.
 # home carries the discoverable "Linux /home" type GUID
 # (8302) because systemd-repart matches it by that GUID to grow it on first boot — matching by
 # type is what guarantees repart can never touch a root partition. But that same GUID also makes
@@ -116,7 +114,7 @@
 # tests/test-partition-table.sh asserts all of this against the table alone, at both sector sizes.
 #
 # name      size  typecode  fs        label            attrs
-esp         128M  ef00      vfat      RETROFORGE         63
+esp         128M  0700      vfat      RETROFORGE         -
 boot-a      128M  0700      vfat      retroforge-boot-A  -
 boot-b      128M  0700      vfat      retroforge-boot-B  -
 rootfs-a    2G    8300      btrfs     retroforge-root-A  -

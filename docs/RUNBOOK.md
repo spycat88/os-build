@@ -133,9 +133,11 @@ cat work/repo/aarch64/.stamps/gamescope.hash  # what was built, vs. inputhash.sh
 
 `make-sdcard.sh` lays the **full** GPT — ESP + root-A/-B + var-A/-B + home, with `/home` carrying an
 empty `player` home (`image/lib-homestage.sh`, shared with the internal installer) that grows to fill
-the card on first boot. boot-a carries slot A's kernel, initramfs and DTBs and one setup entry per
-board (OpenABL shows them as a menu on the first boot); boot-b carries B's files when B is
-populated; the ESP carries `/loader/loader.conf`.
+the card on first boot. boot-a carries slot A's kernel, initramfs and DTBs and its two entries
+(`retroforge-a+3.conf` and `retroforge-debug-a.conf`); boot-b carries the same for B when B is
+populated, and an empty `/loader/entries` otherwise; the ESP carries `/loader/loader.conf`
+(`default retroforge-a.conf`). Every FAT partition is typed Microsoft basic data, so Windows mounts
+and browses the ESP like the boot partitions.
 
 **Whether slot B is populated follows the build mode**, and `RETROFORGE_SLOT_B=0|1` overrides it:
 
@@ -157,10 +159,9 @@ devicetree: OpenABL installs the DTB of its Device model, read from the `/dtbs` 
 the booted entry sits on, so each slot boots with its own DTBs. On *Firmware default* Linux gets the
 firmware's Android tree and will not come up.
 
-**The first boot stops at a board menu and waits.** The setup entries differ only in the board's
-kernel arguments, so pick the one that matches the Device model. The first healthy boot then writes
-the slot entries for the board it came up on (by the running devicetree's `model`) and removes the
-setup entries, so the menu does not come back.
+**The card's entries are the same on every board.** They carry the command line every board
+shares; the first healthy boot rewrites the booted slot's entries with the board's own kernel
+arguments (by the running devicetree's `model`), and every update writes them that way.
 
 ### Update a dev card instead of reflashing it
 

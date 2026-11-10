@@ -195,62 +195,78 @@ OUT="$(env SB="$SB" BOOTCTL="$BOOTCTL" PATH="$SB/bin:$PATH" BOOTINFO="$SB/run/bo
 done_
 
 # --- mark-good ----------------------------------------------------------------------------------
+# The sandbox seeds placeholder entries ("title A"), so the first mark-good always brings the booted
+# slot's up to the board; what a fresh card carries is the same entry without the board's args.
+A_OPTS='options quiet console=tty0 irqaffinity=0-2 root=PARTUUID=root-a-uuid rootfstype=btrfs rootwait ro retroforge.var=PARTUUID=var-a-uuid retroforge.slot=A rauc.slot=A'
 t "mark-good"
 run mark-good
 [ "$RC" = 0 ] && ok "exits 0" || bad "rc=$RC: $OUT"
 [ "$(rauc_calls)" = "status mark-good booted" ] && ok "confirms through rauc status mark-good booted" \
   || bad "rauc saw: $(rauc_calls | tr '\n' ';')"
-[ "$(entries)" = "retroforge-a+3.conf retroforge-b+3.conf" ] && ok "the booted slot's counter is back to +3" \
-  || bad "entries: $(entries)"
-grep -qx 'title A' "$SB/bootfs/a/loader/entries/retroforge-a+3.conf" && ok "a committed card's entries are not rewritten" \
-  || bad "mark-good rewrote A's entry"
+[ "$(entries)" = "retroforge-a+3.conf retroforge-b+3.conf retroforge-debug-a.conf" ] \
+  && ok "the booted slot's counter is back to +3, and it has a debug entry" || bad "entries: $(entries)"
+grep -qx 'title B' "$SB/bootfs/b/loader/entries/retroforge-b+3.conf" && ok "the other slot's entry is left alone" \
+  || bad "mark-good rewrote B's entry"
 [ ! -e "$SB/esp/dtbs" ] && ok "writes nothing to the ESP but loader.conf" || bad "the ESP got $(ls "$SB/esp")"
+[ "$(default_)" = retroforge-a.conf ] && ok "the default is untouched" || bad "default='$(default_)'"
 done_
 
-t "mark-good commits a fresh card's board"
+t "mark-good brings a fresh card's entry up to this board"
 rm -f "$SB"/bootfs/[ab]/loader/entries/*.conf
-for id in acme-one acme-two; do printf 'title setup %s\n' "$id" >"$SB/bootfs/a/loader/entries/retroforge-setup-$id.conf"; done
-printf 'timeout menu-force\n' >"$SB/esp/loader/loader.conf"
-rm -rf "$SB/bootfs/b"/vmlinuz-*
+printf 'title RetroForge (Slot A)\nversion 1.2.3\nsort-key retroforge\nlinux /vmlinuz-6.18.4\ninitrd /initramfs-6.18.4.img\noptions quiet console=tty0 root=PARTUUID=root-a-uuid rootfstype=btrfs rootwait ro retroforge.var=PARTUUID=var-a-uuid retroforge.slot=A rauc.slot=A\n' \
+  >"$SB/bootfs/a/loader/entries/retroforge-a+2-1.conf"
 run mark-good
 [ "$RC" = 0 ] && ok "exits 0" || bad "rc=$RC: $OUT"
-[ "$(entries)" = "retroforge-a+3.conf retroforge-debug-a.conf" ] && ok "slot A's entry and debug entry written, the setup entries gone, nothing for a slot with no kernel" \
+[ "$(entries)" = "retroforge-a+3.conf retroforge-debug-a.conf" ] && ok "slot A's entry and debug entry, nothing for slot B" \
   || bad "entries: $(entries)"
 e="$SB/bootfs/a/loader/entries/retroforge-a+3.conf"
-for l in 'title RetroForge (Slot A)' 'version 1.2.3' 'linux /vmlinuz-6.18.4' 'initrd /initramfs-6.18.4.img'; do
+for l in 'title RetroForge (Slot A)' 'version 1.2.3' 'sort-key retroforge' 'linux /vmlinuz-6.18.4' 'initrd /initramfs-6.18.4.img'; do
   grep -qxF "$l" "$e" && ok "$l" || bad "no '$l' in: $(cat "$e")"
 done
+grep -qxF "$A_OPTS" "$e" && ok "the common args, the board's args and this disk's PARTUUIDs" || bad "$(grep options "$e")"
 grep -q '^devicetree' "$e" && bad "the entry names a devicetree" || ok "no devicetree: OpenABL's Device model picks it"
 d="$SB/bootfs/a/loader/entries/retroforge-debug-a.conf"
 grep -qx 'title RetroForge (Slot A, debug)' "$d" && ! grep -q '^sort-key' "$d" \
   && ok "the debug entry: its own title, no sort-key so it lists after the slots" || bad "$(cat "$d")"
 grep -qx 'options console=tty0 irqaffinity=0-2 root=PARTUUID=root-a-uuid rootfstype=btrfs rootwait ro retroforge.var=PARTUUID=var-a-uuid retroforge.slot=A rauc.slot=A loglevel=7 retroforge.splash=0 systemd.show_status=1' "$d" \
   && ok "the debug entry boots the same slot, without quiet, verbosely" || bad "$(grep options "$d")"
-grep -qx 'options quiet console=tty0 irqaffinity=0-2 root=PARTUUID=root-a-uuid rootfstype=btrfs rootwait ro retroforge.var=PARTUUID=var-a-uuid retroforge.slot=A rauc.slot=A' "$e" \
-  && ok "the common args, the board's args and this disk's PARTUUIDs" || bad "$(grep options "$e")"
-[ "$(default_)" = retroforge-a.conf ] && ok "the booted slot is the default" || bad "default='$(default_)'"
-grep -q 'menu-force' "$SB/esp/loader/loader.conf" && bad "the board menu is still forced" || ok "the board menu is no longer forced"
 [ "$(rauc_calls)" = "status mark-good booted" ] && ok "and then confirms" || bad "rauc saw: $(rauc_calls | tr '\n' ';')"
 done_
 
-t "mark-good commits both slots when the card carries both"
-rm -f "$SB"/bootfs/[ab]/loader/entries/*.conf
-printf 'title setup\n' >"$SB/bootfs/a/loader/entries/retroforge-setup-acme-one.conf"
+t "mark-good leaves entries that already match"
 run mark-good
-[ "$RC" = 0 ] && [ "$(entries)" = "retroforge-a+3.conf retroforge-b+3.conf retroforge-debug-a.conf retroforge-debug-b.conf" ] && ok "both slots' entries" \
-  || bad "rc=$RC entries: $(entries): $OUT"
+: >"$SB/rauc.log"; touch -d '2 minutes ago' "$SB"/bootfs/a/loader/entries/*.conf
+before="$(cd "$SB/bootfs/a/loader/entries" && stat -c '%i %Y %n' ./*.conf)"
+run mark-good
+[ "$RC" = 0 ] && ok "exits 0" || bad "rc=$RC: $OUT"
+[ "$(cd "$SB/bootfs/a/loader/entries" && stat -c '%i %Y %n' ./*.conf)" = "$before" ] && ok "nothing rewritten" \
+  || bad "an entry that already matched was rewritten: $OUT"
+printf '%s' "$OUT" | grep -q 'rewritten\|written' && bad "says it wrote: $OUT" || ok "and says nothing about it"
+done_
+
+t "mark-good writes a missing entry for the booted slot"
+rm -f "$SB/bootfs/a/loader/entries/"*.conf
+run mark-good
+[ "$RC" = 0 ] && [ "$(entries)" = "retroforge-a+3.conf retroforge-b+3.conf retroforge-debug-a.conf" ] \
+  && ok "A's entry and debug entry written" || bad "rc=$RC entries: $(entries): $OUT"
+done_
+
+t "mark-good on slot B"
+seed_boot B
+run mark-good
 grep -q 'root=PARTUUID=root-b-uuid .*rauc.slot=B$' "$SB/bootfs/b/loader/entries/retroforge-b+3.conf" \
   && ok "B's entry names B's partitions" || bad "$(cat "$SB/bootfs/b/loader/entries/retroforge-b+3.conf")"
+grep -qx 'title A' "$SB/bootfs/a/loader/entries/retroforge-a+2-1.conf" && ok "and A's is left alone" || bad "entries: $(entries)"
 done_
 
 t "mark-good on an unknown board"
-rm -f "$SB"/bootfs/[ab]/loader/entries/*.conf
-printf 'title setup\n' >"$SB/bootfs/a/loader/entries/retroforge-setup-acme-one.conf"
 printf 'Somebody Else\0' >"$SB/model"
 run mark-good
-[ "$RC" != 0 ] && ok "refuses (rc=$RC), so OnFailure= demotes" || bad "confirmed a board it has no entry for"
-[ "$(entries)" = "retroforge-setup-acme-one.conf" ] && ok "and the setup menu stays" || bad "entries: $(entries)"
-[ -z "$(rauc_calls)" ] && ok "and RAUC was never asked" || bad "rauc saw: $(rauc_calls | tr '\n' ';')"
+[ "$RC" = 0 ] && ok "still confirms the boot (rc=0): the board's args are an improvement, not a condition" || bad "rc=$RC: $OUT"
+printf '%s' "$OUT" | grep -q 'WARNING' && ok "and warns" || bad "out='$OUT'"
+[ "$(entries)" = "retroforge-a+3.conf retroforge-b+3.conf" ] && grep -qx 'title A' "$SB/bootfs/a/loader/entries/retroforge-a+3.conf" \
+  && ok "the entry it came up on is kept, counter reset" || bad "entries: $(entries)"
+[ "$(rauc_calls)" = "status mark-good booted" ] && ok "and RAUC confirms it" || bad "rauc saw: $(rauc_calls | tr '\n' ';')"
 done_
 
 t "mark-good on a degraded boot"
@@ -290,7 +306,7 @@ t "mark-good when RAUC fails"
 touch "$SB/rauc.fail"
 run mark-good
 [ "$RC" != 0 ] && ok "a failed confirmation is a failure (rc=$RC), so OnFailure= demotes" || bad "exited 0"
-[ "$(entries)" = "retroforge-a+2-1.conf retroforge-b+3.conf" ] && ok "and the counter keeps running" || bad "entries: $(entries)"
+[ "$(entries)" = "retroforge-a+2-1.conf retroforge-b+3.conf retroforge-debug-a.conf" ] && ok "and the counter keeps running" || bad "entries: $(entries)"
 done_
 
 # --- status / usage -----------------------------------------------------------------------------

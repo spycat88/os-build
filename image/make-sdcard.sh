@@ -10,10 +10,10 @@
 #           -> the kernel, initramfs and DTB beside it on that partition
 #
 # rootfs/overlay/usr/lib/retroforge/install/lib-bls.sh has the layout and the A/B state. A FRESH
-# CARD carries setup entries rather than slot entries: one per board, all on boot-a, and an ESP
-# loader.conf that holds OpenABL's boot menu up until one is picked, because one image serves every
-# board and only the user can say which this is. The first healthy boot writes the slot entries for
-# that board and removes the setup entries (retroforge-bootctl mark-good).
+# CARD carries one OS entry per populated slot (plus its debug entry), the same on every board: the
+# command line common to all of them, and the DTB OpenABL's Device model setting picks off the
+# slot's partition. The first healthy boot rewrites the booted slot's entries with the board's own
+# arguments added (retroforge-bootctl mark-good), and every update writes them that way.
 #
 # WHY B IS POPULATED ON A DEV CARD AND EMPTY ON A RELEASE CARD. The default follows RETROFORGE_DEV;
 # RETROFORGE_SLOT_B=0|1 overrides it in either direction.
@@ -206,14 +206,14 @@ fatdir() {  # <img> <msdos path, no leading '::'>
   done
 }
 #
-#   ESP    /loader/loader.conf       `timeout menu-force`: OpenABL's boot menu waits for a board
-#   boot-a  /loader/entries/retroforge-setup-<board>.conf
-#                                    one per board, slot A, uncounted (see the header)
+#   ESP    /loader/loader.conf       `default retroforge-a.conf`
+#   boot-a  /loader/entries/retroforge-a+3.conf, retroforge-debug-a.conf
+#                                    slot A's OS entry (3 tries) and its debug entry
 #          /vmlinuz-<kver>, /initramfs-<kver>.img, /dtbs/
 #                                    slot A's kernel, initramfs and DTBs; the DTBs are also
 #                                    OpenABL's Device model list (boot/splash-dtbs.sh)
-#   boot-b  the same files when this card populates B, so the first boot can write B's entries too;
-#          empty otherwise
+#   boot-b  /loader/entries/, plus the same entries and files for slot B when this card populates
+#          B; an empty entries directory otherwise, which the first update fills
 #
 # NOTHING RESOLVES THESE BY LABEL. OpenABL reads every FAT filesystem on the boot drive and the OS
 # mounts them by PARTLABEL from /etc/fstab. The labels are a human convenience on a mounted card.
@@ -226,8 +226,9 @@ uuid_of() {  # <partnum>
   sgdisk -i "$1" "$IMG" | sed -n 's/^Partition unique GUID: \([0-9A-Fa-f-]*\).*/\1/p' | tr 'A-Z' 'a-z'
 }
 uuid_root_a=$(uuid_of "$P_ROOTA"); uuid_var_a=$(uuid_of "$P_VARA")
-[ -n "$uuid_root_a" ] && [ -n "$uuid_var_a" ] \
-  || { echo "cannot read slot A's partition UUIDs back from ${IMG#"$ROOT"/}" >&2; exit 1; }
+uuid_root_b=$(uuid_of "$P_ROOTB"); uuid_var_b=$(uuid_of "$P_VARB")
+[ -n "$uuid_root_a" ] && [ -n "$uuid_var_a" ] && [ -n "$uuid_root_b" ] && [ -n "$uuid_var_b" ] \
+  || { echo "cannot read the slots' partition UUIDs back from ${IMG#"$ROOT"/}" >&2; exit 1; }
 
 mkfat() {  # <img> <size-mib> <label>
   truncate -s "${2}M" "$1"
@@ -240,40 +241,41 @@ esp="$(mktemp)"
 mkfat "$esp" "$ESP_SIZE_MIB" RETROFORGE
 fatdir "$esp" /loader
 entries="$(mktemp -d)"
-bls_loader_conf_text "" menu-force >"$entries/loader.conf"
+bls_loader_conf_text A >"$entries/loader.conf"
 mcopy -i "$esp" "$entries/loader.conf" ::/loader/loader.conf
 
-# A slot's own files, named by kernel version as bls_install_slot_files names them on a device.
-slot_files() {  # <img>
-  fatdir "$1" /dtbs
-  mcopy -i "$1" "$KERNEL" "::/vmlinuz-$BLS_KVER"
-  mcopy -i "$1" "$INITRAMFS" "::/initramfs-$BLS_KVER.img"
-  mcopy -i "$1" "$slotdtbs"/*.dtb ::/dtbs/
+# A slot's own files, named by kernel version as bls_install_slot_files names them on a device,
+# and its two entries: the OS entry with all its tries, and the debug entry. The command line is
+# the one every board shares; the first healthy boot adds the board's own arguments.
+common="$(head -1 "$CMDLINE")"
+slot_files() {  # <img> <A|B> <root-uuid> <var-uuid>
+  local img="$1" slot="$2" cmd
+  fatdir "$img" /dtbs
+  mcopy -i "$img" "$KERNEL" "::/vmlinuz-$BLS_KVER"
+  mcopy -i "$img" "$INITRAMFS" "::/initramfs-$BLS_KVER.img"
+  mcopy -i "$img" "$slotdtbs"/*.dtb ::/dtbs/
+  cmd="$(bls_cmdline "$common" "" "$slot" "$3" "$4")"
+  bls_entry_text "$(bls_title "$slot")" "$BLS_VERSION" "$BLS_KVER" "$cmd" "$BLS_SORT_KEY" \
+    >"$entries/$(bls_entry_name "$slot" "$BLS_TRIES")"
+  bls_entry_text "$(bls_title "$slot" debug)" "$BLS_VERSION" "$BLS_KVER" "$(bls_debug_cmdline "$cmd")" \
+    >"$entries/$(bls_debug_name "$slot")"
+  mcopy -i "$img" "$entries/$(bls_entry_name "$slot" "$BLS_TRIES")" "$entries/$(bls_debug_name "$slot")" \
+    ::/loader/entries/
 }
 boot_a="$(mktemp)"; boot_b="$(mktemp)"
 mkfat "$boot_a" "$BOOT_SIZE_MIB" BOOT-A
 mkfat "$boot_b" "$BOOT_SIZE_MIB" BOOT-B
-slot_files "$boot_a"
-# B gets files only when B is populated: an entry for an empty slot would be a try spent on a root
-# that is not there, and the first update writes B's files with its entries.
-[ "$SLOT_B" = 1 ] && slot_files "$boot_b"
-
-# The setup entries, in the catalog's order: each gets its own sort-key, which OpenABL orders by.
-common="$(head -1 "$CMDLINE")"
-n_setup=0
-while IFS=$'\t' read -r b_id b_name _b_dtb _b_model b_args; do
-  case "$b_id" in ''|'#'*) continue ;; esac
-  bls_entry_text "RetroForge (Slot A, $b_name)" "$BLS_VERSION" "$BLS_KVER" \
-    "$(bls_cmdline "$common" "$b_args" A "$uuid_root_a" "$uuid_var_a")" \
-    "$(printf 'retroforge-setup-%03d' "$n_setup")" >"$entries/$(bls_setup_name "$b_id")"
-  n_setup=$(( n_setup + 1 ))
-done <"$BOARDS_TSV"
-[ "$n_setup" -gt 0 ] || { echo "no boards in ${BOARDS_TSV#"$ROOT"/}" >&2; exit 1; }
+# Both get the directory, so the layout is the same whether or not a slot is populated.
 fatdir "$boot_a" /loader/entries
-mcopy -i "$boot_a" "$entries"/retroforge-setup-*.conf ::/loader/entries/
-echo "  esp    loader.conf (board menu) + OpenABL's dtbs"
-echo "  boot-a  $n_setup setup entries + slot A's kernel $BLS_KVER"
-[ "$SLOT_B" = 1 ] && echo "  boot-b  slot B's kernel $BLS_KVER"
+fatdir "$boot_b" /loader/entries
+slot_files "$boot_a" A "$uuid_root_a" "$uuid_var_a"
+# B gets files and entries only when B is populated: an entry for an empty slot would be a try spent
+# on a root that is not there, and the first update writes B's files with its entries.
+[ "$SLOT_B" = 1 ] && slot_files "$boot_b" B "$uuid_root_b" "$uuid_var_b"
+echo "  esp    loader.conf (default slot A)"
+echo "  boot-a  slot A's entry + debug entry, kernel $BLS_KVER"
+if [ "$SLOT_B" = 1 ]; then echo "  boot-b  slot B's entry + debug entry, kernel $BLS_KVER"
+else echo "  boot-b  empty entries directory"; fi
 
 # 5. write each filesystem into its partition's byte offset (notrunc; no loop device).
 write_part() {  # <partnum> <file> <label>
@@ -282,9 +284,9 @@ write_part() {  # <partnum> <file> <label>
   dd if="$2" of="$IMG" bs=512 seek="$start" conv=notrunc status=none
   echo "  p$1  $3"
 }
-write_part "$P_ESP"   "$esp"    "RETROFORGE (loader.conf + OpenABL's dtbs)"
-write_part "$P_BOOTA"  "$boot_a"  "retroforge-boot-A (setup entries + slot A's kernel)"
-write_part "$P_BOOTB"  "$boot_b"  "retroforge-boot-B ($([ "$SLOT_B" = 1 ] && echo "slot B's kernel" || echo empty))"
+write_part "$P_ESP"   "$esp"    "RETROFORGE (loader.conf)"
+write_part "$P_BOOTA"  "$boot_a"  "retroforge-boot-A (slot A's entries + kernel)"
+write_part "$P_BOOTB"  "$boot_b"  "retroforge-boot-B ($([ "$SLOT_B" = 1 ] && echo "slot B's entries + kernel" || echo "no entries yet"))"
 write_part "$P_ROOTA" "$ROOTFS"   "retroforge-root-A (btrfs, ro)"
 write_part "$P_VARA"  "$VARIMG" "retroforge-var-A (ext4)"
 if [ "$SLOT_B" = 1 ]; then
@@ -303,7 +305,7 @@ echo "  ok   $(du -h "$IMG" | cut -f1) -> ${IMG#"$ROOT"/}"
 cat <<EOF
 Done. Write it to the card (replace sdX with your device, ALL DATA LOST):
   sudo dd if=${IMG#"$ROOT"/} of=/dev/sdX bs=4M conv=fsync status=progress
-OpenABL boots the Boot Loader Specification entries in /loader/entries on each slot's efi
+OpenABL boots the Boot Loader Specification entries in /loader/entries on each slot's boot
 partition; the kernel, initramfs and DTBs of the slot sit beside them.
 /home (last partition) holds the player home and grows to fill the card.
 $([ "$SLOT_B" = 1 ] \
@@ -311,12 +313,13 @@ $([ "$SLOT_B" = 1 ] \
   || echo "The B slots are empty and have no entry, so OpenABL only ever boots A. The first update
 writes B and its entry.")
 
-The board: the FIRST boot stops at OpenABL's boot menu, one "RetroForge setup" entry per board.
-Pick this device's; once that boot is confirmed healthy, the slot entries are written for it and
-the setup entries removed, and the menu is not shown again.
+One OS entry per slot, the same on every board: set OpenABL's Device model to this device so it
+loads the right DTB off the slot's partition. Once the first boot is confirmed healthy, the booted
+slot's entries are rewritten with this board's own kernel arguments.
 
 ESP:   /loader/loader.conf
 boot-a: /loader/entries/*.conf, /vmlinuz-$BLS_KVER, /initramfs-$BLS_KVER.img, /dtbs/$([ "$SLOT_B" = 1 ] && echo '
-boot-b: the same files, no entries until the first boot writes them')
+boot-b: the same files, with the entries for slot B' || echo '
+boot-b: /loader/entries/ (empty until the first update)')
 Filesystem labels: ESP RETROFORGE | boot-A BOOT-A | boot-B BOOT-B (cosmetic; nothing resolves by them)
 EOF

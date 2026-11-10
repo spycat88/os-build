@@ -39,8 +39,8 @@
 #   /etc  <- overlay(lower=/sysroot/etc, upper=/sysroot/var/lib/overlays/etc/upper)
 #
 # Neither the shared ESP nor the slots' boot partitions are mounted here: the booted system mounts
-# them from /etc/fstab (/esp, and /run/retroforge/bootfs/{a,b} on demand), and GPT bit 63
-# (partition-table.txt) keeps gpt-auto away from the ESP.
+# them from /etc/fstab (/esp, and /run/retroforge/bootfs/{a,b} on demand). All are typed basic data
+# (partition-table.txt), which gpt-auto never auto-mounts.
 #
 # DEGRADED BOOT: this device has no serial console ([[sm8650-no-uart]]), so a hard failure here
 # is only debuggable by pulling the card and mounting it. Every step past "root is mounted"

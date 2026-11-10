@@ -53,13 +53,12 @@
 #   set-state X good X's counter back to +3
 #   set-state X bad  X's counter to +0: OpenABL boots the other slot first
 #
-# A FRESH CARD HAS NO SLOT ENTRIES YET, only setup entries on boot-a: one per board, uncounted, and a
-# loader.conf that holds OpenABL's boot menu up until one is picked. One image serves every board,
-# and the board decides the DTB and part of the command line, so the first boot is the one place
-# the user has to say which board this is. The first healthy boot then writes the slot entries for
-# the board it came up on and removes the setup entries (commit_board in retroforge-bootctl, run by
+# A FRESH CARD carries the same slot entries every device gets, with one difference: one image serves
+# every board, so its entries carry only the command line every board shares, and OpenABL's Device
+# model setting picks the DTB off the slot's partition. The first healthy boot rewrites the booted
+# slot's entries with the board's own arguments added (refresh_booted in retroforge-bootctl, run by
 # mark-good). The update hook and the internal installer run on a device that has already booted, so
-# they read the board off the running devicetree and go straight to slot entries.
+# they read the board off the running devicetree and write the board's entries straight away.
 #
 # WHAT AN ENTRY SAYS comes from the root it boots, out of /usr/lib/retroforge/boot (rootfs/
 # lib-assemble-boot.sh): boards.tsv and cmdline (boot/gen-bls.sh), and `release`, which names the
@@ -196,10 +195,6 @@ bls_debug_name() {  # <A|B> -> retroforge-debug-a.conf
   printf 'retroforge-debug-%s.conf\n' "$(bls_lc "$1")"
 }
 
-bls_setup_name() {  # <board-id> -> retroforge-setup-<id>.conf
-  printf 'retroforge-setup-%s.conf\n' "$1"
-}
-
 # --- reading the state --------------------------------------------------------------------------
 
 # The slot's entry file on its partition, whichever counter it carries. Status 1 when there is none.
@@ -254,10 +249,6 @@ bls_primary() {  # <esp> <slotfs-a> <slotfs-b> -> A|B
   return 1
 }
 
-bls_has_setup() {  # <slotfs>
-  compgen -G "$1/$BLS_ENTRIES/retroforge-setup-*.conf" >/dev/null
-}
-
 # --- writing the state --------------------------------------------------------------------------
 # EVERY WRITE IS ONE RENAME OR ONE CREATE, so a power cut leaves the old state or the new one. vfat's
 # rename replaces the target's directory entry in place. Content goes to a name OpenABL does not
@@ -278,21 +269,15 @@ bls_set_tries() {  # <slotfs> <A|B> <left>
   bls_sync "$fs/$BLS_ENTRIES"
 }
 
-# Takes away everything that boots the slot: its entry, its debug entry and any setup entries, so
-# nothing on its partition is bootable while the partition is being rewritten.
+# Takes away everything that boots the slot: its entry and its debug entry, so nothing on its
+# partition is bootable while the partition is being rewritten.
 bls_remove() {  # <slotfs> <A|B>
   local fs="$1" f
   while f="$(bls_entry_file "$fs" "$2")"; do
     rm -f "$f" || die "cannot remove ${f##*/}"
   done
-  rm -f "$fs/$BLS_ENTRIES/$(bls_debug_name "$2")" "$fs/$BLS_ENTRIES"/retroforge-setup-*.conf \
-    || die "cannot remove slot $2's other entries"
+  rm -f "$fs/$BLS_ENTRIES/$(bls_debug_name "$2")" || die "cannot remove slot $2's debug entry"
   bls_sync "$fs"
-}
-
-bls_remove_setup() {  # <slotfs>
-  rm -f "$1/$BLS_ENTRIES"/retroforge-setup-*.conf || die "cannot remove the setup entries"
-  bls_sync "$1"
 }
 
 # Writes a file into place through a temporary name OpenABL ignores.

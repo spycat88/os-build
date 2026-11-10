@@ -6,10 +6,10 @@
 # the ESP contents, or the filesystem identities the A/B switch depends on. This closes that gap
 # for the parts a slot switch can be silently wrong about.
 #
-# The card boots OpenABL → a Boot Loader Specification entry on the ESP → the kernel beside it. So
-# beyond the filesystem identities this asserts the ESP: one setup entry per board (all slot A,
-# uncounted, naming this card's PARTUUIDs), a loader.conf that holds the menu up, each populated
-# slot's kernel/initramfs/DTBs, and OpenABL's Device model DTBs.
+# The card boots OpenABL → a Boot Loader Specification entry on a slot's boot partition → the kernel
+# beside it. So beyond the filesystem identities this asserts the boot partitions: one OS entry and
+# one debug entry per populated slot (counted, naming that slot's PARTUUIDs), a loader.conf that
+# defaults to slot A, each populated slot's kernel/initramfs/DTBs, and nothing else on the ESP.
 #
 # It matters most for one thing that is invisible until hardware contradicts you: the two roots
 # are content-identical by design, so if they also share a btrfs fsid then mounting slot B can
@@ -110,7 +110,7 @@ check_slot "$P_VARA" A
 # ----------------------------------------------------------------------------------------------
 # 3. The ESP and the slots' boot partitions: the boot entries OpenABL reads, and the files they name.
 # ----------------------------------------------------------------------------------------------
-echo "  3. ESP (loader.conf, OpenABL's dtbs)"
+echo "  3. ESP (loader.conf)"
 espoff=$(( $(start "$P_ESP") * 512 ))
 need_file() {  # <msdos path> <what>
   mtype -i "$IMG@@$espoff" "$1" >"$T/f" 2>/dev/null && ok "$2 present" || bad "$2 missing"
@@ -133,12 +133,12 @@ for f in ::/EFI/BOOT/bootaa64.efi ::/EFI/steamos ::/KERNEL ::/SteamOS; do
   mdir -i "$IMG@@$espoff" "$f" >/dev/null 2>&1 && bad "${f#::} present on the card" || ok "no ${f#::}"
 done
 
-# The fresh-card loader.conf: no default yet, and the menu held up until a board is picked.
+# The fresh-card loader.conf: slot A first, and no menu held up.
 mtype -i "$IMG@@$espoff" ::/loader/loader.conf >"$T/loader.conf" 2>/dev/null || true
-grep -qx 'timeout menu-force' "$T/loader.conf" && ok "loader.conf holds the boot menu up (timeout menu-force)" \
-                                              || bad "loader.conf does not say 'timeout menu-force' -- a fresh card would boot an arbitrary board"
-grep -q '^default' "$T/loader.conf" && bad "loader.conf names a default -- a fresh card would pin one board" \
-                                     || ok "loader.conf has no default"
+grep -qx 'default retroforge-a.conf' "$T/loader.conf" && ok "loader.conf defaults to slot A" \
+                                                     || bad "loader.conf does not say 'default retroforge-a.conf'"
+grep -q '^timeout' "$T/loader.conf" && bad "loader.conf sets a timeout -- a fresh card would stop at the menu" \
+                                     || ok "loader.conf sets no timeout"
 mdir -i "$IMG@@$espoff" ::/loader/entries >/dev/null 2>&1 && bad "the ESP carries entries -- they belong on the slots' boot partitions" \
                                                           || ok "no entries on the ESP"
 
@@ -150,31 +150,42 @@ VERSION=$(sed -n 's/^version=//p' "$BOOTDIR/release" 2>/dev/null)
 [ -n "$KVER" ] && [ -n "$VERSION" ] && ok "out/boot/release: version $VERSION, kernel $KVER" \
   || bad "out/boot/release does not name a version and a kernel"
 
-# One setup entry per board on boot-a, each naming this card's slot-A partitions and no DTB (OpenABL
-# installs its Device model's from boot-a's /dtbs), and no slot entry yet (the first confirmed boot writes those).
-UUID_ROOTA=$(part_uuid "$P_ROOTA"); UUID_VARA=$(part_uuid "$P_VARA")
-mdir -b -i "$IMG@@$efiaoff" ::/loader/entries 2>/dev/null | sed 's|.*/||' >"$T/entries"
-n_setup=$(grep -c '^retroforge-setup-.*\.conf$' "$T/entries" || true)
-n_boards=$(grep -vc '^#' "$BOOTDIR/boards.tsv" 2>/dev/null || echo 0)
-[ "$n_setup" -gt 0 ] && [ "$n_setup" = "$n_boards" ] \
-  && ok "$n_setup setup entries, one per board in out/boot/boards.tsv" \
-  || bad "$n_setup setup entries for $n_boards boards in out/boot/boards.tsv"
-grep -q '^retroforge-[ab][+.]\|^retroforge-debug-' "$T/entries" && bad "a slot entry is already on the card -- the first boot would skip the board choice" \
-                                                                 || ok "no slot entries yet"
-first=$(grep -m1 '^retroforge-setup-.*\.conf$' "$T/entries" || true)
-if [ -n "$first" ]; then
-  mtype -i "$IMG@@$efiaoff" "::/loader/entries/$first" >"$T/setup.conf" 2>/dev/null || true
-  for want in "root=PARTUUID=$UUID_ROOTA" "retroforge.var=PARTUUID=$UUID_VARA" \
-              "retroforge.slot=A" "rauc.slot=A"; do
-    grep -q "^options .*$want" "$T/setup.conf" && ok "$first: $want" || bad "$first does not carry $want"
+# One OS entry and one debug entry per populated slot, each on that slot's own boot partition, each
+# naming that slot's partitions and no DTB (OpenABL installs its Device model's from the same
+# partition's /dtbs). Nothing else: one image serves every board, so no entry names one.
+check_slot_entries() {  # <A|B> <offset> <root-uuid> <var-uuid>
+  local S="$1" s off="$2" e d
+  s=$(printf '%s' "$S" | tr 'AB' 'ab')
+  e="retroforge-$s+3.conf"; d="retroforge-debug-$s.conf"
+  mdir -b -i "$IMG@@$off" ::/loader/entries 2>/dev/null | sed 's|.*/||' | grep '\.conf$' | sort >"$T/entries-$s"
+  printf '%s\n' "$d" "$e" | sort | cmp -s - "$T/entries-$s" \
+    && ok "boot-$s: exactly $e and $d" \
+    || bad "boot-$s entries are not exactly $e and $d: $(tr '\n' ' ' <"$T/entries-$s")"
+  mtype -i "$IMG@@$off" "::/loader/entries/$e" >"$T/e-$s" 2>/dev/null || true
+  mtype -i "$IMG@@$off" "::/loader/entries/$d" >"$T/d-$s" 2>/dev/null || true
+  grep -qx "title RetroForge (Slot $S)" "$T/e-$s" && ok "$e: titled RetroForge (Slot $S)" \
+                                                  || bad "$e: $(grep '^title' "$T/e-$s")"
+  grep -qx "title RetroForge (Slot $S, debug)" "$T/d-$s" && ok "$d: titled RetroForge (Slot $S, debug)" \
+                                                         || bad "$d: $(grep '^title' "$T/d-$s")"
+  for f in "$T/e-$s" "$T/d-$s"; do
+    for want in "root=PARTUUID=$3" "retroforge.var=PARTUUID=$4" "retroforge.slot=$S" "rauc.slot=$S"; do
+      grep -q "^options .*$want" "$f" || bad "boot-$s ${f##*/}: no $want"
+    done
+    for want in "version $VERSION" "linux /vmlinuz-$KVER" "initrd /initramfs-$KVER.img"; do
+      grep -qx "$want" "$f" || bad "boot-$s ${f##*/}: does not say '$want'"
+    done
+    grep -q '^devicetree' "$f" && bad "boot-$s ${f##*/} names a devicetree -- OpenABL's Device model should pick it"
   done
-  for want in "version $VERSION" "linux /vmlinuz-$KVER" "initrd /initramfs-$KVER.img"; do
-    grep -qx "$want" "$T/setup.conf" && ok "$first: $want" || bad "$first does not say '$want'"
-  done
-  grep -q '^title RetroForge (Slot A, ' "$T/setup.conf" && ok "$first: titled RetroForge (Slot A, <board>)" \
-                                                       || bad "$first: $(grep '^title' "$T/setup.conf")"
-  grep -q '^devicetree' "$T/setup.conf" && bad "$first names a devicetree -- OpenABL's Device model should pick it" \
-                                         || ok "$first: no devicetree key"
+  ok "boot-$s entries name slot $S's partitions, this build's kernel and no devicetree"
+}
+mdir -i "$IMG@@$efiboff" ::/loader/entries >/dev/null 2>&1 && ok "boot-b has /loader/entries" \
+                                                           || bad "boot-b has no /loader/entries"
+check_slot_entries A "$efiaoff" "$(part_uuid "$P_ROOTA")" "$(part_uuid "$P_VARA")"
+if [ "$SLOT_B" = 1 ]; then
+  check_slot_entries B "$efiboff" "$(part_uuid "$P_ROOTB")" "$(part_uuid "$P_VARB")"
+else
+  mdir -b -i "$IMG@@$efiboff" ::/loader/entries 2>/dev/null | grep -q '\.conf$' \
+    && bad "boot-b carries entries over an empty slot B" || ok "no entries on boot-b (slot B empty)"
 fi
 
 # Each populated slot's files, byte-identical to this build's.
@@ -190,11 +201,9 @@ check_slot_files a "$efiaoff"
 if [ "$SLOT_B" = 1 ]; then
   check_slot_files b "$efiboff"
 else
-  mdir -b -i "$IMG@@$efiboff" :: 2>/dev/null | grep -q . && bad "boot-b carries files over an empty slot B" \
-                                                        || ok "boot-b is empty (slot B empty)"
+  mdir -b -i "$IMG@@$efiboff" :: 2>/dev/null | grep -v '/loader' | grep -q . \
+    && bad "boot-b carries files over an empty slot B" || ok "boot-b holds no files (slot B empty)"
 fi
-mdir -i "$IMG@@$efiboff" ::/loader/entries >/dev/null 2>&1 && bad "boot-b carries entries on a fresh card" \
-                                                           || ok "no entries on boot-b"
 
 # The DTBs on boot-a are what OpenABL installs and lists as Device models: one per shipped board,
 # each with the splash region that keeps OpenABL 1.2 from powering the panel down (boot/splash-dtbs.sh).

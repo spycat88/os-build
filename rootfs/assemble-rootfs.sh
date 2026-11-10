@@ -97,9 +97,9 @@ else
   echo "  (no staged modules at ${MODROOT#"$ROOT"/} — run kernel/build.sh; built-in drivers only)"
 fi
 
-# STAGE boot-mountpoints — /esp (Phase 5). The shared ESP (p1, the only ef00) — loader.conf and
-# OpenABL's Device model DTBs — mounted here by /etc/fstab; gpt-auto is switched off for it by GPT
-# bit 63 in partition-table.txt. The root is read-only, so the mountpoint must pre-exist. The slots'
+# STAGE boot-mountpoints — /esp (Phase 5). The shared ESP (p1, basic data like every FAT partition
+# here) — loader.conf, the primary slot — mounted here by /etc/fstab, its only mount definition
+# (gpt-auto never mounts a 0700 partition). The root is read-only, so the mountpoint must pre-exist. The slots'
 # boot partitions (boot-a/boot-b) are automounted under /run/retroforge/bootfs by /etc/fstab, where
 # systemd creates the mountpoints itself.
 install -dm0755 "$stage/esp"

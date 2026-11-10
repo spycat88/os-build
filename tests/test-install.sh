@@ -978,7 +978,7 @@ sp_before 'rauc-session install' "mount .* $SP_RUN/boot-a" \
 
 CASE="spine: boot-a and the ESP carry what OpenABL boots"
 # Asserted against what the run actually produced: slot A's entries and the files they name on
-# boot-a, the default and OpenABL's Device model DTBs on the ESP.
+# boot-a, and the default on the ESP.
 esp="$SP_RUN/esp"; ba="$SP_RUN/boot-a"; rootboot="$SP_RUN/root-a/usr/lib/retroforge/boot"
 [ "$(sp_entries a)" = "retroforge-a+3.conf retroforge-debug-a.conf" ] \
   && ok "slot A's entry, with three tries, and its debug entry" \
@@ -1005,8 +1005,8 @@ cmp -s "$ba/vmlinuz-6.18.4" "$SP_RUN/root-a/boot/vmlinuz" \
   && ok "the kernel, initramfs and DTBs on boot-a are the root's" || bad "slot A's files on boot-a are not the root's"
 grep -qx 'default retroforge-a.conf' "$esp/loader/loader.conf" 2>/dev/null \
   && ok "loader.conf defaults to A" || bad "loader.conf: $(cat "$esp/loader/loader.conf" 2>&1)"
-grep -q 'menu-force' "$esp/loader/loader.conf" 2>/dev/null \
-  && bad "the board menu is forced on an install that knows its board" || ok "and no board menu: the card already knew the board"
+grep -q '^timeout' "$esp/loader/loader.conf" 2>/dev/null \
+  && bad "loader.conf holds OpenABL's menu up" || ok "and no menu timeout"
 for d in qcs8550-ayaneo-pocketace sm4450-anbernic-rg55g1; do
   cmp -s "$ba/dtbs/$d.dtb" "$rootboot/dtbs/$d.dtb" \
     && ok "boot-a dtbs/$d.dtb is the root's, for OpenABL's Device model" \

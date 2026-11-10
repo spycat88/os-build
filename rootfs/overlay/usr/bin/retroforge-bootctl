@@ -21,10 +21,10 @@
 #                    good: the counter back to three tries. bad: to none, so the next boot goes to
 #                    the other slot. retroforge-boot-bad.service demotes with `set-state self bad`.
 #   mark-good [--require-marker] [--wait SECONDS]
-#                    confirm THIS boot (retroforge-boot-good.service): on a fresh card's first
-#                    boot, write the slot and debug entries for the board it came up on and drop
-#                    the setup entries; then rauc status mark-good booted, which comes back here as
-#                    set-state <slot> good.
+#                    confirm THIS boot (retroforge-boot-good.service): bring the booted slot's
+#                    entry and debug entry up to this board's (a fresh card's carry only the
+#                    arguments every board shares); then rauc status mark-good booted, which comes
+#                    back here as set-state <slot> good.
 #        --require-marker  re-test the session marker before confirming; without it, exit 1
 #        --wait SECONDS    hold that long first, and exit 0 WITHOUT a verdict if signalled
 #                          during the wait (a shutdown is not evidence of a bad boot)
@@ -138,35 +138,38 @@ set_primary() {  # <self|A|B>
   bls_set_default "$ESP" "$s"
 }
 
-# --- the first boot of a fresh card -------------------------------------------------------------
-# A card leaves the build with setup entries on boot-a, one per board, because one image serves every
-# board and only the user can say which this is (lib-bls.sh). The boot being confirmed came from one
-# of them, so the running devicetree names the board: write the slot and debug entries for it, for
-# every slot the card carries files for, make the booted slot the default, and only then drop the
-# setup entries -- an interruption anywhere before that leaves the menu, never nothing.
+# --- the booted slot's entries ------------------------------------------------------------------
+# A card leaves the build with one entry per slot that every board boots: the shared command line,
+# and the DTB OpenABL's Device model setting picks off the slot's partition (lib-bls.sh). What only
+# this board needs -- its own kernel arguments out of boards.tsv -- is known once it is running, so a
+# confirmed boot rewrites the booted slot's entry and debug entry to what an update would write for
+# this board, whenever they say anything else. After the first boot this is a comparison and nothing
+# more: the update hook writes a slot's entries for the running board already.
 #
-# Each slot's entries come from the boot data of the root in THAT slot, which on a card is the same
-# build in both; the running root's is what is readable here, and the card is fresh, so it is used
-# for both.
-commit_board() {  # <booted-slot>
-  local booted="$1" s fs text debug root var n=0
-  for s in A B; do
-    fs=$(slotfs "$s")
-    bls_slot_files_present "$fs" || continue
-    root=$(bls_dev_partuuid "$DEVDIR/retroforge-root-$s")
-    var=$(bls_dev_partuuid "$DEVDIR/retroforge-var-$s")
-    text=$(bls_device_entry "$BOOTDIR" "$s" "$root" "$var")
-    debug=$(bls_device_entry "$BOOTDIR" "$s" "$root" "$var" debug)
-    bls_write_debug "$fs" "$s" "$debug"$'\n'
-    bls_write_entry "$fs" "$s" "$text"$'\n'
-    log "slot $s: boot entries written ($BLS_ENTRIES/$(bls_entry_name "$s" "$BLS_TRIES"), $(bls_debug_name "$s"))"
-    n=$((n + 1))
-  done
-  bls_entry_file "$(slotfs "$booted")" "$booted" >/dev/null || die "slot $booted has no kernel on its boot partition -- cannot write its entry"
-  bls_set_default "$ESP" "$booted"
-  bls_remove_setup "$(slotfs A)"
-  bls_remove_setup "$(slotfs B)"
-  log "board '$(bls_running_model)' committed: $n slot entr$([ "$n" = 1 ] && echo y || echo ies), setup entries removed"
+# It is an improvement, never a condition: a board this root does not know, or a write that fails,
+# is a warning, and the boot is confirmed on the entry it came up on.
+refresh_booted() {  # <booted-slot>
+  local s="$1" fs root var text debug cur
+  fs=$(slotfs "$s")
+  root=$(bls_dev_partuuid "$DEVDIR/retroforge-root-$s")
+  var=$(bls_dev_partuuid "$DEVDIR/retroforge-var-$s")
+  text=$(bls_device_entry "$BOOTDIR" "$s" "$root" "$var")$'\n' || exit 1
+  debug=$(bls_device_entry "$BOOTDIR" "$s" "$root" "$var" debug)$'\n' || exit 1
+  if [ "$(cat "$fs/$BLS_ENTRIES/$(bls_debug_name "$s")" 2>/dev/null)"$'\n' != "$debug" ]; then
+    bls_write_debug "$fs" "$s" "$debug"
+    log "slot $s: debug entry rewritten for this board"
+  fi
+  # In place, under the name it has: the counter is RAUC's to reset (mark-good, below), so a
+  # confirmation that then fails leaves it running down.
+  if cur=$(bls_entry_file "$fs" "$s"); then
+    if [ "$(cat "$cur")"$'\n' != "$text" ]; then
+      bls_put "$cur" "$text"
+      log "slot $s: entry rewritten for this board (${cur##*/})"
+    fi
+  else
+    bls_write_entry "$fs" "$s" "$text"
+    log "slot $s: entry written for this board ($(bls_entry_name "$s" "$BLS_TRIES"))"
+  fi
 }
 
 # --- boot health --------------------------------------------------------------------------------
@@ -223,9 +226,7 @@ mark_good() {
   fi
 
   esp_ready
-  if ! bls_entry_file "$(slotfs "$bs")" "$bs" >/dev/null || bls_has_setup "$(slotfs A)"; then
-    commit_board "$bs"
-  fi
+  ( refresh_booted "$bs" ) || warn "slot $bs: could not bring its entries up to this board; confirming the boot on the entry it came up on"
 
   "$RAUC" status mark-good booted || die "rauc status mark-good booted failed"
   echo "boot confirmed good (slot $bs)"
@@ -246,7 +247,6 @@ status() {
     done
   done
   echo "default:     $(bls_default "$ESP")"
-  bls_has_setup "$BOOTPARTS/a" && echo "setup:       the board is not committed yet (fresh card)"
   echo "next boot:   $(bls_primary "$ESP" "$BOOTPARTS/a" "$BOOTPARTS/b" 2>/dev/null || echo '<undetermined>')"
 }
 
