@@ -139,15 +139,12 @@ populated, and an empty `/loader/entries` otherwise; the ESP carries `/loader/lo
 (`default retroforge-a.conf`). Every FAT partition is typed Microsoft basic data, so Windows mounts
 and browses the ESP like the boot partitions.
 
-**Whether slot B is populated follows the build mode**, and `RETROFORGE_SLOT_B=0|1` overrides it:
-
-* **Dev card** (`RETROFORGE_DEV=1`): B is populated, carrying a distinct btrfs fsid, because a slot
-  switch cannot be proven against a slot that does not boot. Set `RETROFORGE_SLOT_B=0` for a faster
-  local loop, at the cost of a card whose first slot switch can only exercise the failover path.
-* **Release card**: B is left empty, with no files and no entry on boot-b. B would be a
-  byte-identical copy of an already-compressed root, surviving release compression whole — a second
-  root's worth of download for a failover window that closes the first time RAUC writes the slot.
-  With no entry, OpenABL never tries it. The first update writes B's root, files and entries.
+**Slot B is empty on every card, dev and release alike**: boot-b holds only an empty
+`/loader/entries`, and rootfs-b and var-b are blank. B would be a byte-identical copy of an
+already-compressed root, surviving release compression whole, for a failover window that closes the
+first time RAUC writes the slot. With no entry, OpenABL never tries it. The first update writes B's
+root, files and entries. To prove a slot switch by hand without an update first, build with
+`RETROFORGE_SLOT_B=1`, which populates B with a distinct btrfs fsid.
 
 Run `verify-card` before you commit a card to a device — it asserts the built image rather than
 the source tree, which is the only place the GPT, the ESP contents and the per-slot filesystem

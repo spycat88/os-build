@@ -2,7 +2,7 @@
 # retroforge SD-card image builder.
 #
 # Lays the FULL SteamOS-style 8-partition GPT from image/partition-table.txt and populates
-# BOTH slots: ESP + boot-a/-b + rootfs-a/-b + var-a/-b + home.
+# ESP + boot-a + rootfs-a + var-a + home. The B partitions stay empty (see below).
 #
 # The boot chain this card boots:
 #
@@ -15,15 +15,12 @@
 # slot's partition. The first healthy boot rewrites the booted slot's entries with the board's own
 # arguments added (retroforge-bootctl mark-good), and every update writes them that way.
 #
-# WHY B IS POPULATED ON A DEV CARD AND EMPTY ON A RELEASE CARD. The default follows RETROFORGE_DEV;
-# RETROFORGE_SLOT_B=0|1 overrides it in either direction.
+# WHY B IS EMPTY, ON A DEV CARD AND A RELEASE CARD ALIKE. boot-b, rootfs-b and var-b are left
+# empty (boot-b has only an empty /loader/entries), and the first update writes them.
+# RETROFORGE_SLOT_B=1 populates B anyway, for proving a slot switch by hand without an update first.
+# Dev cards populated B by default until 2026-11-10, so a dev card looked like no device in the field.
 #
-# Dev (Phase 4b): the deliverable of the boot-path pass is that a slot switch and a rollback are
-# provable by hand, and you cannot prove a switch to a slot that does not boot — an empty B can only
-# ever exercise the failure path. It is also the state a device is never in again after its first
-# real update, so testing against it tests a fiction.
-#
-# Release: B WOULD BE a byte-identical copy of a root that is ALREADY zstd-compressed inside btrfs,
+# B WOULD BE a byte-identical copy of a root that is ALREADY zstd-compressed inside btrfs,
 # so it would survive the release compression whole. Nothing dedupes it: the flash instruction is
 # `gzip -dc` (32 KiB window), and even zstd --long tops out at a 2 GiB window against a ~4 GiB gap
 # between the two copies. That was ~4 of the ~9 GiB a release card compressed to until 2026-08-04
@@ -74,10 +71,8 @@ RELEASE="$BOOT/release"                 # rootfs/lib-assemble-boot.sh: build + k
 # shellcheck source=../rootfs/overlay/usr/lib/retroforge/install/lib-bls.sh
 . "$ROOT/rootfs/overlay/usr/lib/retroforge/install/lib-bls.sh"
 
-# Populate the B slot too: on for a dev card, off for a release card. See the header for why.
-# Read the mode rather than defaulting to 1, so that forgetting to forward RETROFORGE_DEV produces a
-# release-shaped card (small, one bootable slot) rather than silently shipping the 4 GiB copy.
-SLOT_B="${RETROFORGE_SLOT_B:-$([ "${RETROFORGE_DEV:-}" = 1 ] && echo 1 || echo 0)}"
+# Populate the B slot too: off unless asked for, whatever the build mode. See the header for why.
+SLOT_B="${RETROFORGE_SLOT_B:-0}"
 
 MIB=$((1024 * 1024))
 END_SLACK_MIB=2   # tail room for the backup GPT (well over its ~17 KiB)

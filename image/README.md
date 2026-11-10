@@ -27,7 +27,7 @@ kernel (`kernel/build.sh`), fetched firmware (`firmware/fetch-qcom-fw.sh` +
 
 | File | Purpose |
 |---|---|
-| `make-sdcard.sh` | Lay the **full** GPT from the table and populate **both** slots (Phase 5): the ESP carries `loader/loader.conf`; boot-a carries slot A's kernel, initramfs, DTBs and its Boot Loader Specification entry (three tries) and debug entry; boot-b carries the same for slot B when B is populated, and an empty `/loader/entries` otherwise; root-A/B + var-A/B + home. `/home` is pre-seeded with the native arm64 Steam client. → `out/images/sdcard.img`. Unprivileged (mtools + sgdisk + `dd`, no loop). |
+| `make-sdcard.sh` | Lay the **full** GPT from the table and populate slot A, leaving B empty for the first update (Phase 5): the ESP carries `loader/loader.conf`; boot-a carries slot A's kernel, initramfs, DTBs and its Boot Loader Specification entry (three tries) and debug entry; boot-b carries an empty `/loader/entries` (the same as slot A's when built with `RETROFORGE_SLOT_B=1`); root-A/B + var-A/B + home. `/home` is pre-seeded with the native arm64 Steam client. → `out/images/sdcard.img`. Unprivileged (mtools + sgdisk + `dd`, no loop). |
 | `lib-homestage.sh` | Sourced, never executed. The player user's `/home`, built once and used by two writers — `make-sdcard.sh` at build time and `installer/retroforge-install` on the device — because the two must produce the same tree. The parts that drift silently are the `~/.steam` compat symlinks: a missing sdk64 does not stop Steam starting, it makes an x86 title's `SteamAPI_Init()` fail at launch, on that medium only. |
 | `verify-card.sh` | Read the built card back and assert what actually landed: the GPT against the table, the ESP's loader.conf, each slot's entries and slot files. `make verify-card`. |
 | `card-meta.sh` | Emit the card's own metadata (version, git, mode, sizes) for the release workflows. |
@@ -53,7 +53,7 @@ docker run --rm -v "$PWD":/src -w /src retroforge-build image/make-sdcard.sh
 
 **Done:** partition layout, read-only Btrfs root, Boot Loader Specification boot (OpenABL boots
 the slot entry on that slot's boot partition, counting three tries per slot and falling back to
-the other), both slots populated by `make-sdcard.sh`, and the offline suites in `make test`
+the other), slot A populated by `make-sdcard.sh` (B is written by the first update), and the offline suites in `make test`
 (`tests/test-bls.sh`, `tests/test-units.sh`, `tests/test-bootctl.sh`,
 `tests/test-post-install.sh`) plus `make verify-card` against the built image.
 **Not yet validated on hardware:** the BLS chain end to end — the first boot's rewrite of the

@@ -109,7 +109,7 @@ the two is a reflash.
 ## A fresh card, and the board
 
 One image serves every board. So a card leaves the build with one entry per populated slot,
-`retroforge-a+3.conf` (and `retroforge-b+3.conf` on a dev card), each with its debug entry, on that
+`retroforge-a+3.conf` (and `retroforge-b+3.conf` only when built with `RETROFORGE_SLOT_B=1`), each with its debug entry, on that
 slot's own boot partition, and a `loader.conf` on the ESP saying `default retroforge-a.conf`. The
 entries carry only the command line every board shares; the DTB is OpenABL's Device model setting.
 The first healthy boot's `mark-good` then rewrites the booted slot's entry and debug entry with the
