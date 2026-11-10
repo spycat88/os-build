@@ -231,9 +231,10 @@
 #         keyboard submits the password in both. On first boot Enter only closed the keyboard and
 #         gave the focus back to the field, whose unset D-pad neighbours let the network list behind
 #         the dialog take it; the neighbours stay in the dialog now (as 0018 did for Settings >
-#         Network). Settings' Enter submitted before the keyboard's refocus of the field, which could
-#         leave the focus on the hidden field: both submit deferred now. A tapped Submit on first boot
-#         closes a keyboard still up (user, 2026-11-09).
+#         Network), and after a submit the focus goes to Next, not back to the list (user,
+#         2026-11-10). Settings' Enter submitted before the keyboard's refocus of the field, which
+#         could leave the focus on the hidden field: both submit deferred now. A tapped Submit on
+#         first boot closes a keyboard still up (user, 2026-11-09).
 #
 # The earlier 0006/0007 (plugin store URL as a project setting, set to "" for RetroForge) were dropped on
 # 2026-10-06: with the store off, OGUI's first-start screen showed an empty catalog. 0039 removes the
