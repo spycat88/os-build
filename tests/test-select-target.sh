@@ -250,14 +250,14 @@ if [ -n "$esp_idx" ]; then
     && ok "an empty ESP of the right type -> accepted" \
     || bad "an ESP holding neither file blocked the install"
 
-  # Ours is exempt, or a reinstall refuses itself as foreign. Today's ESP is basic data and never
-  # reaches rule 3b; an install from before 2026-11-11 carries an ef00 RETROFORGE-ESP, tested here.
-  sgdisk -c "$esp_idx:RETROFORGE-ESP" "$fit" >/dev/null 2>&1
+  # Ours is exempt, or a reinstall refuses itself as foreign. It is basic data, so rule 3b never
+  # looks at it; the name exemption is tested here on an ef00 so the two cannot mask each other.
+  sgdisk -c "$esp_idx:RetroForge" "$fit" >/dev/null 2>&1
   mmd -i "$fat" ::/EFI ::/EFI/BOOT >/dev/null 2>&1
   mcopy -i "$fat" "$T/bootaa64.efi" ::/EFI/BOOT/bootaa64.efi >/dev/null 2>&1
   dd if="$fat" of="$fit" bs=512 seek="$esp_s" conv=notrunc status=none
   bash "$SELECT" "$fit" >/dev/null 2>&1 \
-    && ok "our own RETROFORGE-ESP carrying bootaa64.efi -> accepted" \
+    && ok "our own RetroForge carrying bootaa64.efi -> accepted" \
     || bad "a reinstall refused its own ESP as foreign"
   # --- rule 3b must not be SKIPPABLE by a missing tool ---------------------------------------
   # THE DEFECT THIS CASE EXISTS FOR, found on the Pocket FIT 2026-08-21 and invisible to every

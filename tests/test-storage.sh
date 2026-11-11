@@ -372,7 +372,6 @@ isours() { # <partlabel> -- prints yes or no
 [ "$(isours retroforge-home)" = yes ] && ok "retroforge-home is ours" || bad "retroforge-home reads as a plain card"
 [ "$(isours retroforge-var-A)" = yes ] && ok "and so is retroforge-var-A" || bad "retroforge-var-A reads as a plain card"
 [ "$(isours RetroForge)" = yes ] && ok "and RetroForge (the ESP)" || bad "RetroForge reads as a plain card"
-[ "$(isours RETROFORGE-ESP)" = yes ] && ok "and RETROFORGE-ESP, its name on older cards" || bad "RETROFORGE-ESP reads as a plain card"
 # format-device.sh names the card it formats retroforge-library, and that card must keep mounting.
 [ "$(isours retroforge-library)" = no ] && ok "a card we formatted for storage is a plain card" \
   || bad "retroforge-library is refused: every formatted card stops mounting"

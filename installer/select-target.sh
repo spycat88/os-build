@@ -197,12 +197,12 @@ examine() {
   fi
 
   # Rule 3b: a FOREIGN bootable ESP means two installs ABL cannot choose between, so one of them is
-  # unreachable whichever it picks. Ours is exempt by name. Our ESP is typed 0700 now and never
-  # reaches the test; an install from before 2026-11-11 still carries it as an ef00 RETROFORGE-ESP.
+  # unreachable whichever it picks. Ours is typed 0700 and never reaches the test; it is exempt by
+  # name as well, so retyping it can never make a reinstall refuse itself.
   local idx start end code name
   while read -r idx start end code name; do
     [ "$code" = "EF00" ] || continue
-    [ "$name" = "RETROFORGE-ESP" ] || [ "$name" = "RetroForge" ] && continue
+    [ "$name" = "RetroForge" ] && continue
     if esp_is_bootable "$disk" "$start" "$ss"; then
       say "  $disk: partition $idx ($name) is a bootable ESP that is not ours -- remove the other OS first"
       return 1

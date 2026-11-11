@@ -108,7 +108,7 @@ storage_is_sd() { # <disk kernel name>
 # format-device.sh calls the storage cards it makes retroforge-library.
 storage_is_retroforge_partition() { # <partition device>
     case "$(lsblk -no PARTLABEL "$1" 2>/dev/null | head -n1)" in
-        RetroForge|RETROFORGE-ESP|retroforge-efi-[AB]|retroforge-root-[AB]|retroforge-var-[AB]|retroforge-home) return 0 ;;
+        RetroForge|retroforge-efi-[AB]|retroforge-root-[AB]|retroforge-var-[AB]|retroforge-home) return 0 ;;
     esac
     return 1
 }

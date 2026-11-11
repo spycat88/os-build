@@ -278,9 +278,9 @@ echo "the rule's name match covers image/partition-table.txt"
 while read -r _ _ _ _ label _; do
   case "$label" in ''|'#'*|'-') continue ;; esac
   case "$label" in
-    retroforge-*|RETROFORGE-*) ok "$label is matched by the rule's retroforge-*|RETROFORGE-* prefix" ;;
+    retroforge-*) ok "$label is matched by the rule's retroforge-* prefix" ;;
     RetroForge)
-      grep -q 'ID_PART_ENTRY_NAME}!="[^"]*|RetroForge|' "$RULE" \
+      grep -q 'ID_PART_ENTRY_NAME}!="[^"]*|RetroForge"' "$RULE" \
         && ok "$label (the ESP) is matched by name in the rule" \
         || bad "$label is in the partition table but the rule does not match it — /esp would get no scoped link" ;;
     *) bad "$label is in the partition table but matches no pattern in the rule — it would get no scoped link" ;;

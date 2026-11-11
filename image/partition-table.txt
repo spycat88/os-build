@@ -36,11 +36,6 @@
 # every SimpleFileSystem handle for \EFI\BOOT\BOOTAA64.EFI and never reads the type. See
 # [[abl-internal-efi-path-works]].
 #
-# Cards and installs made before the change carry the name RETROFORGE-ESP, type ef00 and bit 63.
-# They still boot unchanged; the running system resolves either name (69-retroforge-bootdisk.rules
-# links a legacy RETROFORGE-ESP at /dev/retroforge/RetroForge too), and an internal reinstall
-# renames and retypes the legacy entry in place (installer/carve.sh).
-#
 # OpenABL's ADSP loader (Efi/UsbHost.c, ParkOtherBasicData) parks every basic data FAT volume but
 # the one carrying the ADSP firmware before PIL runs, so a third basic data partition on the card is
 # handled the same way efi-a/efi-b already are.

@@ -684,16 +684,9 @@ for row in RetroForge:/esp retroforge-home:/home; do
     bad "/etc/fstab does not mount ${row##*:} from /dev/retroforge/${row%%:*} — that mount follows whichever disk udev enumerated first"
   fi
 done
-if grep -qE '^(PARTLABEL|LABEL)=(RetroForge|RETROFORGE-ESP|retroforge-home)[[:space:]]' "$STAGE/etc/fstab" 2>/dev/null; then
+if grep -qE '^(PARTLABEL|LABEL)=(RetroForge|retroforge-home)[[:space:]]' "$STAGE/etc/fstab" 2>/dev/null; then
   bootdisk_ok=0
   bad "/etc/fstab still carries a bare PARTLABEL=/LABEL= row for the ESP or home — the scoped link and the label row would race for the same mountpoint"
-fi
-# The ESP was renamed RETROFORGE-ESP -> RetroForge on 2026-11-11, and fstab names only the new one.
-# A card flashed before that still carries the old name, and an OTA lands this fstab on it: without
-# the rule's alias that card boots with no /esp, so no grubenv, and rolls back every update.
-if [ -s "$BD_RULE" ] && ! grep -q 'SYMLINK+="retroforge/RetroForge"' "$BD_RULE"; then
-  bootdisk_ok=0
-  bad "69-retroforge-bootdisk.rules does not link a legacy RETROFORGE-ESP at /dev/retroforge/RetroForge — every card flashed before the rename loses /esp on its next update"
 fi
 if [ -s "$STAGE/etc/rauc/system.conf" ] && grep -q '^device=/dev/disk/by-partlabel/' "$STAGE/etc/rauc/system.conf"; then
   bootdisk_ok=0

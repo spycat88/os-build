@@ -31,10 +31,7 @@ mkdir -p "$stage/etc"
 # counts tries in the booted disk's grubenv, and RAUC's mark-good clears them through this mount — on
 # the wrong ESP the count climbs every boot until the ESP GRUB fails over a healthy slot, and the
 # other install's slot state is stamped over. Both grubenvs look alike, so nothing downstream can notice.
-#
-# The ESP's GPT name is RetroForge; cards and installs from before 2026-11-11 call it RETROFORGE-ESP,
-# and 69-retroforge-bootdisk.rules links that legacy name here too, so this one row mounts both.
-if ! grep -qE '/dev/retroforge/(RetroForge|RETROFORGE-ESP)[[:space:]]' "$stage/etc/fstab" 2>/dev/null; then
+if ! grep -q '/dev/retroforge/RetroForge' "$stage/etc/fstab" 2>/dev/null; then
   printf '%s\n' \
     '# retroforge shared ESP — the ESP GRUB + its grubenv (RAUC slot state). Mounted here at /esp. It is' \
     '# typed basic data, so gpt-auto leaves it alone and Windows gives it a drive letter.' \
