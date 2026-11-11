@@ -1,0 +1,12 @@
+# Keep the SM8550 thermal sensors from waking the system.
+#
+# tsens arms its threshold interrupts as wake sources whenever its device may
+# wake (tsens_suspend_common). On SM8550 the lower-threshold interrupt fires as
+# the SoC cools after suspend entry and resumes it at once (ROCKNIX PR 3126,
+# `0203`; Kettle Linux ships the same rule as 60-kettle-tsens-nowake.rules).
+# Cost: no thermal wake at all while asleep, critical trips included.
+#
+# "add" as well as "bind": the driver is built in and binds before udevd starts,
+# so coldplug only replays "add" for it (seen on the Retroid Pocket Nova,
+# 2026-11-11: with "bind" alone the attribute stayed "enabled").
+ACTION=="add|bind", SUBSYSTEM=="platform", DRIVER=="qcom-tsens", ENV{OF_COMPATIBLE_0}=="qcom,sm8550-tsens", ATTR{power/wakeup}="disabled"

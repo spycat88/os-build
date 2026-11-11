@@ -1,0 +1,38 @@
+From: tiopex <tiopxyz@gmail.com>
+Subject: [PATCH] input: rsinput: re-initialise the MCU on resume
+
+Send the MCU its reset and framed-report setup again after a system
+resume, as probe does, so the gamepad reports after a wake.
+
+[ ROCKNIX SM8750 0508, rebased on our rsinput stack (0745, 0790, 0791,
+  0797) ]
+---
+ drivers/input/joystick/rsinput.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+--- a/drivers/input/joystick/rsinput.c
++++ b/drivers/input/joystick/rsinput.c
+@@ -685,6 +685,15 @@
+     regulator_disable(drv->vdd);
+ }
+ 
++static int rsinput_resume(struct device *dev)
++{
++    struct rsinput_driver *drv = dev_get_drvdata(dev);
++
++    return rsinput_init_commands(drv);
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(rsinput_pm_ops, NULL, rsinput_resume);
++
+ static const struct of_device_id rsinput_of_match[] = {
+     { .compatible = "gamepad,rsinput" },
+     { /* sentinel */ }
+@@ -697,6 +706,7 @@
+     .driver = {
+         .name = "rsinput",
+         .of_match_table = rsinput_of_match,
++        .pm = pm_sleep_ptr(&rsinput_pm_ops),
+     },
+ };
+ 
