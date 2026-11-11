@@ -72,7 +72,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-OUR_NAMES=(RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+OUR_NAMES=(RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
            retroforge-var-A retroforge-var-B retroforge-home)
 
 # --- which disk ---------------------------------------------------------------------------------
@@ -136,7 +136,7 @@ expect_fs() {  # <gpt-name> <expected type>
   local got; got="$(fstype "${DEV[$1]}")"
   [ "$got" = "$2" ] && ok "$1 is $2" || bad "$1 is '${got:-none}', expected $2"
 }
-expect_fs RETROFORGE-ESP   vfat
+expect_fs RetroForge   vfat
 expect_fs retroforge-efi-A vfat
 expect_fs retroforge-efi-B vfat
 expect_fs retroforge-root-A btrfs
@@ -196,7 +196,7 @@ fi
 # ABL boots /EFI/BOOT/bootaa64.efi (the ESP GRUB) from here. RAUC's slot state and the shared board
 # choice live here too, in the grubenv, because they are per-DISK rather than per-slot.
 echo "  3. ESP (stage 1)"
-if use_fs "${DEV[RETROFORGE-ESP]}" "$T/esp"; then
+if use_fs "${DEV[RetroForge]}" "$T/esp"; then
   esp="$USE_PATH"
   for f in /EFI/BOOT/bootaa64.efi /EFI/steamos/grubenv /EFI/steamos/parts.env; do
     [ -s "$esp$f" ] && ok "$f present" || bad "$f missing or empty"
@@ -242,7 +242,7 @@ if use_fs "${DEV[retroforge-efi-A]}" "$T/efi"; then
   done
   grep -aq "GRUB Environment Block" "$efi/EFI/steamos/parts.env" \
     && ok "parts.env is a valid GRUB env block" || bad "parts.env has no GRUB magic header"
-  for kv in "nd_esp=${IDX[RETROFORGE-ESP]}"     "nd_efi_a=${IDX[retroforge-efi-A]}" \
+  for kv in "nd_esp=${IDX[RetroForge]}"     "nd_efi_a=${IDX[retroforge-efi-A]}" \
             "nd_efi_b=${IDX[retroforge-efi-B]}" "nd_root_a=${IDX[retroforge-root-A]}" \
             "nd_root_b=${IDX[retroforge-root-B]}" "nd_var_a=${IDX[retroforge-var-A]}" \
             "nd_var_b=${IDX[retroforge-var-B]}"   "nd_home=${IDX[retroforge-home]}"; do

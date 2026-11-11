@@ -250,7 +250,8 @@ if [ -n "$esp_idx" ]; then
     && ok "an empty ESP of the right type -> accepted" \
     || bad "an ESP holding neither file blocked the install"
 
-  # Ours is exempt, or a reinstall refuses itself as foreign.
+  # Ours is exempt, or a reinstall refuses itself as foreign. Today's ESP is basic data and never
+  # reaches rule 3b; an install from before 2026-11-11 carries an ef00 RETROFORGE-ESP, tested here.
   sgdisk -c "$esp_idx:RETROFORGE-ESP" "$fit" >/dev/null 2>&1
   mmd -i "$fat" ::/EFI ::/EFI/BOOT >/dev/null 2>&1
   mcopy -i "$fat" "$T/bootaa64.efi" ::/EFI/BOOT/bootaa64.efi >/dev/null 2>&1

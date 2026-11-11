@@ -17,27 +17,38 @@
 #              a separate SD-card image. And home must stay LAST on disk: retroforge-grow-home
 #              expands it to fill the card on first boot, so nothing may follow it.
 #
-# efi-a/efi-b are typed 0700 (Microsoft basic data), NOT ef00 — exactly as SteamOS types
-# them. Only p1 is an EFI System partition, and keeping exactly one avoids handing a
-# firmware scan two candidates. The stage-2 config is reached by the ESP GRUB, not by a UEFI
-# firmware scan, so it does not need ef00.
+# The boot partition (p1, GPT name "RetroForge") and efi-a/efi-b are ALL typed 0700 (Microsoft basic
+# data), NOT ef00. Nothing in the boot chain looks for the EFI System Partition type: the stage-2
+# config is reached by the ESP GRUB, not by a firmware scan, and ABL finds /EFI/BOOT/bootaa64.efi
+# by CONTENT on any FAT volume it can mount (below). The role is still called "the ESP" throughout
+# this tree; only its type changed.
 #
-# CORRECTION 2026-08-24: this block used to say "the ROCKNIX ABL finds the ESP by type GUID".
-# That is WRONG, and it is load-bearing enough to correct rather than leave — it is the only
-# reason retyping a boot partition ever looked dangerous. Measured against a working ROCKNIX
-# card: its boot medium is not even GPT. `lsblk -o PTTYPE,PARTTYPE,PARTFLAGS` reports `dos`,
-# partition type `0xc` (W95 FAT32 LBA) with the 0x80 bootable flag, carrying
-# /EFI/BOOT/bootaa64.efi — an MBR table, a plain FAT partition, no EFI System Partition type
-# GUID anywhere on the disk — and ABL boots it. ABL finds the loader by CONTENT, which is what
-# [[abl-internal-efi-path-works]] already said. p1 stays ef00 here because this image has no
-# user-facing files on its ESP and there is nothing to gain by changing it.
+# WHY NOT ef00 (2026-11-11): Windows will not assign a drive letter to an EFI System partition,
+# so a card plugged into a PC showed no boot partition at all -- the one place a user might want to
+# drop a dtb or read the grubenv. As basic data it mounts in Explorer like any FAT volume. GPT bit
+# 63 went with it: on a basic data partition Windows reads bit 63 as "no drive letter", which
+# would hide it again.
 #
-# The ESP carries GPT bit 63 ("no-auto") for the same reason home does: that GUID would make
-# systemd's gpt-auto generator auto-mount it at /efi, and /efi is the name the initramfs
-# reserves for the SLOT's efi-a/b partition (mounted from steamos.efi=PARTUUID=, phase 5).
-# The ESP's one and only mount definition is the /esp entry rootfs/assemble-rootfs.sh puts in
-# /etc/fstab — bit 63 disables the competing generator without touching the type GUID the
-# firmware scans by.
+# MEASURED, 2026-08-24: ABL does not need the ef00 type GUID. A working ROCKNIX card's boot medium
+# is not even GPT -- `lsblk -o PTTYPE,PARTTYPE,PARTFLAGS` reports `dos`, partition type `0xc` (W95
+# FAT32 LBA) with the 0x80 bootable flag, carrying /EFI/BOOT/bootaa64.efi, no EFI System Partition
+# type GUID anywhere on the disk -- and ABL boots it. OpenABL is the same: DefaultFiles searches
+# every SimpleFileSystem handle for \EFI\BOOT\BOOTAA64.EFI and never reads the type. See
+# [[abl-internal-efi-path-works]].
+#
+# Cards and installs made before the change carry the name RETROFORGE-ESP, type ef00 and bit 63.
+# They still boot unchanged; the running system resolves either name (69-retroforge-bootdisk.rules
+# links a legacy RETROFORGE-ESP at /dev/retroforge/RetroForge too), and an internal reinstall
+# renames and retypes the legacy entry in place (installer/carve.sh).
+#
+# OpenABL's ADSP loader (Efi/UsbHost.c, ParkOtherBasicData) parks every basic data FAT volume but
+# the one carrying the ADSP firmware before PIL runs, so a third basic data partition on the card is
+# handled the same way efi-a/efi-b already are.
+#
+# systemd's gpt-auto generator ignores basic data partitions, so the ESP needs no bit 63 to keep
+# it from being auto-mounted at /efi (the name the initramfs reserves for the SLOT's efi-a/b
+# partition). Its one and only mount definition is the /esp entry rootfs/assemble-rootfs.sh puts in
+# /etc/fstab.
 #
 # Root slots are 2G. They carry the OS (gamescope session, shell, emulators, firmware, modules).
 # The root is sealed read-only and baked with zstd (assemble-rootfs.sh), so content compresses well.
@@ -65,8 +76,7 @@
 # usable card is 16G (leaving ~10G of /home); 64G+ is the sane target for ROMs.
 #
 # 'attrs' is a comma-separated list of GPT attribute bits to set, or '-' for none. Only bit 63
-# ("no-auto") is used today, on home and on the ESP — each for its own reason, both above.
-# home carries the discoverable "Linux /home" type GUID
+# ("no-auto") is used today, on home alone. home carries the discoverable "Linux /home" type GUID
 # (8302) because systemd-repart matches it by that GUID to grow it on first boot — matching by
 # type is what guarantees repart can never touch a root partition. But that same GUID also makes
 # systemd's gpt-auto generator synthesize its OWN home.mount, which would silently shadow (or be
@@ -110,7 +120,7 @@
 # tests/test-partition-table.sh asserts all of this against the table alone, at both sector sizes.
 #
 # name      size  typecode  fs        label            attrs
-esp         256M  ef00      vfat      RETROFORGE-ESP     63
+esp         256M  0700      vfat      RetroForge         -
 efi-a       128M  0700      vfat      retroforge-efi-A   -
 efi-b       128M  0700      vfat      retroforge-efi-B   -
 rootfs-a    2G    8300      btrfs     retroforge-root-A  -

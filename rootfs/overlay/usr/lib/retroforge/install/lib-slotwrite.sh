@@ -148,7 +148,7 @@ parts_env_from_genpart_map() {  # reads the map on stdin, emits key=value on std
   while IFS='=' read -r name idx; do
     [ -n "$name" ] || continue
     case "$name" in
-      RETROFORGE-ESP)    key=nd_esp ;;
+      RetroForge)        key=nd_esp ;;
       retroforge-efi-A)  key=nd_efi_a ;;
       retroforge-efi-B)  key=nd_efi_b ;;
       retroforge-root-A) key=nd_root_a ;;
@@ -386,10 +386,10 @@ refresh_esp_extras() {  # <esp> <efi-dir> <bootdir>
   done
 }
 
-# NOTHING RESOLVES THE ESP BY THIS LABEL: ABL finds it by type GUID (ef00), the OS mounts it by
-# PARTLABEL from /etc/fstab, and the stage-2 grub.cfg addresses it by partition index. It is a human
-# convenience on a mounted disk, and it is deliberately NOT the GPT name -- a FAT label caps at 11
-# characters and RETROFORGE-ESP is fourteen. Kept identical to image/make-sdcard.sh's so a card and an
+# NOTHING RESOLVES THE ESP BY THIS LABEL: ABL finds /EFI/BOOT/bootaa64.efi by content, the OS mounts
+# it by GPT name (/dev/retroforge/RetroForge) from /etc/fstab, and the stage-2 grub.cfg addresses it
+# by partition index. It is a human convenience on a mounted disk -- it is what Windows shows as the
+# drive name -- and it is upper case because FAT labels are, by convention and for DOS-era tools. Kept identical to image/make-sdcard.sh's so a card and an
 # internal install present the same object.
 ESP_FAT_LABEL=RETROFORGE
 

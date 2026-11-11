@@ -212,9 +212,9 @@ case "$(basename "$RULE")" in
   6[1-9]-*|[7-9][0-9]-*) ok "the rule sorts after 60-persistent-storage.rules, so ID_PART_ENTRY_NAME is set when it runs" ;;
   *) bad "$(basename "$RULE") sorts at or before 60-persistent-storage.rules — ID_PART_ENTRY_NAME is unset and nothing is ever linked" ;;
 esac
-grep -q "'/dev/retroforge/RETROFORGE-ESP  /esp" "$ASSEMBLE" \
+grep -q "'/dev/retroforge/RetroForge  /esp" "$ASSEMBLE" \
   && ok "fstab mounts /esp from the scoped link" \
-  || bad "the /esp fstab row does not name /dev/retroforge/RETROFORGE-ESP"
+  || bad "the /esp fstab row does not name /dev/retroforge/RetroForge"
 grep -q "'/dev/retroforge/retroforge-home  /home" "$ASSEMBLE" \
   && ok "fstab mounts /home from the scoped link" \
   || bad "the /home fstab row does not name /dev/retroforge/retroforge-home"
@@ -279,7 +279,11 @@ while read -r _ _ _ _ label _; do
   case "$label" in ''|'#'*|'-') continue ;; esac
   case "$label" in
     retroforge-*|RETROFORGE-*) ok "$label is matched by the rule's retroforge-*|RETROFORGE-* prefix" ;;
-    *) bad "$label is in the partition table but matches neither prefix in the rule — it would get no scoped link" ;;
+    RetroForge)
+      grep -q 'ID_PART_ENTRY_NAME}!="[^"]*|RetroForge|' "$RULE" \
+        && ok "$label (the ESP) is matched by name in the rule" \
+        || bad "$label is in the partition table but the rule does not match it — /esp would get no scoped link" ;;
+    *) bad "$label is in the partition table but matches no pattern in the rule — it would get no scoped link" ;;
   esac
 done < <(grep -vE '^[[:space:]]*(#|$)' "$TABLE")
 

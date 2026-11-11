@@ -37,7 +37,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # The indices from a REAL captured layout rather than 1..8: the Pocket-FIT-shaped case from the
 # plan's Phase 0, where our ESP fills a hole at p3 and the rest land at 7..13. A test that only ever
 # exercised 1..8 would pass against a parts.env writer that ignored its arguments.
-MAP_FIXTURE='RETROFORGE-ESP=3
+MAP_FIXTURE='RetroForge=3
 retroforge-efi-A=7
 retroforge-efi-B=8
 retroforge-root-A=9
@@ -1188,7 +1188,7 @@ if [ "${1:-}" = plan ]; then
 fi
 [ "${SP_CARVE_RC:-0}" = 0 ] || exit "$SP_CARVE_RC"
 cat <<MAP
-RETROFORGE-ESP=3
+RetroForge=3
 retroforge-efi-A=7
 retroforge-efi-B=8
 retroforge-root-A=9

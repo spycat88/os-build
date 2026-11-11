@@ -18,7 +18,7 @@
 #  - the player user (uid 1000) is baked into the base /etc (customize-base.sh); /home/player is
 #    laid down at image-build time (image/lib-homestage.sh). ROMs, saves and states live on /home.
 #  The shared ESP is also fstab-mounted here, at /esp (Phase 5). It is the partition's only mount
-#  definition: GPT bit 63 (partition-table.txt) keeps gpt-auto from auto-mounting it at /efi.
+#  definition: it is typed basic data (partition-table.txt), which gpt-auto never auto-mounts.
 echo "  injecting first-boot storage: /home mount + grow (player user baked in base)"
 mkdir -p "$stage/etc"
 #
@@ -31,11 +31,14 @@ mkdir -p "$stage/etc"
 # counts tries in the booted disk's grubenv, and RAUC's mark-good clears them through this mount — on
 # the wrong ESP the count climbs every boot until the ESP GRUB fails over a healthy slot, and the
 # other install's slot state is stamped over. Both grubenvs look alike, so nothing downstream can notice.
-if ! grep -q '/dev/retroforge/RETROFORGE-ESP' "$stage/etc/fstab" 2>/dev/null; then
+#
+# The ESP's GPT name is RetroForge; cards and installs from before 2026-11-11 call it RETROFORGE-ESP,
+# and 69-retroforge-bootdisk.rules links that legacy name here too, so this one row mounts both.
+if ! grep -qE '/dev/retroforge/(RetroForge|RETROFORGE-ESP)[[:space:]]' "$stage/etc/fstab" 2>/dev/null; then
   printf '%s\n' \
-    '# retroforge shared ESP — the ESP GRUB + its grubenv (RAUC slot state). Mounted here at /esp; GPT bit 63' \
-    '# keeps gpt-auto away so the initramfs can mount the slot efi partition at /efi instead.' \
-    '/dev/retroforge/RETROFORGE-ESP  /esp  vfat  defaults,nofail,noatime  0 2' \
+    '# retroforge shared ESP — the ESP GRUB + its grubenv (RAUC slot state). Mounted here at /esp. It is' \
+    '# typed basic data, so gpt-auto leaves it alone and Windows gives it a drive letter.' \
+    '/dev/retroforge/RetroForge  /esp  vfat  defaults,nofail,noatime  0 2' \
     >>"$stage/etc/fstab"
 fi
 if ! grep -q '/dev/retroforge/retroforge-home' "$stage/etc/fstab" 2>/dev/null; then

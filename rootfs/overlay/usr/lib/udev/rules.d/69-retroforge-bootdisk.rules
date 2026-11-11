@@ -19,7 +19,14 @@ ACTION=="remove", GOTO="retroforge_bootdisk_end"
 SUBSYSTEM!="block", GOTO="retroforge_bootdisk_end"
 ENV{DEVTYPE}!="partition", GOTO="retroforge_bootdisk_end"
 ENV{ID_PART_ENTRY_SCHEME}!="gpt", GOTO="retroforge_bootdisk_end"
-ENV{ID_PART_ENTRY_NAME}!="retroforge-*|RETROFORGE-*", GOTO="retroforge_bootdisk_end"
+ENV{ID_PART_ENTRY_NAME}!="retroforge-*|RetroForge|RETROFORGE-*", GOTO="retroforge_bootdisk_end"
+
+# THE ONE ALIAS. The ESP's GPT name was RETROFORGE-ESP until 2026-11-11 and is RetroForge now, and
+# /etc/fstab names only the new one. A card flashed before the rename keeps the old name after an
+# OTA (nothing rewrites a running disk's GPT), so it is linked under BOTH names; without this it would
+# boot with no /esp, never see its grubenv, and fail every update back. Before the main rule, so the
+# RESULT below is the main rule's.
+ENV{ID_PART_ENTRY_NAME}=="RETROFORGE-ESP", PROGRAM=="/usr/lib/retroforge/on-boot-disk %k", SYMLINK+="retroforge/RetroForge"
 
 # PROGRAM is a MATCH key: the SYMLINK is added only on exit 0. on-boot-disk exits 0 for "on the boot
 # disk" AND for "the boot disk cannot be determined" — see its header for why the second is

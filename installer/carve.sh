@@ -71,8 +71,14 @@ fi
 # The GPT names of our eight, in layout order. Deletion is BY NAME and only by name: an index is
 # never trusted from a caller or from arithmetic, because the difference between deleting p9 and
 # deleting p8 is the difference between our ESP and somebody's `abl`.
-OUR_NAMES=(RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+OUR_NAMES=(RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
            retroforge-var-A retroforge-var-B retroforge-home)
+
+# The ESP's name before 2026-11-11, when it was also typed ef00 and carried GPT bit 63 (see
+# image/partition-table.txt). Still OURS -- deleted, listed and skipped exactly like the eight -- so
+# a fresh install or an uninstall over an older install removes it, and a reinstall over one
+# migrates it in place (migrate_legacy_esp) before it reads the map.
+LEGACY_ESP_NAME=RETROFORGE-ESP
 
 ANDROID_FLOOR_GIB="${ANDROID_FLOOR_GIB:-1}"
 
@@ -113,7 +119,7 @@ field() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
 
 is_ours() {  # <gpt-name>
   local n
-  for n in "${OUR_NAMES[@]}"; do [ "$1" = "$n" ] && return 0; done
+  for n in "${OUR_NAMES[@]}" "$LEGACY_ESP_NAME"; do [ "$1" = "$n" ] && return 0; done
   return 1
 }
 
@@ -193,7 +199,7 @@ wipe_our_heads() {
 
 delete_ours() {  # deletes every partition of ours that exists, by name; prints what it removed
   local name idx removed=0
-  for name in "${OUR_NAMES[@]}"; do
+  for name in "${OUR_NAMES[@]}" "$LEGACY_ESP_NAME"; do
     idx="$(index_of "$name")"
     [ -n "$idx" ] || continue
     sgdisk -d "$idx" "$DISK" >/dev/null || die "cannot delete $name (p$idx)"
@@ -201,6 +207,29 @@ delete_ours() {  # deletes every partition of ours that exists, by name; prints 
     removed=$(( removed + 1 ))
   done
   say "  ${removed} retroforge partition(s) removed"
+}
+
+# An install from before 2026-11-11 names its ESP RETROFORGE-ESP, types it ef00 and sets GPT bit 63,
+# which together keep Windows from ever giving it a drive letter. A reinstall keeps every partition
+# where it is, so it is the one chance to bring such a disk to the current layout: rename, retype to
+# basic data and clear bit 63 IN PLACE. Only the GPT entry changes -- not the extent, not a byte of
+# the FAT -- and ABL finds the ESP by content, so the install boots exactly as before.
+#
+# Refuses when both names are present: that is not a disk any version of this script produced, and
+# guessing which one is the live ESP is how the wrong one gets a new name.
+migrate_legacy_esp() {
+  local old new
+  old="$(index_of "$LEGACY_ESP_NAME")"
+  [ -n "$old" ] || return 0
+  new="$(index_of RetroForge)"
+  [ -z "$new" ] \
+    || die "both $LEGACY_ESP_NAME (p$old) and RetroForge (p$new) are present -- refusing to guess which is the ESP"
+  sgdisk -c "$old:RetroForge" -t "$old:0700" "$DISK" >/dev/null \
+    || die "cannot rename $LEGACY_ESP_NAME (p$old) to RetroForge"
+  sgdisk "--attributes=$old:clear:63" "$DISK" >/dev/null \
+    || die "cannot clear GPT attribute 63 on the ESP (p$old)"
+  say "  p$old $LEGACY_ESP_NAME -> RetroForge (basic data, readable from Windows)"
+  settle
 }
 
 # Delete userdata and put it back at <end>, at its ORIGINAL start, index and type GUID. The type is
@@ -324,9 +353,11 @@ MIN_MIB="$("$GENPART" --min)"
 # --- the three modes --------------------------------------------------------------------------------
 case "$INTENT" in
   reinstall)
-    # Writes nothing. Its job is to hand the caller the map and to refuse loudly if the eight are not
-    # all there -- a partial set is an interrupted install, which cannot be repaired in place because
-    # the missing ones would have to be re-laid, which moves the floor and takes /home with it.
+    # Writes nothing but the ESP's legacy-name migration. Its job is to hand the caller the map and to
+    # refuse loudly if the eight are not all there -- a partial set is an interrupted install, which
+    # cannot be repaired in place because the missing ones would have to be re-laid, which moves the
+    # floor and takes /home with it.
+    migrate_legacy_esp
     missing=""
     for name in "${OUR_NAMES[@]}"; do
       [ -n "$(index_of "$name")" ] || missing="$missing $name"
@@ -386,7 +417,7 @@ case "$INTENT" in
       # An `if`, not `[ -n "$_idx" ] && printf`: under `set -e` an AND-list whose left side fails is
       # a failing command, and on a stock disk (where none of our eight exists) every iteration
       # would take that branch and kill the plan on the first one.
-      for _name in "${OUR_NAMES[@]}"; do
+      for _name in "${OUR_NAMES[@]}" "$LEGACY_ESP_NAME"; do
         _idx="$(index_of "$_name")"
         if [ -n "$_idx" ]; then
           printf 'DESTROY=%s %s replaced\n' "$_idx" "$_name"

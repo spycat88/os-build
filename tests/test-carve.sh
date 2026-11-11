@@ -41,7 +41,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export RETROFORGE_SELECT_FIXTURE=1
 . "$ROOT/tests/lib-gptfixture.sh"
 
-OUR_NAMES=(RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+OUR_NAMES=(RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
            retroforge-var-A retroforge-var-B retroforge-home)
 BOARDS=("AYANEO Pocket S2" "AYANEO Pocket ACE" "AYN Odin 2" "KONKR Pocket FIT" "MANGMI Pocket Max")
 
@@ -89,7 +89,7 @@ for board in "${BOARDS[@]}"; do
     && ok "$board: userdata still starts where it did" \
     || bad "$board: userdata moved to $(udfield "$img" 'First sector'), was $ud_start_before"
   # The map is the output contract: eight name=index lines the spine turns into parts.env.
-  [ "$(printf '%s\n' "$out" | grep -cE '^(RETROFORGE-ESP|retroforge-[a-z]+-?[AB]?)=[0-9]+$')" = 8 ] \
+  [ "$(printf '%s\n' "$out" | grep -cE '^(RetroForge|retroforge-[a-z]+-?[AB]?)=[0-9]+$')" = 8 ] \
     && ok "$board: emitted eight name=index lines" \
     || bad "$board: the name=index map is not eight lines"
 done
@@ -249,6 +249,44 @@ out="$(carve reinstall "$part")"
 { [ "$(rows "$part")" = "$snap" ] && printf '%s\n' "$out" | grep -q "run a fresh install instead"; } \
   && ok "a partial set -> refused, pointing at a fresh install" \
   || bad "an incomplete install was accepted as a reinstall: $out"
+
+# --- 5b. a reinstall over an install from before the ESP rename ---------------------------------------
+# Until 2026-11-11 the ESP was an ef00 RETROFORGE-ESP with GPT bit 63, which Windows will not give a
+# drive letter. A reinstall is the one pass that keeps every partition where it is, so it migrates
+# that entry in place: new name, basic data type, bit 63 cleared -- and nothing else on the disk moves.
+CASE="reinstall migrates a legacy RETROFORGE-ESP in place"
+leg="$T/legacy.img"; cp --sparse=always "$re" "$leg"
+esp_i="$(rows "$leg" | awk '$4=="RetroForge" {print $1}')"
+sgdisk -c "$esp_i:RETROFORGE-ESP" -t "$esp_i:ef00" "$leg" >/dev/null 2>&1
+sgdisk "--attributes=$esp_i:set:63" "$leg" >/dev/null 2>&1
+before="$(rows "$leg" | awk -v i="$esp_i" '$1 != i')"
+out="$(carve reinstall "$leg")"
+[ "$(rows "$leg" | awk -v i="$esp_i" '$4=="RetroForge" && $1==i {print "y"}')" = y ] \
+  && ok "the legacy ESP is named RetroForge, at the same index" \
+  || bad "the legacy ESP was not renamed: $out"
+sgdisk -i "$esp_i" "$leg" 2>/dev/null | grep -q 'EBD0A0A2-B9E5-4433-87C0-68B6B72699C7' \
+  && ok "and typed Microsoft basic data" \
+  || bad "the legacy ESP kept its type: $(sgdisk -i "$esp_i" "$leg" 2>/dev/null | grep 'GUID code')"
+sgdisk -i "$esp_i" "$leg" 2>/dev/null | grep -q 'Attribute flags: 0000000000000000' \
+  && ok "and bit 63 is cleared" \
+  || bad "the legacy ESP kept an attribute: $(sgdisk -i "$esp_i" "$leg" 2>/dev/null | grep 'Attribute flags')"
+[ "$(rows "$leg" | awk -v i="$esp_i" '$1 != i')" = "$before" ] \
+  && ok "every other partition is untouched" \
+  || bad "the migration moved something besides the ESP entry"
+printf '%s\n' "$out" | grep -qx "RetroForge=$esp_i" \
+  && ok "and the map reports it under the new name" \
+  || bad "the map does not name RetroForge=$esp_i: $out"
+
+# A fresh install over a legacy disk must still find, and delete, the old ESP.
+leg2="$T/legacy2.img"; cp --sparse=always "$re" "$leg2"
+sgdisk -c "$esp_i:RETROFORGE-ESP" -t "$esp_i:ef00" "$leg2" >/dev/null 2>&1
+if out="$(carve fresh "$leg2" 33)"; then
+  { [ "$(ours "$leg2")" = 8 ] && ! rows "$leg2" | grep -q ' RETROFORGE-ESP$'; } \
+    && ok "a fresh carve over a legacy install replaces the old ESP" \
+    || bad "a fresh carve left RETROFORGE-ESP behind or did not create the eight"
+else
+  bad "a fresh carve over a legacy install was refused: $out"
+fi
 
 # --- 6. resizing a disk we already own ------------------------------------------------------------------
 # THE CASE THE EFFECTIVE CEILING EXISTS FOR. select-target's CEIL stops at whatever follows userdata,

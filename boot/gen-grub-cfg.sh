@@ -87,8 +87,8 @@ done
 
 # The ESP fallback searches by CONTENT, not by label. The labels in partition-table.txt are GPT
 # partition names, and `search --label` matches the FILESYSTEM label — two different things that
-# cannot even hold the same value here, since a FAT label is capped at 11 characters and
-# RETROFORGE-ESP is fourteen. Searching for a file the ESP is the only partition to carry needs no
+# need not hold the same value (the ESP's GPT name is RetroForge, its FAT label RETROFORGE, and
+# the GPT name was RETROFORGE-ESP on older cards). Searching for a file the ESP is the only partition to carry needs no
 # agreement between this generator and the card assembler at all, which is the point: the last
 # version of this config searched for a FAT label that image/make-sdcard.sh had stopped writing,
 # and nothing failed — the grubenv simply went missing. The grubenv is that file now: the ESP GRUB

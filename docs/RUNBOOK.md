@@ -42,7 +42,7 @@ dead card. That is a setting, not a fault.
 
 | # | Partition | Size | FS | Label |
 |---|---|---|---|---|
-| 1 | `esp` | 256M | vfat | `RETROFORGE-ESP` |
+| 1 | `esp` | 256M | vfat | `RetroForge` |
 | 2 | `efi-a` | 128M | vfat | `retroforge-efi-A` |
 | 3 | `efi-b` | 128M | vfat | `retroforge-efi-B` |
 | 4 | `rootfs-a` | 2G | btrfs | `retroforge-root-A` |
@@ -383,7 +383,7 @@ sudo journalctl -D /mnt/.retroforge/offload/var/log/journal _BOOT_ID=<id>
 The ESP carries the slot state that decided the boot:
 
 ```sh
-sudo mount /dev/sdX1 /mnt-esp                 # RETROFORGE-ESP
+sudo mount /dev/sdX1 /mnt-esp                 # RetroForge (the ESP)
 grub-editenv /mnt-esp/EFI/steamos/grubenv list   # ORDER, A_OK/A_TRY, B_OK/B_TRY, saved_entry
 ```
 

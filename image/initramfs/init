@@ -51,7 +51,7 @@
 # The efi mountpoint is INSIDE the btrfs root ($SYSROOT/efi), so the mount survives switch_root:
 # it is a mount on the new root's filesystem, not on this initramfs's root. The shared ESP is
 # deliberately NOT mounted here at all — the booted system mounts it at /esp from /etc/fstab, and
-# GPT bit 63 (partition-table.txt) keeps gpt-auto from trying to shadow /efi with it.
+# its basic data type (partition-table.txt) keeps gpt-auto from trying to shadow /efi with it.
 #
 # DEGRADED BOOT: this device has no serial console ([[sm8650-no-uart]]), so a hard failure here
 # is only debuggable by pulling the card and mounting it. Every step past "root is mounted"
