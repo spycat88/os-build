@@ -45,7 +45,7 @@ BUNDLE = os.environ.get("RETROFORGE_INSTALL_BUNDLE", "")
 SYS_BLOCK = os.environ.get("RETROFORGE_SYS_BLOCK", "/sys/block")
 
 UD_GIB_DEFAULT = int(os.environ.get("RETROFORGE_UD_GIB", "16"))
-UD_GIB_MIN = 4          # carve.sh has its own ANDROID_FLOOR_GIB; this is the UI's coarse guard
+UD_GIB_MIN = 1          # matches carve.sh's ANDROID_FLOOR_GIB, which refuses anything smaller
 UD_GIB_STEP = 4
 
 
@@ -275,10 +275,14 @@ class PreflightScreen:
         self.plan = plan_carve(self.facts["disk"], gib)
 
     def handle(self, token):
+        # The knob moves in UD_GIB_STEP steps on multiples of the step, plus the floor below them:
+        # 16, 12, 8, 4, 1 and back up 1, 4, 8. A plain -STEP from 4 would land on 0 and be refused,
+        # leaving the floor unreachable whenever it is not itself a multiple of the step.
         if token == "LEFT":
-            self._replan(self.gib - UD_GIB_STEP)
+            if self.gib > UD_GIB_MIN:
+                self._replan(max(UD_GIB_MIN, self.gib - UD_GIB_STEP))
         elif token == "RIGHT":
-            self._replan(self.gib + UD_GIB_STEP)
+            self._replan((self.gib // UD_GIB_STEP + 1) * UD_GIB_STEP)
         elif token == "S":
             # Nothing is written by pressing this. It starts the spine, which recons, verifies the
             # bundle and THEN takes consent -- the disk is still untouched on the other side of it.

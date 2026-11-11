@@ -907,6 +907,23 @@ printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.ex
   && ok "left and right move it by a step each, with a floor under them" \
   || bad "the adjustment did not land where it should"
 
+CASE="pre-flight: the knob reaches the 1 GiB floor and steps back onto the grid"
+# The floor is 1 GiB (carve.sh's ANDROID_FLOOR_GIB), not a multiple of the 4 GiB step: a plain
+# -4 from 4 would ask for 0 and be refused, leaving 1 unreachable.
+: >"$CARVE_CALLS"
+out="$(flow '
+seen = []
+for _ in range(5):
+    pf.handle("LEFT"); seen.append(pf.gib)
+pf.handle("RIGHT"); seen.append(pf.gib)
+print(json.dumps(seen))')"
+[ "$out" = "[12, 8, 4, 1, 1, 4]" ] \
+  && ok "16 -> 12 -> 8 -> 4 -> 1, stops at 1, and RIGHT goes back to 4 ($out)" \
+  || bad "the knob did not walk 12, 8, 4, 1, 1, 4: $out"
+grep -q 'plan /dev/sda 1$' "$CARVE_CALLS" \
+  && ok "and carve.sh is asked about the 1 GiB it is showing" \
+  || bad "carve was not asked about 1 GiB: $(cat "$CARVE_CALLS")"
+
 CASE="pre-flight: the medium works out for itself what it would install"
 # THE POINT OF PHASE 6. Nothing is configured into this medium: the bundle comes from the channel
 # manifest, and until it did the screen ended at "NO BUNDLE CONFIGURED" with a Cancel button --
