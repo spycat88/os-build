@@ -1,0 +1,19 @@
+# tailscale — the Tailscale node agent (tailscaled) and its CLI, built FROM SOURCE via a
+# retroforge-owned PKGBUILD (packages/tailscale/PKGBUILD). It is an Arch [extra] package but absent
+# from the pinned holo aarch64 snapshot, so there is no repo row to resolve. Same "local PKGBUILD"
+# form as packages/brightnessctl/source.pin.
+#
+# Why: Settings > Network > VPN > "Enable Tailscale" (the RetroForge plugin's tailscale_settings.gd)
+# puts the device on the player's tailnet, so it can be reached (ssh, SMB shares, Moonlight) from
+# anywhere without port forwarding.
+#
+# Version: 1.104.6, upstream's latest stable release (even minor) on 2026-11-10. See the PKGBUILD for
+# the Go toolchain it needs (newer than the snapshot's) and why it is one binary.
+#
+# Fields (see packages/README.md):
+#   name           pkgname (must match the PKGBUILD); also the work/ build-dir + repo entry
+#   pkgbuild_local path (relative to this dir) to the checked-in PKGBUILD to build
+#   pkgrel_suffix  numeric suffix appended to the PKGBUILD's pkgrel so pacman prefers our build
+name: tailscale
+pkgbuild_local: PKGBUILD
+pkgrel_suffix: 1

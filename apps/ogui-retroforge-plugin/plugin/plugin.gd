@@ -54,6 +54,7 @@ var _pause: RefCounted  # pause_on_menu.gd
 var _scraper: RefCounted  # scraper_settings.gd
 var _psn: RefCounted  # psn_settings.gd
 var _cheevos: RefCounted  # cheevos_settings.gd
+var _tailscale: RefCounted  # tailscale_settings.gd: Settings > Network > VPN
 var _art_fetch: RefCounted  # art_fetch.gd: new ROMs' art, fetched when their card asks for it
 var _os: Resource  # retroforge_os.gd, installed as OGUI's platform.os
 var _tool: RefCounted  # proton_tool.gd
@@ -127,6 +128,9 @@ func _ready() -> void:
 	# Until here no card fetches (allowed unset): the setting lives in the Settings section.
 	_art_fetch.other = _scraper.runner
 	_art_fetch.allowed = _scraper.can_fetch
+	_tailscale = load(plugin_base.path_join("tailscale_settings.gd")).new().setup(get_tree())
+	if not _tailscale.attach():
+		logger.warn("no tailscale, or OGUI network settings layout not found; no VPN section")
 	_install_os_platform()
 	_tool = load(plugin_base.path_join("proton_tool.gd")).new().setup(get_tree())
 	_keep = load(plugin_base.path_join("steam_keep.gd")).new().setup(get_tree())
@@ -178,6 +182,8 @@ func unload() -> void:
 		_psn.detach()
 	if _cheevos:
 		_cheevos.detach()
+	if _tailscale:
+		_tailscale.detach()
 	if _art_fetch:
 		_art_fetch.allowed = Callable()
 		_art_fetch.runner.cancel()

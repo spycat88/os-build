@@ -1,0 +1,64 @@
+# tailscale — the Tailscale node agent and CLI, for Settings > Network > VPN.
+#
+# ONE BINARY. tailscaled is built with the ts_include_cli tag, which links the CLI in: invoked as
+# `tailscale` (the /usr/bin/tailscale symlink) it runs the CLI, otherwise the daemon. Upstream's own
+# build_dist.sh does the same for small installs. Two separate Go binaries would carry the same
+# runtime and libraries twice (~20 MiB more on the root).
+#
+# Static (CGO_ENABLED=0): nothing to link, so no runtime deps. Netfilter, routes and the TUN device
+# are all driven over netlink from Go; the kernel has TUN=y (arm64 defconfig) and IP_MULTIPLE_TABLES.
+#
+# GO TOOLCHAIN. go.mod at this tag asks for go 1.27.3; the snapshot ships go 1.26.3, and Arch's
+# go.env sets GOTOOLCHAIN=local, which would refuse the build. GOTOOLCHAIN below names the exact
+# toolchain instead: the go command fetches it from proxy.golang.org and checks it against
+# sum.golang.org, the same trust path as every module this build downloads (go.sum pins those).
+#
+# The source is the release tag's commit, checked in prepare() (makepkg's git checksum is SKIP).
+# Recipe after Arch's packaging/packages/tailscale PKGBUILD (version stamps, unit, defaults file).
+#
+# To bump: change pkgver + _commit (`git ls-remote https://github.com/tailscale/tailscale.git
+# refs/tags/v<ver>^{}`) and _gotoolchain to go.mod's `go` line at that tag.
+
+pkgname=tailscale
+pkgver=1.104.6
+_commit=c54807352ae196919497b3f8fddc3cedf88368b9
+_gotoolchain=go1.27.3
+pkgrel=1
+pkgdesc='A mesh VPN that makes it easy to connect your devices, wherever they are'
+arch=('aarch64')
+url='https://tailscale.com'
+license=('BSD-3-Clause')
+depends=()
+makedepends=('git' 'go')
+backup=('etc/default/tailscaled')
+options=('!lto' '!debug')
+source=("tailscale::git+https://github.com/tailscale/tailscale.git#commit=${_commit}")
+sha256sums=('SKIP')
+
+prepare() {
+  cd tailscale
+  [ "$(git rev-parse HEAD)" = "${_commit}" ] || { echo "tailscale: HEAD is not ${_commit}" >&2; return 1; }
+  [ "$(cat VERSION.txt)" = "${pkgver}" ] || { echo "tailscale: VERSION.txt is not ${pkgver}" >&2; return 1; }
+  export GOTOOLCHAIN="${_gotoolchain}" GOPATH="${srcdir}/gopath" GOFLAGS='-modcacherw'
+  # The one step that needs the network (toolchain + modules); build() then runs offline.
+  go mod download
+}
+
+build() {
+  cd tailscale
+  export GOTOOLCHAIN="${_gotoolchain}" GOPATH="${srcdir}/gopath" GOFLAGS='-modcacherw -mod=readonly' \
+         GOPROXY=off CGO_ENABLED=0
+  local ldflags="-s -w -X tailscale.com/version.longStamp=${pkgver}-retroforge -X tailscale.com/version.shortStamp=${pkgver}"
+  go build -trimpath -tags ts_include_cli -ldflags "${ldflags}" -o tailscaled ./cmd/tailscaled
+}
+
+package() {
+  cd tailscale
+  install -Dm755 tailscaled "${pkgdir}/usr/bin/tailscaled"
+  ln -s tailscaled "${pkgdir}/usr/bin/tailscale"
+  install -Dm644 cmd/tailscaled/tailscaled.defaults "${pkgdir}/etc/default/tailscaled"
+  # Upstream's unit runs /usr/sbin/tailscaled; the binary is in /usr/bin (on Arch sbin is a link to it).
+  sed 's|/usr/sbin/tailscaled|/usr/bin/tailscaled|g' cmd/tailscaled/tailscaled.service \
+    | install -Dm644 /dev/stdin "${pkgdir}/usr/lib/systemd/system/tailscaled.service"
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

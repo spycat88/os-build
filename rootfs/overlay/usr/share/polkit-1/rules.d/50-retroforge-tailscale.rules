@@ -1,0 +1,19 @@
+// Let the shell (player user) start and stop tailscaled: Settings > Network > VPN > "Enable
+// Tailscale" (the RetroForge plugin's tailscale_settings.gd) runs `systemctl start|stop
+// tailscaled.service`.
+//
+// Tailscale is off until the player turns it on: the unit has no preset and no enable link, so
+// nothing starts it at boot. The plugin keeps the choice in OGUI's settings and starts the daemon
+// again at each session start while it is on. org.freedesktop.systemd1.manage-units defaults to
+// auth_admin_keep even for an active session, so without this rule the switch would do nothing.
+//
+// Exactly start and stop, of this one unit, for the active LOCAL session (the seat0 autologin of
+// retroforge-session.service, not an ssh login) and wheel. Not restart, not enable
+// (manage-unit-files), not any other unit. Same shape as 50-retroforge-pairing.rules.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "tailscaled.service" &&
+        (action.lookup("verb") == "start" || action.lookup("verb") == "stop") &&
+        subject.active && subject.local && subject.isInGroup("wheel"))
+        return polkit.Result.YES;
+});

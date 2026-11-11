@@ -99,6 +99,60 @@ grep -q '_login.start(\["login", user\], password)' "$SRC/cheevos_settings.gd" \
 grep -q 'load(plugin_base.path_join("cheevos_settings.gd"))' "$SRC/plugin.gd" && grep -q '_cheevos.detach()' "$SRC/plugin.gd" \
   && ok "plugin.gd attaches and detaches the RetroAchievements section" || bad "plugin.gd does not load cheevos_settings.gd"
 
+# Settings > Network > VPN (tailscale_settings.gd). `tailscale up` refuses a run that does not repeat
+# every non-default setting, so each run must pass the netfilter mode the first one set; the sign-in
+# QR code comes from `up --json` (a PNG data URL), and our dialog copy must stay out of the group
+# OGUI looks its own dialog up by.
+grep -q 'load(plugin_base.path_join("tailscale_settings.gd"))' "$SRC/plugin.gd" && grep -q '_tailscale.detach()' "$SRC/plugin.gd" \
+  && ok "plugin.gd attaches and detaches the Tailscale section" || bad "plugin.gd does not load tailscale_settings.gd"
+grep -q 'const UP_FLAGS := \["--netfilter-mode=off"\]' "$SRC/tailscale_settings.gd" \
+  && grep -q 'args.append_array(PackedStringArray(UP_FLAGS))' "$SRC/tailscale_settings.gd" \
+  && grep -q '"up", "--json"' "$SRC/tailscale_settings.gd" \
+  && ok "tailscale_settings.gd runs up --json with the same netfilter mode every time" \
+  || bad "tailscale_settings.gd: every tailscale up must pass --json and UP_FLAGS"
+grep -q 'if line == "{":' "$SRC/tailscale_settings.gd" && grep -A1 'if line == "{":' "$SRC/tailscale_settings.gd" | grep -q 'buffer = ""' \
+  && ok "tailscale up's warning lines before a JSON object are dropped, not parsed with it" \
+  || bad "tailscale_settings.gd must restart its buffer at each '{' line: the netfilter warning hid the sign-in URL"
+grep -q '_dialog.remove_from_group(group)' "$SRC/tailscale_settings.gd" \
+  && ok "the Tailscale sign-in dialog leaves OGUI's dialog group" || bad "the Tailscale sign-in dialog stays in group dialog"
+grep -q '^ExecStartPost=-/usr/bin/tailscale set --operator=player$' "$ROOT/rootfs/overlay/usr/lib/systemd/system/tailscaled.service.d/retroforge.conf" \
+  && ok "tailscaled makes player its operator (the switch runs the CLI as the session user)" \
+  || bad "tailscaled.service.d does not set --operator=player: the switch would be refused"
+# Off by default: nothing may start tailscaled at boot (no preset, no enable link); the switch
+# starts and stops it through polkit, and that rule grants exactly start/stop of this one unit.
+ts_enabled=0
+grep -rqsE '^enable[[:space:]]+tailscaled' "$ROOT/rootfs/overlay/usr/lib/systemd/system-preset" && ts_enabled=1
+[ -n "$(find "$ROOT/rootfs/overlay" -path '*.wants/tailscaled.service' 2>/dev/null)" ] && ts_enabled=1
+[ "$ts_enabled" = 0 ] && ok "tailscaled is not enabled at boot (no preset, no .wants link)" \
+  || bad "something enables tailscaled at boot: Tailscale must stay off until the player turns it on"
+grep -q 'settings.get_value(SECTION, KEY, false)' "$SRC/tailscale_settings.gd" \
+  && ok "the Tailscale switch defaults to off" || bad "tailscale_settings.gd: the stored choice must default to off"
+TS_RULE="$ROOT/rootfs/overlay/usr/share/polkit-1/rules.d/50-retroforge-tailscale.rules"
+if [ ! -f "$TS_RULE" ]; then
+  bad "missing: ${TS_RULE#"$ROOT"/}"
+elif ! command -v node >/dev/null; then
+  printf '  skip %s -- no node to evaluate %s\n' "$CASE" "${TS_RULE#"$ROOT"/}"
+else
+  verdicts="$(node - "$TS_RULE" <<'JS'
+const fs = require("fs");
+let rule;
+global.polkit = { Result: { YES: "yes", NO: "no" }, addRule: f => { rule = f; } };
+eval(fs.readFileSync(process.argv[2], "utf8"));
+const ask = (id, unit, verb, active = true, wheel = true, local = true) =>
+  rule({ id, lookup: k => ({ unit, verb })[k] }, { active, local, isInGroup: g => g === "wheel" && wheel }) || "pass";
+const M = "org.freedesktop.systemd1.manage-units", U = "tailscaled.service";
+console.log([
+  ask(M, U, "start"), ask(M, U, "stop"), ask(M, U, "restart"), ask(M, "sshd.service", "start"),
+  ask(M, U, "start", false), ask(M, U, "start", true, false), ask(M, U, "start", true, true, false),
+  ask("org.freedesktop.systemd1.manage-unit-files", U, "enable"),
+].join(" "));
+JS
+)"
+  [ "$verdicts" = "yes yes pass pass pass pass pass pass" ] \
+    && ok "polkit grants start/stop of tailscaled to the active local wheel session, nothing else" \
+    || bad "50-retroforge-tailscale.rules verdicts: $verdicts"
+fi
+
 # OGUI never calls ready() on our OS platform (it knows no `retroforge` OS): plugin.gd must, and
 # only where OGUI detected none.
 grep -q 'if platform.os or not platform.os_info or platform.os_info.id != "retroforge":' "$SRC/plugin.gd" \
