@@ -24,10 +24,11 @@ turning the toggle off while a card is focused cleans up on unfocus.
 
 (retroforge: ours, for upstream. Upstream may prefer the default on.)
 ---
-diff -ruN a/core/ui/card_ui/home/cardui_home.gd b/core/ui/card_ui/home/cardui_home.gd
---- a/core/ui/card_ui/home/cardui_home.gd	2026-10-10 06:29:00
-+++ b/core/ui/card_ui/home/cardui_home.gd	2026-10-10 06:30:22
-@@ -6,6 +6,7 @@
+diff --git a/core/ui/card_ui/home/cardui_home.gd b/core/ui/card_ui/home/cardui_home.gd
+index 4e7bf9c..ad34c74 100644
+--- a/core/ui/card_ui/home/cardui_home.gd
++++ b/core/ui/card_ui/home/cardui_home.gd
+@@ -6,6 +6,7 @@ var LaunchManager := preload("res://core/global/launch_manager.tres") as LaunchM
  var InstallManager := preload("res://core/global/install_manager.tres")
  var BoxArtManager := load("res://core/global/boxart_manager.tres") as BoxArtManager
  var LibraryManager := load("res://core/global/library_manager.tres") as LibraryManager
@@ -35,7 +36,7 @@ diff -ruN a/core/ui/card_ui/home/cardui_home.gd b/core/ui/card_ui/home/cardui_ho
  var state_machine := preload("res://assets/state/state_machines/menu_state_machine.tres") as StateMachine
  var popup_state_machine := preload("res://assets/state/state_machines/popup_state_machine.tres") as StateMachine
  var home_state := preload("res://assets/state/states/home.tres") as State
-@@ -23,6 +24,7 @@
+@@ -23,6 +24,7 @@ var logger := Log.get_logger("HomeMenu", Log.LEVEL.INFO)
  @onready var container := $%CardContainer as HBoxContainer
  @onready var banner := $%BannerTexture as TextureRect
  @onready var library_banner := $%LibraryBanner as Control
@@ -43,7 +44,7 @@ diff -ruN a/core/ui/card_ui/home/cardui_home.gd b/core/ui/card_ui/home/cardui_ho
  @onready var player := $%AnimationPlayer as AnimationPlayer
  @onready var scroll_container := $%ScrollContainer as ScrollContainer
  @onready var library_deck := $%LibraryDeck as LibraryDeck
-@@ -31,6 +33,12 @@
+@@ -31,6 +33,12 @@ var logger := Log.get_logger("HomeMenu", Log.LEVEL.INFO)
  
  # Called when the node enters the scene tree for the first time.
  func _ready() -> void:
@@ -56,22 +57,23 @@ diff -ruN a/core/ui/card_ui/home/cardui_home.gd b/core/ui/card_ui/home/cardui_ho
  	# Connect to state entered/exited signals
  	home_state.state_entered.connect(_on_state_entered)
  	home_state.state_exited.connect(_on_state_exited)
-@@ -82,6 +90,11 @@
- 	refresh_completed.emit()
+@@ -83,6 +91,11 @@ func refresh() -> void:
  	refresh.call_deferred()
  
-+
+ 
 +## Applies the animated-effects setting as soon as it is toggled
 +func _on_setting_changed(section: String, key: String, value: Variant) -> void:
 +	if section == "general" and key == "animated_effects":
 +		god_rays.visible = value as bool
- 
++
  func _on_state_entered(_from: State) -> void:
  	set_process_input(true)
-diff -ruN a/core/ui/card_ui/home/cardui_home.tscn b/core/ui/card_ui/home/cardui_home.tscn
---- a/core/ui/card_ui/home/cardui_home.tscn	2026-10-10 06:29:00
-+++ b/core/ui/card_ui/home/cardui_home.tscn	2026-10-10 06:29:00
-@@ -106,6 +106,7 @@
+ 	library_banner.visible = false
+diff --git a/core/ui/card_ui/home/cardui_home.tscn b/core/ui/card_ui/home/cardui_home.tscn
+index d723b8d..6b20101 100644
+--- a/core/ui/card_ui/home/cardui_home.tscn
++++ b/core/ui/card_ui/home/cardui_home.tscn
+@@ -106,6 +106,7 @@ visible = false
  layout_mode = 1
  
  [node name="GodRaysShader" type="ColorRect" parent="VBoxContainer/BannerTexture"]
@@ -79,52 +81,55 @@ diff -ruN a/core/ui/card_ui/home/cardui_home.tscn b/core/ui/card_ui/home/cardui_
  material = SubResource("ShaderMaterial_bjg8e")
  layout_mode = 1
  anchors_preset = 15
-diff -ruN a/core/ui/card_ui/settings/general_settings_menu.gd b/core/ui/card_ui/settings/general_settings_menu.gd
---- a/core/ui/card_ui/settings/general_settings_menu.gd	2026-10-10 06:29:00
-+++ b/core/ui/card_ui/settings/general_settings_menu.gd	2026-10-10 06:29:00
-@@ -16,6 +16,7 @@
- @onready var updater := $SoftwareUpdater as SoftwareUpdater
+diff --git a/core/ui/card_ui/settings/general_settings_menu.gd b/core/ui/card_ui/settings/general_settings_menu.gd
+index dc4b2ce..cd58606 100644
+--- a/core/ui/card_ui/settings/general_settings_menu.gd
++++ b/core/ui/card_ui/settings/general_settings_menu.gd
+@@ -18,6 +18,7 @@ var logger := Log.get_logger("GeneralSettings")
  @onready var update_timer := $UpdateTimer as Timer
+ @onready var update_section := $%UpdateSection as VBoxContainer
  @onready var auto_update_toggle := $%AutoUpdateToggle
 +@onready var animated_effects_toggle := $%AnimatedEffectsToggle
  @onready var check_update_button := $%CheckUpdateButton
  @onready var update_button := $%UpdateButton
  @onready var themes_container := $%ThemeButtonContainer
-@@ -111,6 +112,13 @@
- 	update_timer.timeout.connect(_on_autoupdate)
- 	if auto_update:
+@@ -114,6 +115,13 @@ func _ready() -> void:
+ 	if auto_update and feature_flags.is_enabled("updater"):
  		update_timer.start()
-+
+ 
 +	# Configure animated effects (applied by the home screen and cards on their next start)
 +	var animated_effects := SettingsManager.get_value("general", "animated_effects", false) as bool
 +	animated_effects_toggle.button_pressed = animated_effects
 +	var on_animated_effects_toggled := func(toggled: bool):
 +		SettingsManager.set_value("general", "animated_effects", toggled)
 +	animated_effects_toggle.toggled.connect(on_animated_effects_toggled)
- 
- 	# Configure the language dropdown
- 	var current_locale := SettingsManager.get_value("general", "locale", "en_US") as String
-diff -ruN a/core/ui/card_ui/settings/general_settings_menu.tscn b/core/ui/card_ui/settings/general_settings_menu.tscn
---- a/core/ui/card_ui/settings/general_settings_menu.tscn	2026-10-10 06:29:00
-+++ b/core/ui/card_ui/settings/general_settings_menu.tscn	2026-10-10 06:29:00
-@@ -115,6 +115,13 @@
++
+ 	# Hide the update section when the updater feature is disabled
+ 	feature_flags.feature_changed.connect(_on_feature_changed)
+ 	_update_update_section(feature_flags.is_enabled("updater"))
+diff --git a/core/ui/card_ui/settings/general_settings_menu.tscn b/core/ui/card_ui/settings/general_settings_menu.tscn
+index bcd96ad..0a431ea 100644
+--- a/core/ui/card_ui/settings/general_settings_menu.tscn
++++ b/core/ui/card_ui/settings/general_settings_menu.tscn
+@@ -116,6 +116,13 @@ layout_mode = 2
  layout_mode = 2
  text = "Appearance"
  
-+[node name="AnimatedEffectsToggle" parent="MarginContainer/VBoxContainer/VBoxContainer" instance=ExtResource("6_ghdw1")]
++[node name="AnimatedEffectsToggle" parent="MarginContainer/VBoxContainer/UpdateSection" instance=ExtResource("6_ghdw1")]
 +unique_name_in_owner = true
 +layout_mode = 2
 +text = "Animated Effects"
 +separator_visible = false
 +description = "Animated banner and card effects. They redraw the interface every frame, which costs GPU time and battery on a handheld"
 +
- [node name="LanguageDropdown" parent="MarginContainer/VBoxContainer/VBoxContainer" instance=ExtResource("8_r15pa")]
+ [node name="LanguageDropdown" parent="MarginContainer/VBoxContainer/UpdateSection" instance=ExtResource("8_r15pa")]
  unique_name_in_owner = true
  layout_mode = 2
-diff -ruN a/core/ui/components/card.gd b/core/ui/components/card.gd
---- a/core/ui/components/card.gd	2026-10-10 06:29:00
-+++ b/core/ui/components/card.gd	2026-10-10 06:29:00
-@@ -100,6 +100,11 @@
+diff --git a/core/ui/components/card.gd b/core/ui/components/card.gd
+index e2243c0..3b84298 100644
+--- a/core/ui/components/card.gd
++++ b/core/ui/components/card.gd
+@@ -100,6 +100,11 @@ func set_library_item(item: LibraryItem, free_on_remove: bool = true) -> void:
  
  func _on_focus() -> void:
  	highlighted.emit()
@@ -136,7 +141,7 @@ diff -ruN a/core/ui/components/card.gd b/core/ui/components/card.gd
  	_shader_godrays_fade_in()
  	_shader_shine_fade_in()
  
-@@ -130,8 +135,10 @@
+@@ -130,8 +135,10 @@ func _shader_shine_fade_in() -> void:
  
  func _on_unfocus() -> void:
  	unhighlighted.emit()

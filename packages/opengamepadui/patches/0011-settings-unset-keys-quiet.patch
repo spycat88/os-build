@@ -1,8 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: retroforge <retroforge@invalid>
 Date: Sat, 10 Oct 2026 23:06:45 -0700
-Subject: [PATCH 09/11] fix(Settings): no errors for unset settings or an
- offline plugin store
+Subject: [PATCH] fix(Settings): no errors for unset settings
 
  - SettingsManager.get_value with no default (or a null one) made
    ConfigFile log "Couldn't find the given section ... and no default was
@@ -10,13 +9,12 @@ Subject: [PATCH 09/11] fix(Settings): no errors for unset settings or an
    Unset is answered with the default without asking ConfigFile.
  - erase_section_key on an unset key logged "Cannot erase nonexistent key"
    (and emitted setting_changed for nothing). Now a no-op.
- - The plugin store menu emitted plugin_store_loaded(null) when the store
-   could not be reached, and its own handler failed to take the null as a
-   Dictionary. Offline, the menu keeps what it shows.
+
+The plugin store menu's offline null (the third fix this patch carried) is
+fixed upstream in 0.47.0 (3a2b6c9: get_plugin_store_items() returns {}).
 ---
- core/global/settings_manager.gd               | 6 ++++++
- core/ui/card_ui/settings/plugin_store_menu.gd | 3 +++
- 2 files changed, 9 insertions(+)
+ core/global/settings_manager.gd | 6 ++++++
+ 1 file changed, 6 insertions(+)
 
 diff --git a/core/global/settings_manager.gd b/core/global/settings_manager.gd
 index 6f456b6..3e7c628 100644
@@ -42,20 +40,3 @@ index 6f456b6..3e7c628 100644
  	_config.erase_section_key(section, key)
  	if persist:
  		save()
-diff --git a/core/ui/card_ui/settings/plugin_store_menu.gd b/core/ui/card_ui/settings/plugin_store_menu.gd
-index 631b49b..43e8c58 100644
---- a/core/ui/card_ui/settings/plugin_store_menu.gd
-+++ b/core/ui/card_ui/settings/plugin_store_menu.gd
-@@ -25,6 +25,9 @@ func _ready() -> void:
- func load_plugin_store_items():
- 	# Fetch available plugins from the plugin store
- 	var plugin_items = await plugin_loader.get_plugin_store_items()
-+	# null when the store could not be reached (offline): keep what is shown.
-+	if not plugin_items is Dictionary:
-+		return
- 	plugin_store_loaded.emit(plugin_items)
- 
- 
--- 
-2.55.0
-

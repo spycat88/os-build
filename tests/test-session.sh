@@ -186,20 +186,12 @@ done
 
 # What each patch must keep doing. Content checks, because a patch rewritten in a later bump can
 # still apply cleanly while no longer fixing the bug it was added for.
-P1="$PKG/patches/0001-hardware-manager-no-dmi.patch"
-grep -q '^+	if not file:' "$P1" && grep -q '^+.*/sys/firmware/devicetree/base/model' "$P1" \
-  && ok "0001 guards the null FileAccess and falls back to the devicetree model (#542)" \
-  || bad "0001 no longer guards _read_sys / no devicetree fallback — DT boards crash-loop again"
-grep -q '^+	var nul := bytes.find(0)' "$P1" \
-  && ok "0001 cuts devicetree strings at their NUL (no U+FFFD in the name, no warning per call)" \
-  || bad "0001 decodes the devicetree NUL — the product name carries U+FFFD and the log fills with warnings"
-P2="$PKG/patches/0002-install-dialogs-rename-custom-maximum-size.patch"
-if grep -q '^+.*custom_maximum_size' "$P2"; then
-  bad "0002 still ADDS custom_maximum_size — collides with Godot 4.7's Control property (#540)"
-elif [ "$(grep -c '^-.*custom_maximum_size' "$P2")" -ge 4 ]; then
-  ok "0002 renames every custom_maximum_size in the install dialogs (#540)"
+# 0001 (#542, no DMI on a devicetree board) and 0002 (#540, custom_maximum_size under Godot 4.7) are
+# upstream since v0.47.0 and were dropped with that bump; an older pin needs them back.
+if [ "$(printf '%s\n' 0.47.0 "$ver" | sort -V | head -1)" = 0.47.0 ]; then
+  ok "pinned v$ver carries upstream's #542 and #540 fixes (were patches 0001/0002)"
 else
-  bad "0002 does not rename custom_maximum_size in both dialogs and scenes"
+  bad "pinned v$ver predates 0.47.0 — DT boards crash-loop (#542) and game launch breaks (#540) without 0001/0002"
 fi
 
 # 0018: joining Wi-Fi saved a mistyped password that the UI could neither show nor undo (HW, Air X,

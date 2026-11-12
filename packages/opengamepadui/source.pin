@@ -1,20 +1,17 @@
 # OpenGamepadUI — the gamepad shell gamescope hosts. Local PKGBUILD (packages/opengamepadui/PKGBUILD).
 #
 # Was a prebuilt pin of upstream's aarch64 release tarball until 2026-10-02, when the first hardware
-# boot (KONKR Pocket FIT, SM8650) showed v0.46.1 needs the first two patches below on these boards:
+# boot (KONKR Pocket FIT, SM8650) showed v0.46.1 needed patches on these boards. Pinned to v0.47.0
+# (upstream main, a79179dc) on 2026-11-12, which merged four of ours, dropped then:
 #
-#   0001  upstream #542: HardwareManager reads /sys/devices/virtual/dmi/id/product_name, which does
-#         not exist on a devicetree board (no SMBIOS from the ABL UEFI), and calls a method on the
-#         null FileAccess -- a SIGSEGV in a release build, ~10s into every start, so the session
-#         crash-loops behind a black panel. On ARM the name comes from the devicetree model
-#         instead ("Unknown" if empty), as asked in review of upstream PR #559.
-#   0002  upstream #540: Godot 4.7 added a native Control.custom_maximum_size, so the two install
-#         dialogs that declare their own fail to compile, and game_launch_menu.gd (which depends on
-#         them) never loads -- picking a game does nothing, on every platform.
-#   0003  ours, for upstream: the performance menu showed TDP, thermal-limit and power-profile
-#         controls for any integrated GPU. An SoC GPU (Adreno, via our PowerStation devfreq
-#         backend) has none of them, so they appeared with a -1 range and wrote nowhere. Shown now
-#         only when HardwareManager reports the capability.
+#   0001  upstream #542 (fc711f05): HardwareManager no longer crashes on a devicetree board without DMI.
+#   0002  upstream #540 (961c137d): the install dialogs' custom_maximum_size renamed for Godot 4.7.
+#   0003  upstream 0c7de5f9: the performance menu hides TDP / thermal / power-profile controls the
+#         GPU does not have.
+#   0050  upstream 429817d8: the settings lists scroll to the focused row.
+#
+# Still carried:
+#
 #   0004  ours, for upstream: an app that exits before creating a window never left the running
 #         list (its type stays unknown, and only X11/Wayland apps get the is_running() checks), so
 #         a ROM whose emulator is not installed hung on the loading screen and the plugin's EXIT
@@ -54,7 +51,8 @@
 #         default icons). 130+ panics a session (Air Y, 2026-10-11). Handlers connected deferred.
 #   0011  ours, for upstream: SettingsManager.get_value without a default logged a ConfigFile
 #         error per unset key (six per game in the launch settings), erase on an unset key
-#         another; the plugin store menu took the offline null as a Dictionary and errored.
+#         another. (The plugin store menu's offline null, its third fix, is upstream's 3a2b6c9a in
+#         v0.47.0: get_plugin_store_items() returns {} now.)
 #   0012  ours, for upstream: MANGMI pads matched no icon mapping (a warning per icon refresh);
 #         the Xbox Series mapping takes "MANGMI". Digital L2/R2 (Gamepad:Button:*Trigger) get the
 #         trigger icons, and Gamepad Settings stops warning about the Sync capability.
@@ -255,11 +253,6 @@
 #         2026-11-10). Settings' Enter submitted before the keyboard's refocus of the field, which
 #         could leave the focus on the hidden field: both submit deferred now. A tapped Submit on
 #         first boot closes a keyboard still up (user, 2026-11-09).
-#   0050  ours, for upstream: at a larger UI scale the Settings category list on the left outgrows the
-#         screen, and the D-pad took the focus below it without scrolling: the scroll bar had to be
-#         dragged (user, 2026-11-11). follow_focus on that list and on a game's settings list, built the
-#         same way, and on the Display, Network, Bluetooth and Disks pages (General, Library and
-#         Plugins already had it).
 #   0051  ours, for upstream: in Settings and a game's settings the D-pad could not move between the
 #         category list and its page: Right on a category did nothing (only A opened it, e.g. Display
 #         > Scale) and Left on a page did nothing (only B), as each column's FocusGroup points Left and
@@ -287,4 +280,4 @@
 name: opengamepadui
 pkgbuild_local: PKGBUILD
 pkgrel_suffix: 1
-patches: 0001-hardware-manager-no-dmi.patch 0002-install-dialogs-rename-custom-maximum-size.patch 0003-performance-menu-hide-unsupported-controls.patch 0004-running-app-exit-before-window.patch 0005-performance-manager-save-default-profiles.patch 0006-performance-menu-power-profiles-without-tdp.patch 0007-performance-manager-profile-key-app-id.patch 0008-animated-effects-setting.patch 0009-library-banner-clip-with-a-scissor-not-a-canvas-group.patch 0010-inputplumber-signal-handlers-deferred.patch 0011-settings-unset-keys-and-offline-store-quiet.patch 0012-input-icons-mangmi-digital-triggers.patch 0013-hardware-manager-single-gpu-no-glxinfo.patch 0014-home-recents-and-icon-device-name-quiet.patch 0015-running-game-card-name-without-library-item.patch 0016-thread-pool-start-on-first-use.patch 0017-running-app-steam-launch-alive-while-steam-reaper-runs.patch 0018-network-one-working-profile-connected-means-activated-forget.patch 0019-launch-focus-a-focusable-window-of-the-app.patch 0021-library-desktop-steam-shortcuts-start-steams-gamepad-ui.patch 0022-launch-manager-orphan-windows-warned-once.patch 0023-home-card-rebuilt-when-its-library-item-is-replaced.patch 0024-input-focus-profile-instead-of-intercept-mode.patch 0025-running-app-a-game-steam-starts-keeps-its-own-app-id.patch 0026-osk-touches-outside-the-keys-reach-the-menu.patch 0027-wifi-one-row-per-network.patch 0029-network-the-open-network-in-use-can-be-forgotten.patch 0030-card-button-a-tap-presses-on-release.patch 0031-audio-manager-a-volume-above-zero-clears-a-mute.patch 0032-card-art-only-near-the-screen.patch 0033-launch-manager-recent-apps-names-only.patch 0034-running-app-a-steam-launch-counts-once-steam-starts-the-game.patch 0035-library-menu-a-card-is-rebuilt-when-its-library-item-is-replaced.patch 0036-card-art-rounds-its-own-corners-shadows-skip-their-hidden-centre.patch 0037-scripts-with-no-per-frame-work-stop-running-every-frame.patch 0038-input-menus-follow-the-d-pad-again-after-a-touch.patch 0039-settings-and-first-boot-no-plugin-store.patch 0040-hardware-manager-platform-gpu-no-pci-ids.patch 0041-input-icon-manager-loads-each-mapping-once.patch 0042-disks-menu-builds-its-cards-when-shown.patch 0043-launch-manager-focused-app-handled-deferred.patch 0045-quick-settings-volume-and-brightness-step-by-5.patch 0046-settings-general-arm-soc-name-and-no-bios-row.patch 0047-audio-manager-the-startup-volume-reaches-the-sliders.patch 0048-power-saver-input-during-a-game-keeps-the-screen-lit.patch 0049-wifi-password-keyboard-opens-and-enter-submits.patch 0050-settings-lists-scroll-to-the-focused-row.patch 0051-settings-d-pad-moves-between-the-list-and-its-page.patch
+patches: 0004-running-app-exit-before-window.patch 0005-performance-manager-save-default-profiles.patch 0006-performance-menu-power-profiles-without-tdp.patch 0007-performance-manager-profile-key-app-id.patch 0008-animated-effects-setting.patch 0009-library-banner-clip-with-a-scissor-not-a-canvas-group.patch 0010-inputplumber-signal-handlers-deferred.patch 0011-settings-unset-keys-quiet.patch 0012-input-icons-mangmi-digital-triggers.patch 0013-hardware-manager-single-gpu-no-glxinfo.patch 0014-home-recents-and-icon-device-name-quiet.patch 0015-running-game-card-name-without-library-item.patch 0016-thread-pool-start-on-first-use.patch 0017-running-app-steam-launch-alive-while-steam-reaper-runs.patch 0018-network-one-working-profile-connected-means-activated-forget.patch 0019-launch-focus-a-focusable-window-of-the-app.patch 0021-library-desktop-steam-shortcuts-start-steams-gamepad-ui.patch 0022-launch-manager-orphan-windows-warned-once.patch 0023-home-card-rebuilt-when-its-library-item-is-replaced.patch 0024-input-focus-profile-instead-of-intercept-mode.patch 0025-running-app-a-game-steam-starts-keeps-its-own-app-id.patch 0026-osk-touches-outside-the-keys-reach-the-menu.patch 0027-wifi-one-row-per-network.patch 0029-network-the-open-network-in-use-can-be-forgotten.patch 0030-card-button-a-tap-presses-on-release.patch 0031-audio-manager-a-volume-above-zero-clears-a-mute.patch 0032-card-art-only-near-the-screen.patch 0033-launch-manager-recent-apps-names-only.patch 0034-running-app-a-steam-launch-counts-once-steam-starts-the-game.patch 0035-library-menu-a-card-is-rebuilt-when-its-library-item-is-replaced.patch 0036-card-art-rounds-its-own-corners-shadows-skip-their-hidden-centre.patch 0037-scripts-with-no-per-frame-work-stop-running-every-frame.patch 0038-input-menus-follow-the-d-pad-again-after-a-touch.patch 0039-settings-and-first-boot-no-plugin-store.patch 0040-hardware-manager-platform-gpu-no-pci-ids.patch 0041-input-icon-manager-loads-each-mapping-once.patch 0042-disks-menu-builds-its-cards-when-shown.patch 0043-launch-manager-focused-app-handled-deferred.patch 0045-quick-settings-volume-and-brightness-step-by-5.patch 0046-settings-general-arm-soc-name-and-no-bios-row.patch 0047-audio-manager-the-startup-volume-reaches-the-sliders.patch 0048-power-saver-input-during-a-game-keeps-the-screen-lit.patch 0049-wifi-password-keyboard-opens-and-enter-submits.patch 0051-settings-d-pad-moves-between-the-list-and-its-page.patch

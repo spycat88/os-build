@@ -22,7 +22,7 @@
 # INTEGRITY: build-overlay.sh runs makepkg --skipinteg, so prepare() checks sha256sums itself.
 
 pkgname=opengamepadui
-pkgver=0.46.1
+pkgver=0.47.0
 pkgrel=1
 _godot=4.7.1-stable
 pkgdesc='Open source gamepad-native game launcher (pck rebuilt with RetroForge patches)'
@@ -38,8 +38,8 @@ source=("${pkgname}-${pkgver}-aarch64.tar.gz::${url}/releases/download/v${pkgver
         "Godot_v${_godot}_linux.arm64.zip::https://github.com/godotengine/godot/releases/download/${_godot}/Godot_v${_godot}_linux.arm64.zip")
 # The release tarball's digest is the one the old prebuilt pin carried (upstream's .sha256.txt).
 # The Godot zip was checked against Godot's own SHA512-SUMS.txt for 4.7.1-stable.
-sha256sums=('84b075f8f8c3925b9e0925705adab37f9237a8ff6eeabc6cf4c3af927520413c'
-            '64a36fd6ebf37fb71530ef2aca277d6392cb11355ca702baa016d6e62e0ae264'
+sha256sums=('423537c2564267da079a55ad7c17d1b45ee77593ed38a4479071d1af0f6438f7'
+            '4e8e05793a7fa30cf0bd5fde2e8ede043d2c975f32e5bbb22cc33aed8f0ef3b8'
             '8f527179cd4ae58b402fa265fe817dc505e5b6b14574f309efe57113be562ac1')
 
 _core=libopengamepadui-core.linux.template_release.aarch64.so
