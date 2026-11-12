@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: retroforge <retroforge@invalid>
+Date: Wed, 11 Nov 2026 23:45:00 +0000
+Subject: [PATCH] fix(SettingsMenu, GameSettingsMenu): the D-pad moves between
+ the list and its page
+
+In Settings, and in a game's settings, the D-pad could not move between
+the category list on the left and the page on the right: Right on a
+category did nothing (only A opened its page, e.g. Display > Scale) and
+Left on a page did nothing (only B went back). Each column's FocusGroup
+points Left and Right at the control itself to keep the focus in it.
+
+Right on a category now opens its page, as A does. Left on a page goes
+back to the list, as B does, where Left has nothing to do on the page:
+not on a slider (its value), a text field (the caret), a list or tab bar
+that uses Left, a control whose own left neighbour is another control,
+or a dialog over the page, and only from the page itself, not a level
+the page opened. FocusGroup.leaves_by_left() makes that check.
+---
+ core/systems/input/focus_group.gd         | 28 ++++++++++++++++
+ core/ui/card_ui/launch/game_settings.gd   | 41 +++++++++++++++++++++++
+ core/ui/card_ui/settings/settings_menu.gd | 34 +++++++++++++++++++
+ 3 files changed, 103 insertions(+)
+
+diff --git a/core/systems/input/focus_group.gd b/core/systems/input/focus_group.gd
+index 62d4232..da8ab43 100644
+--- a/core/systems/input/focus_group.gd
++++ b/core/systems/input/focus_group.gd
+@@ -262,6 +262,34 @@ static func find_focusable(nodes: Array[Node], root: Node = null) -> Node:
+ 	return null
+ 
+ 
++## Whether Left on the given control is free for its menu to take the focus to the list on its left,
++## as in Settings: the control's left neighbour is itself, an ancestor (a component that hands its
++## focus to an inner control copies its neighbours) or unset (a column's FocusGroup blocks Left by
++## pointing it at the control itself); the control does not use Left (a slider's value, a text
++## caret, a list or tab bar); and it is not in a dialog or popup over the menu, below [param root].
++static func leaves_by_left(control: Control, root: Node) -> bool:
++	if control is Range or control is LineEdit or control is TextEdit or control is ItemList \
++			or control is TabBar or control is GraphEdit:
++		return false
++	if control is Tree:
++		# A one-column list only collapses rows on Left, which a flat list does not have.
++		var tree := control as Tree
++		var item := tree.get_selected()
++		if tree.columns > 1 or (item and item.get_child_count() > 0):
++			return false
++	var left_path := control.focus_neighbor_left
++	if not left_path.is_empty():
++		var left := control.get_node_or_null(left_path)
++		if left and left != control and not left.is_ancestor_of(control):
++			return false
++	var node := control.get_parent()
++	while node and node != root:
++		if node is Dialog or node is Popup or String(node.name).begins_with("Popup"):
++			return false
++		node = node.get_parent()
++	return true
++
++
+ # Recursively searches the given node for focusable children.
+ func _get_focusable_children(node: Control) -> Array[Control]:
+ 	var focusable: Array[Control] = []
+diff --git a/core/ui/card_ui/launch/game_settings.gd b/core/ui/card_ui/launch/game_settings.gd
+index 830255e..b41ab13 100644
+--- a/core/ui/card_ui/launch/game_settings.gd
++++ b/core/ui/card_ui/launch/game_settings.gd
+@@ -7,6 +7,8 @@ var library_item: LibraryItem
+ @onready var game_name_label := $%GameNameLabel as Label
+ @onready var menu_container := $%ButtonsContainer as Control
+ @onready var section_label := $%SectionLabel
++@onready var buttons_focus_group := $%FocusGroup as FocusGroup
++@onready var content_container := $MarginContainer/HBoxContainer/ContentContainer as Control
+ 
+ 
+ # Called when the node enters the scene tree for the first time.
+@@ -49,3 +51,42 @@ func _on_settings_state_changed(_from: State, to: State) -> void:
+ 	text = text.capitalize()
+ 	text = text.replace("_", " ")
+ 	section_label.text = text
++
++
++## The D-pad moves between the list and its page, as in Settings: Right on an entry opens its page,
++## as A does, and Left on a page goes back to the list, as B does, where Left has nothing to do on
++## the page (see FocusGroup.leaves_by_left).
++func _input(event: InputEvent) -> void:
++	if not is_visible_in_tree():
++		return
++	var right := event.is_action_pressed("ui_right")
++	var left := event.is_action_pressed("ui_left")
++	if not right and not left:
++		return
++	if Input.is_action_pressed("ogui_guide"):
++		return
++	var focus := get_viewport().gui_get_focus_owner()
++	if not focus:
++		return
++
++	if right and focus is CardButton and menu_container.is_ancestor_of(focus):
++		get_viewport().set_input_as_handled()
++		var button := focus as CardButton
++		button.pressed.emit()
++		button.button_up.emit()
++		return
++
++	if not left or not content_container.is_ancestor_of(focus):
++		return
++	var stack := buttons_focus_group.focus_stack
++	if not stack:
++		return
++	# Only from the page itself: a level a page opened above it handles its own way back. The
++	# groups above the list's (all of them when it is not on the stack) are the page's.
++	var above := stack.size() - 1 - stack.stack.find(buttons_focus_group)
++	if above > 1 or not FocusGroup.leaves_by_left(focus, content_container):
++		return
++	get_viewport().set_input_as_handled()
++	if above == 1:
++		stack.pop()
++	buttons_focus_group.grab_focus()
+diff --git a/core/ui/card_ui/settings/settings_menu.gd b/core/ui/card_ui/settings/settings_menu.gd
+index 9610534..ad3a5f5 100644
+--- a/core/ui/card_ui/settings/settings_menu.gd
++++ b/core/ui/card_ui/settings/settings_menu.gd
+@@ -1,10 +1,44 @@
+ extends Control
+ 
+ var version := preload("res://core/global/version.tres") as Version
++var settings_state_machine := load("res://assets/state/state_machines/settings_state_machine.tres") as StateMachine
+ 
+ @onready var version_label := $%VersionLabel as Label
++@onready var buttons_container := $%SettingButtonsContainer as Control
++@onready var content_container := $MarginContainer/HBoxContainer/ContentContainer as Control
+ 
+ 
+ # Called when the node enters the scene tree for the first time.
+ func _ready() -> void:
+ 	version_label.text = "v" + str(version.core)
++
++
++## The D-pad moves between the category list and its page: Right on a category opens its page, as A
++## does, and Left on a page goes back to the list, as B does, where Left has nothing to do on the
++## page (see FocusGroup.leaves_by_left). Before, only A and B moved between them.
++func _input(event: InputEvent) -> void:
++	if not is_visible_in_tree():
++		return
++	var right := event.is_action_pressed("ui_right")
++	var left := event.is_action_pressed("ui_left")
++	if not right and not left:
++		return
++	if Input.is_action_pressed("ogui_guide"):
++		return
++	var focus := get_viewport().gui_get_focus_owner()
++	if not focus:
++		return
++
++	if right and focus is CardButton and buttons_container.is_ancestor_of(focus):
++		get_viewport().set_input_as_handled()
++		var button := focus as CardButton
++		button.pressed.emit()
++		button.button_up.emit()
++		return
++
++	# Only from the page itself: a page that opened a level of its own handles its own way back.
++	if left and content_container.is_ancestor_of(focus) and settings_state_machine.stack_length() == 1:
++		if not FocusGroup.leaves_by_left(focus, content_container):
++			return
++		get_viewport().set_input_as_handled()
++		settings_state_machine.pop_state()
+-- 
+2.43.0
+

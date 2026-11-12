@@ -30,6 +30,7 @@ var _list: VBoxContainer
 var _list_focus: FocusGroup
 var _title: Label
 var _content: MarginContainer
+var _right: Control  # the title and the page: Left in it goes back to the list (_input)
 
 
 func setup(screen_state: State, page_script: GDScript) -> void:
@@ -111,6 +112,7 @@ func _build_layout() -> void:
 	_list.add_child(_list_focus)
 
 	var right := MarginContainer.new()
+	_right = right
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.size_flags_stretch_ratio = 2.75
 	columns.add_child(right)
@@ -146,6 +148,37 @@ func _margin(horizontal: int, vertical: int) -> MarginContainer:
 	for side in ["top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, vertical)
 	return margin
+
+
+## The D-pad moves between the list and the page, as in OGUI's Settings (its patch 0051): Right on
+## an entry opens its page, as A does, and Left on the page goes back to the list, as Back does,
+## wherever Left has nothing to do on the page (FocusGroup.leaves_by_left: not on a slider, a text
+## field or a row with a left neighbour, nor in a dialog).
+func _input(event: InputEvent) -> void:
+	if not is_visible_in_tree():
+		return
+	var right := event.is_action_pressed("ui_right")
+	var left := event.is_action_pressed("ui_left")
+	if not right and not left:
+		return
+	if Input.is_action_pressed("ogui_guide"):
+		return
+	var focus := get_viewport().gui_get_focus_owner()
+	if not focus:
+		return
+
+	if right and focus is CardButton and _list.is_ancestor_of(focus):
+		get_viewport().set_input_as_handled()
+		var entry := focus as CardButton
+		entry.pressed.emit()
+		entry.button_up.emit()
+		return
+
+	if left and _right.is_ancestor_of(focus) and _page_machine.current_state():
+		if not FocusGroup.leaves_by_left(focus, _right):
+			return
+		get_viewport().set_input_as_handled()
+		_page_machine.pop_state()
 
 
 func _on_back() -> void:
