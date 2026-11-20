@@ -88,9 +88,32 @@ OGUI's own updater with:
   It posts one notification per version found and never installs.
 
 Channel selection lives in the same program: `retroforge-update channels` lists what a picker offers
-(`stable`, `beta`, `nightly`, plus the channel in effect if it is neither, and a `pinned<TAB><source>` line
+(the hosted list below, plus the channel in effect if it is not on it, and a `pinned<TAB><source>` line
 when `/etc` or the environment outranks the user's choice), and `retroforge-update set-channel <name>`
 writes `~/.config/retroforge/ota.conf`. The old Steam-shaped `retroforge-select-branch` is gone.
+
+**The picker's list is hosted, not baked in.** `channels` fetches
+[`ota/channels.json`](../ota/channels.json) from `main` on GitHub
+(`https://raw.githubusercontent.com/retroforge-linux/os-build/main/ota/channels.json`) every time, so
+adding a channel there makes it appear on devices that are already installed, with no OTA. Each entry
+is a name (the bucket prefix, same grammar `publish-bundle.sh` enforces) with an optional `label` and
+`description` the picker shows; an entry with a bad name is dropped, and `pinned` is reserved.
+`OTA_CHANNELS_URL` in `/etc/retroforge/ota.conf` points a device at another list.
+
+**The list is required, online, every time.** There is no cache and no built-in list. When the file
+cannot be fetched or has no usable entry:
+
+- `channels` exits 1 with the reason on stderr. The Updates page shows the channel in effect, locked,
+  with "Could not load the update channels. Check your internet connection and open this page
+  again.", and tries again each time the General page is opened.
+- `check` and apply exit 8 (not 7, "no update") before asking the update server. The Updates button
+  says the update channels could not be loaded, and the background check posts nothing.
+- An update already installed and waiting for a reboot still shows *Restart now*: that needs no network.
+
+The list is not a trust boundary: a name can only become a path under the update server the image
+already trusts, and what that channel serves still has to verify against the keyring. Publish to a
+new channel before listing it, or devices that pick it will find nothing there (the check fails
+closed).
 
 **Which channels exist:** `stable`, `beta` and `nightly`, each a prefix in the bucket that appears on
 its first publish. `nightly` is described in [Nightly](#nightly) below; the rest of this paragraph is

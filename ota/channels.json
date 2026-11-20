@@ -1,0 +1,7 @@
+{
+  "channels": [
+    {"name": "stable", "label": "Stable"},
+    {"name": "beta", "label": "Beta", "description": "Beta gets new versions first. You can switch back to Stable at any time."},
+    {"name": "nightly", "label": "Nightly", "description": "Nightly: daily untested builds of the newest changes. You can switch back to Stable at any time."}
+  ]
+}

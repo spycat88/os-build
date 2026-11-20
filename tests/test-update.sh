@@ -72,6 +72,10 @@ if [ -n "$dest" ]; then cp "$src" "$dest"; else cat "$src"; fi
 STUB
 chmod +x "$W/bin/curl"
 
+# Every check and install needs the hosted channel list (EXIT_NO_CHANNELS), so the sandbox serves
+# the repository's own ota/channels.json at the URL run() points the client at, unless a case removes it.
+cp "$ROOT/ota/channels.json" "$W/www/channels.json"
+
 # First-boot setup is done unless a case says otherwise: the setup gate is tested explicitly, and
 # every other case would otherwise pass for the wrong reason. The shape is what OpenGamepadUI's
 # ConfigFile writes, including a [general.updates] section that must not be mistaken for [general].
@@ -110,6 +114,7 @@ run() { # <arg...> -- with env assignments allowed before the first non-assignme
       RETROFORGE_OTA_CONFIG="$W/nonexistent.conf" \
       RETROFORGE_OTA_STAGE="$W/stage" \
       RETROFORGE_SHELL_SETTINGS="$W/settings.cfg" \
+      RETROFORGE_OTA_CHANNELS_URL="https://lists.example/channels.json" \
       "${envs[@]}" python3 "$CLIENT" "$@" 2>"$W/err")"
   RC=$?
   ERR="$(cat "$W/err")"
@@ -296,8 +301,10 @@ CASE="streams-rather-than-downloading"
 bundle_file stream retroforge-9.9.9.raucb 4096
 manifest stream '{"version":"9.9.9","bundle":"retroforge-9.9.9.raucb","size":4096}'
 run RETROFORGE_RELEASE_FILE="$(release_file 1.0.0)" RETROFORGE_OTA_CHANNEL=stream
-# Exactly one request, and it is the manifest. A second would mean something still fetches bundles.
-[ "$(requests)" = 1 ] && ok "fetched only the manifest, never the bundle" \
+# Exactly one request to the update server, and it is the manifest (the other is the channel list,
+# which every apply fetches). A second would mean something still fetches bundles.
+[ "$(grep -vc '^channels.json$' "$W/requests.log")" = 1 ] && grep -qx 'stream/latest.json' "$W/requests.log" \
+                      && ok "fetched only the manifest, never the bundle" \
                       || bad "made $(requests) requests — something is still downloading the bundle"
 case "$(cat "$W/argv.log" 2>/dev/null)" in
   *" -o "*) bad "curl was asked to write a file — the bundle is being staged again" ;;
@@ -316,6 +323,7 @@ from importlib.machinery import SourceFileLoader
 loader = SourceFileLoader("nvu", os.environ["CLIENT"])
 spec = importlib.util.spec_from_loader("nvu", loader)
 nvu = importlib.util.module_from_spec(spec); loader.exec_module(nvu)
+nvu.offered_channels = lambda: [("stable", "", "")]  # the hosted list is the curl stub's business
 
 seen = {}
 nvu.setup_done = lambda: True
@@ -394,6 +402,7 @@ from importlib.machinery import SourceFileLoader
 loader = SourceFileLoader("nvu", os.environ["CLIENT"])
 spec = importlib.util.spec_from_loader("nvu", loader)
 nvu = importlib.util.module_from_spec(spec); loader.exec_module(nvu)
+nvu.offered_channels = lambda: [("stable", "", "")]  # the hosted list is the curl stub's business
 
 called = []
 nvu.setup_done = lambda: True
@@ -554,6 +563,7 @@ from importlib.machinery import SourceFileLoader
 loader = SourceFileLoader("nvu", os.environ["CLIENT"])
 spec = importlib.util.spec_from_loader("nvu", loader)
 nvu = importlib.util.module_from_spec(spec); loader.exec_module(nvu)
+nvu.offered_channels = lambda: [("stable", "", "")]  # the hosted list is the curl stub's business
 
 class Ret:
     def __init__(self, v): self.v = v
@@ -629,9 +639,11 @@ CASE="channel-picker"
 # reads the list, writes the choice, and the next `check` follows it. The choice lands in the USER
 # file only, and is refused when /etc or the environment outranks it (a dev card's pin).
 PICK="$W/pick/ota.conf"
+# The list the picker shows is the hosted ota/channels.json. The sandbox serves the repository's own
+# copy, so this also checks that the file that ships on main parses and offers the three CI publishes.
 run RETROFORGE_OTA_USER_CONFIG="$PICK" channels
-[ "$RC" = 0 ] && [ "$OUT" = "$(printf 'stable\nbeta\nnightly')" ] \
-  && ok "lists stable, beta and nightly" || bad "channels: exit $RC, '$OUT'"
+[ "$RC" = 0 ] && [ "$(printf '%s\n' "$OUT" | cut -f1 | tr '\n' ' ')" = "stable beta nightly " ] \
+  && ok "lists stable, beta and nightly from ota/channels.json" || bad "channels: exit $RC, '$OUT'"
 run RETROFORGE_OTA_USER_CONFIG="$PICK" set-channel beta
 [ "$RC" = 0 ] && grep -qx 'OTA_CHANNEL=beta' "$PICK" \
   && ok "set-channel writes the user file" || bad "set-channel: exit $RC, file: $(cat "$PICK" 2>&1)"
@@ -647,12 +659,61 @@ run RETROFORGE_OTA_USER_CONFIG="$PICK" RETROFORGE_OTA_CONFIG="$W/etc-dev.conf" s
 [ "$RC" = 1 ] && grep -qx 'OTA_CHANNEL=beta' "$PICK" \
   && ok "a pinned channel refuses the write" || bad "pinned: exit $RC, file: $(cat "$PICK")"
 run RETROFORGE_OTA_USER_CONFIG="$PICK" RETROFORGE_OTA_CONFIG="$W/etc-dev.conf" channels
-[ "$OUT" = "$(printf 'stable\nbeta\nnightly\ndev\npinned\t%s' "$W/etc-dev.conf")" ] \
+[ "$(printf '%s\n' "$OUT" | cut -f1 | tr '\n' ' ')" = "stable beta nightly dev pinned " ] \
+  && [ "$(printf '%s\n' "$OUT" | tail -1)" = "$(printf 'pinned\t%s' "$W/etc-dev.conf")" ] \
   && ok "channels lists the pinned off-picker channel and says it is pinned" \
   || bad "pinned channels printed '$OUT'"
 run set-channel
 [ "$RC" = 1 ] && [ -z "$OUT" ] && ok "set-channel with no name is a refusal, not an install" \
                               || bad "bare set-channel: exit $RC out='$OUT'"
+
+# =================================================================================================
+CASE="channel-list-hosted"
+# The picker's list comes from a file on GitHub so a channel added there reaches devices already
+# installed. Online only: no cache, no built-in list. When it cannot be fetched `channels` exits 1
+# with nothing on stdout, and the shell shows that instead of a list. The stub serves
+# https://lists.example/channels.json from $W/www/channels.json.
+rm -f "$W/www/channels.json"
+run channels
+[ "$RC" = 1 ] && [ -z "$OUT" ] && [[ $ERR == *"cannot fetch the channel list"* ]] \
+  && ok "unreachable: exit 1, nothing on stdout, the reason on stderr" || bad "unreachable: exit $RC, '$OUT', '$ERR'"
+printf '%s\n' '{"channels":[{"name":"stable","label":"Stable"},"beta",{"name":"rc","label":"Release candidate","description":"Almost\tstable."}]}' \
+  >"$W/www/channels.json"
+run channels
+[ "$RC" = 0 ] && [ "$OUT" = "$(printf 'stable\tStable\t\nbeta\nrc\tRelease candidate\tAlmost stable.')" ] \
+  && ok "the hosted list is offered, with its labels (tabs in text flattened)" || bad "hosted: exit $RC, '$OUT'"
+rm -f "$W/www/channels.json"
+run channels
+[ "$RC" = 1 ] && [ -z "$OUT" ] && ok "a list fetched before is not remembered" || bad "after going offline: exit $RC, '$OUT'"
+printf 'not json\n' >"$W/www/channels.json"
+run channels
+[ "$RC" = 1 ] && [ -z "$OUT" ] && [[ $ERR == *"not usable"* ]] \
+  && ok "a broken hosted file is a failure, not an empty list" || bad "broken: exit $RC, '$OUT'"
+printf '%s\n' '{"channels":["../evil","pinned","",{"name":"a b"},42,"good","good"]}' >"$W/www/channels.json"
+run channels
+# `stable` after it: the channel in effect is always listed, so the picker never loses its selection.
+[ "$OUT" = "$(printf 'good\nstable')" ] && ok "invalid, reserved and duplicate names are dropped" || bad "filter: '$OUT'"
+printf '%s\n' '{"channels":["../evil"]}' >"$W/www/channels.json"
+run channels
+[ "$RC" = 1 ] && [ -z "$OUT" ] && ok "a list with nothing usable is a failure" || bad "empty: exit $RC, '$OUT'"
+printf 'OTA_CHANNELS_URL=https://lists.example/other.json\n' >"$W/etc-list.conf"
+printf '%s\n' '{"channels":["other"]}' >"$W/www/other.json"
+run RETROFORGE_OTA_CHANNELS_URL= RETROFORGE_OTA_CONFIG="$W/etc-list.conf" channels
+[ "$OUT" = "$(printf 'other\nstable')" ] && ok "OTA_CHANNELS_URL in /etc moves the list" || bad "/etc url: '$OUT'"
+# Every check and install needs the list, not just the picker: unreachable is exit 8, never
+# "no update" (7) and never an install, and it is decided before the update server is asked.
+rm -f "$W/www/channels.json" "$W/www/other.json"
+manifest stable '{"version":"9.9.9","bundle":"retroforge-9.9.9.raucb","size":100}'
+run RETROFORGE_RELEASE_FILE="$(release_file 1.0.0)" check
+[ "$RC" = 8 ] && [ -z "$OUT" ] && [ "$(grep -c latest.json "$W/requests.log")" = 0 ] \
+  && ok "check: no channel list is exit 8, and the update server is not asked" \
+  || bad "check without the list: exit $RC, '$OUT', requests: $(cat "$W/requests.log")"
+run RETROFORGE_RELEASE_FILE="$(release_file 1.0.0)"
+[ "$RC" = 8 ] && [ "$(grep -c latest.json "$W/requests.log")" = 0 ] \
+  && ok "apply: no channel list is exit 8 and installs nothing" || bad "apply without the list: exit $RC, '$OUT'"
+cp "$ROOT/ota/channels.json" "$W/www/channels.json"
+run RETROFORGE_RELEASE_FILE="$(release_file 1.0.0)" check
+[ "$RC" = 0 ] && [ "$OUT" = "9.9.9" ] && ok "check: with the list back, the update is offered" || bad "check with the list: exit $RC, '$OUT'"
 
 # =================================================================================================
 CASE="channel-switch-either-way"

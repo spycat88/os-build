@@ -500,14 +500,29 @@ func test_internal_install() -> void:
 # Settings > General > Updates (retroforge_os.gd): retroforge-update's answers -> what is shown.
 func test_update_states() -> void:
 	check("channels: stable and beta, not pinned",
-		UpdateStates.parse_channels("stable\nbeta\n"), {"channels": ["stable", "beta"], "pinned": ""})
+		UpdateStates.parse_channels("stable\nbeta\n"), {"channels": ["stable", "beta"], "pinned": "", "labels": {}, "descriptions": {}})
 	check("channels: a dev card's pin is listed and named",
 		UpdateStates.parse_channels("stable\nbeta\ndev\npinned\t/etc/retroforge/ota.conf\n"),
-		{"channels": ["stable", "beta", "dev"], "pinned": "/etc/retroforge/ota.conf"})
+		{"channels": ["stable", "beta", "dev"], "pinned": "/etc/retroforge/ota.conf", "labels": {}, "descriptions": {}})
 	check("channel: the name before the tab", UpdateStates.parse_channel("beta\t/home/player/.config/retroforge/ota.conf\n"), "beta")
 	check("channel: nothing read is empty", UpdateStates.parse_channel(""), "")
 	check("channels: stable, beta and nightly, not pinned",
-		UpdateStates.parse_channels("stable\nbeta\nnightly\n"), {"channels": ["stable", "beta", "nightly"], "pinned": ""})
+		UpdateStates.parse_channels("stable\nbeta\nnightly\n"), {"channels": ["stable", "beta", "nightly"], "pinned": "", "labels": {}, "descriptions": {}})
+	check("channels: an unreachable list (no output) is no channels, which the dropdown reports",
+		UpdateStates.parse_channels("")["channels"], [])
+	# A channel from the hosted list brings its own label and description; a bare line still works.
+	var hosted := UpdateStates.parse_channels("stable\tStable\nrc\tRelease candidate\tAlmost stable.\nbeta\n")
+	check("channels: the hosted list's labels and descriptions are read",
+		hosted, {"channels": ["stable", "rc", "beta"], "pinned": "",
+			"labels": {"stable": "Stable", "rc": "Release candidate"}, "descriptions": {"rc": "Almost stable."}})
+	check("channel names: a hosted label wins, a missing one falls back",
+		[UpdateStates.channel_name("rc", hosted["labels"]), UpdateStates.channel_name("beta", hosted["labels"])],
+		["Release candidate", "Beta"])
+	check("channel description: the hosted text for the current channel",
+		UpdateStates.channel_description("", "rc", hosted["descriptions"]), "Almost stable.")
+	check("channel description: a pin still outranks the hosted text",
+		UpdateStates.channel_description("/etc/retroforge/ota.conf", "rc", hosted["descriptions"]),
+		"Set by /etc/retroforge/ota.conf on this device.")
 	check("channel names: Stable, Beta, Nightly, others as they are",
 		[UpdateStates.channel_name("stable"), UpdateStates.channel_name("beta"), UpdateStates.channel_name("nightly"),
 		 UpdateStates.channel_name("dev")], ["Stable", "Beta", "Nightly", "dev"])

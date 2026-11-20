@@ -11,7 +11,8 @@
 #
 #   probe  --supports-duplicate-detection -> exit 0.
 #   check  -> STDOUT IS PARSED AS THE AVAILABLE VERSION. exit 0 = an update is available,
-#             exit 7 = none. Every exit-0 must print a STABLE per-build identity; printing
+#             exit 7 = none, exit 8 = the hosted channel list could not be fetched, so nothing
+#             was checked. Every exit-0 must print a STABLE per-build identity; printing
 #             something that changes between two calls makes one update look like two.
 #   apply  -> emit `N%` lines on STDOUT, forward-only. exit 0 = success. Everything else this
 #             program or its children have to say goes to STDERR, or the caller parses it as
@@ -107,21 +108,43 @@ CURL = os.environ.get("RETROFORGE_CURL", "curl")
 DEFAULT_URL = "https://ota.retroforge.org"
 DEFAULT_CHANNEL = "stable"
 
-# The channels the shell's picker offers: the three CI publishes. release-bundle.yml routes
-# ota/vX.Y.Z to stable and ota/vX.Y.Z-beta.N to beta; nightly-bundle.yml publishes main to nightly
-# every night with no approval and no hardware test (plan nightly-channel D6). `dev` and `test` are
-# hand-seeded test channels with no CI behind them, so they stay off the picker and reachable only
-# by writing USER_CONFIG_FILE by hand. `channels` still lists the channel in effect when it is one
-# of those, so the picker never shows a selection that is not in its own list.
-OFFERED_CHANNELS = ("stable", "beta", "nightly")
+# The channels the shell's picker offers are NOT in this file. CI publishes stable, beta and nightly
+# (release-bundle.yml routes ota/vX.Y.Z to stable and ota/vX.Y.Z-beta.N to beta; nightly-bundle.yml
+# publishes main to nightly every night with no approval and no hardware test, plan nightly-channel
+# D6), but which of them a picker shows is decided by the hosted list below, so a channel added
+# after an image shipped still reaches that image's picker. `dev` and `test` are hand-seeded test
+# channels with no CI behind them; they stay off the list and are reachable only by writing
+# USER_CONFIG_FILE by hand. `channels` still lists the channel in effect when the list does not,
+# so the picker never shows a selection that is not in its own list.
+#
+# Where the picker's channel list lives: a JSON file in the os-build repository, read raw from
+# GitHub. Editing it on main is how a new channel reaches devices that are already installed, with
+# no OTA needed to tell them it exists. Overridable as OTA_CHANNELS_URL in CONFIG_FILE (an operator
+# decision for the same reason OTA_URL is, see config()) and as RETROFORGE_OTA_CHANNELS_URL for tests.
+#
+# THE LIST IS NOT A TRUST BOUNDARY EITHER. It names channels and nothing more: each name must pass
+# valid_channel(), so it can only ever become a path segment under the update server this image
+# already trusts, and whatever that channel serves still has to verify against the keyring. The
+# worst a hostile list can do is offer a channel that does not exist, which fails closed at check.
+DEFAULT_CHANNELS_URL = "https://raw.githubusercontent.com/retroforge-linux/os-build/main/ota/channels.json"
+# ALWAYS THE ONLINE COPY, with no cache and no built-in fallback: a list that cannot be fetched is
+# reported as exactly that, and the shell says so, rather than showing a list that may be stale.
+# Short, because the shell asks for the list when the Updates section opens.
+CHANNELS_TIMEOUT = 8
 
 # The exit-code contract. 7 is "no update available" and is ALSO how every recoverable failure
-# exits: a check that cannot reach the server or cannot parse the manifest must not answer "yes"
+# exits, except an unreachable channel list (EXIT_NO_CHANNELS below): a check that cannot reach the server or cannot parse the manifest must not answer "yes"
 # and must not answer with a crash. Fail closed.
 EXIT_OK = 0
 EXIT_NONE = 7
-# Only `set-channel` uses it: a refused write is neither "no update" nor a version string.
+# `set-channel` and `channels` use it: a refused write or an unreachable channel list is neither
+# "no update" nor a version string.
 EXIT_FAIL = 1
+# `check` and apply when the hosted channel list (channels_url()) cannot be fetched. Not EXIT_NONE:
+# "no update" would tell the player they are up to date when nothing was checked at all. The list
+# is required for every check, not just the picker, so a device that cannot reach GitHub says so
+# instead of quietly updating from a channel the list may since have retired.
+EXIT_NO_CHANNELS = 8
 
 # WHAT USED TO BE HERE, because its absence is a deliberate decision and not an oversight.
 #
@@ -515,6 +538,11 @@ def cmd_check():
         print(pending, flush=True)
         return EXIT_OK
 
+    # The hosted channel list gates every check and install (see EXIT_NO_CHANNELS). After the
+    # staged branch above on purpose: an update already on disk only needs a reboot, not the network.
+    if not offered_channels():
+        return EXIT_NO_CHANNELS
+
     base_url, channel = config()
     remote = manifest(base_url, channel)
     if remote is None:
@@ -536,6 +564,10 @@ def cmd_apply():
         emit = progress_emitter()
         emit(100)
         return EXIT_OK
+
+    # The same gate as cmd_check(), for the same reasons.
+    if not offered_channels():
+        return EXIT_NO_CHANNELS
 
     base_url, channel = config()
     remote = manifest(base_url, channel)
@@ -656,13 +688,78 @@ def channel_writable():
     return source in (USER_CONFIG_FILE, "built-in default")
 
 
+def _clean_text(value):
+    """A label or description from the list as one printable line, or "" when it is not usable."""
+    if not isinstance(value, str):
+        return ""
+    value = " ".join(value.split())  # tabs and newlines would break the `channels` line format
+    return value if value.isprintable() else ""
+
+
+def parse_channel_list(raw):
+    """The channel list file -> [(name, label, description), ...], or None when it is unusable.
+
+    {"channels": [{"name": "stable", "label": "Stable", "description": "..."}, "beta", ...]}
+
+    An entry is an object or a bare name; label and description are optional. An entry whose name
+    is not a valid channel is dropped, not fatal, so one typo cannot take the whole list away. A
+    file with no usable entry at all is None, which callers report as a failure."""
+    try:
+        doc = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    entries = doc.get("channels") if isinstance(doc, dict) else None
+    if not isinstance(entries, list):
+        return None
+    out, seen = [], set()
+    for entry in entries:
+        if isinstance(entry, str):
+            entry = {"name": entry}
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        # `pinned` is the marker line's keyword in `channels`' output, so it cannot be a channel there.
+        if not isinstance(name, str) or not valid_channel(name) or name == "pinned" or name in seen:
+            continue
+        seen.add(name)
+        out.append((name, _clean_text(entry.get("label")), _clean_text(entry.get("description"))))
+    return out or None
+
+
+def channels_url():
+    return (os.environ.get("RETROFORGE_OTA_CHANNELS_URL")
+            or read_env_file(CONFIG_FILE).get("OTA_CHANNELS_URL") or DEFAULT_CHANNELS_URL)
+
+
+def offered_channels():
+    """The hosted list, or None when it cannot be fetched or has no usable entry. There is no
+    fallback by design: the caller reports the failure instead of guessing."""
+    url = channels_url()
+    raw = fetch(url, timeout=CHANNELS_TIMEOUT)
+    if raw is None:
+        log(f"cannot fetch the channel list from {url}")
+        return None
+    listed = parse_channel_list(raw)
+    if not listed:
+        log(f"the channel list at {url} is not usable")
+    return listed
+
+
 def cmd_channels():
     """One channel per line: the offered ones, then the one in effect if it is not among them.
-    Exit 0. A final line `pinned<TAB><source>` marks a channel the user cannot change here."""
+    Exit 0. A final line `pinned<TAB><source>` marks a channel the user cannot change here.
+    Exit 1 with nothing on STDOUT when the hosted list cannot be fetched; the reason is on STDERR.
+
+    A channel line is `name`, or `name<TAB>label<TAB>description` when the list supplies either, so
+    a channel added to the hosted list can carry the words the picker shows for it. The fields are
+    tab-free by construction (valid_channel(), _clean_text())."""
     current, source = channel_setting()
-    for name in OFFERED_CHANNELS:
-        print(name)
-    if current not in OFFERED_CHANNELS:
+    listed = offered_channels()
+    if not listed:
+        return EXIT_FAIL
+    for name, label, description in listed:
+        print(f"{name}\t{label}\t{description}" if (label or description) else name)
+    if current not in [entry[0] for entry in listed]:
         print(current)
     if not channel_writable():
         print(f"pinned\t{source}")
@@ -712,6 +809,9 @@ def cmd_status():
     # does not ship, a file in $HOME nobody remembers writing. "It is checking the wrong channel"
     # is otherwise a question this command cannot answer, which is the whole reason it exists.
     print(f"server:   {base_url}/{channel}  (channel from {channel_from})")
+    listed = offered_channels()
+    shown = " ".join(entry[0] for entry in listed) if listed else "<unavailable>"
+    print(f"channels: {shown}  (from {channels_url()})")
     print(f"setup:    {'done' if setup_done() else 'first boot not finished (updates deferred)'}")
     pending = staged_identity()
     print(f"staged:   {pending or '<none>'}")
@@ -723,12 +823,14 @@ def cmd_status():
 USAGE = """usage: retroforge-update [check|staged|status|version|channel|channels|set-channel <name>|--supports-duplicate-detection]
 
   (no argument)  apply the available update: download, install, arm the trial
-  check          exit 0 and print the version if an update is available, else exit 7
+  check          exit 0 and print the version if an update is available, else exit 7;
+                 exit 8 when the channel list cannot be fetched
   staged         exit 0 and print the version installed and waiting for a reboot, else exit 7
   status         human-readable diagnostics
   version        the running image's version (a dev build: its build stamp)
   channel        the channel in effect and the source that supplied it, tab-separated
-  channels       the channels a picker offers, one per line (+ `pinned<TAB>source` if pinned)
+  channels       the channels a picker offers, one per line (+ `pinned<TAB>source` if pinned);
+                 fetched from OTA_CHANNELS_URL; exit 1 when it cannot be fetched
   set-channel N  make N the user's channel (~/.config/retroforge/ota.conf); never downloads
 
 Called by the RetroForge shell plugin; see the header of this file for the contract that shapes the output."""

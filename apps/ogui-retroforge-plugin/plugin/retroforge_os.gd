@@ -80,6 +80,11 @@ var _running := ""  # this image's version
 var _offered := ""  # the version check found, or the one staged
 var _switching := false  # set-channel is running: the button and the background check wait
 var _channels: Array[String] = []
+## The hosted channel list's labels and descriptions, by channel (UpdateStates.parse_channels).
+var _channel_labels := {}
+var _channel_descriptions := {}
+## A _fill_channels() is awaiting retroforge-update; a page visit does not start a second one.
+var _filling_channels := false
 var _button: Control  # card_button_setting
 var _channel: Control  # dropdown
 var _pairing: Control  # toggle
@@ -358,6 +363,11 @@ func _on_reset_pressed(level: String, row: Control) -> void:
 
 func _on_general_entered(_from: State) -> void:
 	_sync_pairing()
+	# The channel list is fetched online only, and the first fetch runs at shell start, often before
+	# the network is up. Every visit to the page tries again until a list arrives.
+	if _channels.is_empty() and _alive() and not _filling_channels:
+		await _fill_channels()
+		_show()
 
 
 ## Set the switch to whether the daemon runs, without acting on it (OGUI's Toggle emits toggled
@@ -421,17 +431,30 @@ func _run_async(args: Array) -> String:
 
 
 func _fill_channels() -> void:
+	_filling_channels = true
 	var listed := UpdateStates.parse_channels(await _run_async(["channels"]))
 	var current := UpdateStates.parse_channel(await _run_async(["channel"]))
+	_filling_channels = false
 	if not _alive():
 		return
 	_channels = listed["channels"]
+	_channel_labels = listed["labels"]
+	_channel_descriptions = listed["descriptions"]
 	_channel.clear()  # dropdown.tscn ships one placeholder item
+	if _channels.is_empty():
+		# The list is fetched from GitHub every time, with no fallback (retroforge-update channels exits
+		# non-zero). Show the channel in effect, locked, and say why, instead of an empty dropdown.
+		if current != "":
+			_channel.add_item(UpdateStates.channel_name(current))
+			_channel.select(0)
+		_channel.description = UpdateStates.CHANNELS_UNAVAILABLE
+		_channel.set_meta("pinned", true)  # locked as a pin is: there is nothing to pick from
+		return
 	for i in _channels.size():
-		_channel.add_item(UpdateStates.channel_name(_channels[i]))
+		_channel.add_item(UpdateStates.channel_name(_channels[i], _channel_labels))
 		if _channels[i] == current:
 			_channel.select(i)
-	_channel.description = UpdateStates.channel_description(listed["pinned"], current)
+	_channel.description = UpdateStates.channel_description(listed["pinned"], current, _channel_descriptions)
 	_channel.set_meta("pinned", listed["pinned"] != "")
 
 
@@ -494,7 +517,9 @@ func check() -> bool:
 		# check reprints an update that is already installed: Restart, not Install again.
 		_step = UpdateStates.Step.STAGED if await _is_staged() else UpdateStates.Step.AVAILABLE
 	else:
-		# Exit 7 is also how every failure ends (no network, a bad manifest): the client fails closed.
+		# Exit 7 is also how most failures end (no network, a bad manifest): the client fails closed.
+		# Exit 8 is the one it tells apart: the channel list on GitHub could not be fetched, so
+		# nothing was checked and "No update found" would be untrue.
 		_step = UpdateStates.Step.IDLE
 		if code != 7:
 			logger.warn("retroforge-update check exited %d: %s" % [code, cmd.stderr])
@@ -502,7 +527,10 @@ func check() -> bool:
 		return false
 	_show()
 	if _step == UpdateStates.Step.IDLE:
-		_button.description = "No update found on the %s channel." % UpdateStates.channel_name(_current_channel())
+		if code == 8:
+			_button.description = UpdateStates.CHECK_NO_CHANNELS
+		else:
+			_button.description = "No update found on the %s channel." % UpdateStates.channel_name(_current_channel(), _channel_labels)
 	return _step != UpdateStates.Step.IDLE
 
 
@@ -567,7 +595,7 @@ func _on_channel_selected(index: int) -> void:
 		_show()
 		return
 	logger.info("update channel: " + _channels[index])
-	_channel.description = UpdateStates.channel_description("", _channels[index])  # set-channel succeeded, so nothing pins it
+	_channel.description = UpdateStates.channel_description("", _channels[index], _channel_descriptions)  # set-channel succeeded, so nothing pins it
 	if _step == UpdateStates.Step.AVAILABLE:
 		_step = UpdateStates.Step.IDLE  # that offer was the other channel's
 	check()
