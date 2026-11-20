@@ -167,7 +167,7 @@ while read -r name ver arch src sha; do
         echo "$file: built from different sources than $LOCKREL records" >&2
         echo "    lock: $sha" >&2
         echo "    tree: ${entry%%	*}   (${entry#*	}: source.pin + patches + PKGBUILD)" >&2
-        # A dev card is not a provenance artifact, and requiring the lock to be adopted mid-loop
+        # A dev image is not a provenance artifact, and requiring the lock to be adopted mid-loop
         # means every edit to an overlay package's sources costs a `make relock` — which rebuilds
         # the overlay AND (because relock clears RETROFORGE_DEV) the base, twice, before you can
         # flash the thing you just compiled. That is the same round-trip argument the artifact-pin

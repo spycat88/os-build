@@ -17,7 +17,7 @@
 #
 # The root carries its own boot half (docs/archive/phase5.md): /boot/{vmlinuz.efi, initramfs-retroforge.img,
 # dtbs} that the slot's stage-2 GRUB boots, plus the /usr/lib/retroforge/boot mirror + the
-# /esp//efi mountpoints the update path reads. The stage-1/2 binaries reach the cards through
+# /esp//efi mountpoints the update path reads. The stage-1/2 binaries reach the images through
 # the ESP/efi partitions laid by image/make-sdcard.sh and refreshed by the RAUC hook.
 #
 #   rootfs/assemble-rootfs.sh <base-rootfs-dir>
@@ -112,7 +112,7 @@ install -dm0755 "$stage/efi"
 ln -s /efi "$stage/boot/efi"
 
 # Firmware each device's own Android partitions hold, which msm-firmware-loader serves from there, so
-# the card does not ship it: all of qcom/ (DSPs, GPU microcode and zap shaders, amp configs, WPSS) but
+# the image does not ship it: all of qcom/ (DSPs, GPU microcode and zap shaders, amp configs, WPSS) but
 # the mainline video firmware and the AudioReach topologies, all of qca/ (Bluetooth, from the bluetooth
 # partition), and the Air X/Y amp config, which its DT now names from the device.
 fw_from_device() {
@@ -158,7 +158,7 @@ fi
 # RETROFORGE_VERSION is set by CI from the release tag (`image/v1.3.0` -> `1.3.0`, likewise `ota/`), and
 # is empty for a local build — rendered `dev`, which is the honest answer for bytes that came off
 # someone's box. Without these two fields the only per-build identity was a timestamp, which cannot
-# answer "is this device on the card I flashed, or an OTA past it?".
+# answer "is this device on the image I flashed, or an OTA past it?".
 # RETROFORGE_MODE answers "is this a test image or a shippable one?", which nothing else could. A DEV
 # image carries Wi-Fi credentials and an authorized_keys (the dev-wifi-ssh stage) and must never reach a
 # device that is not the builder's own — yet a dev image signed with the real release key is
@@ -229,9 +229,9 @@ if [ -d "$OVERLAY" ]; then
   # content. The offline suites import rootfs/overlay's clients as modules (test-fan-curve.sh,
   # -cpu-scheduler, -update), and CPython writes a __pycache__ NEXT TO THE SOURCE — inside rootfs/overlay/, which this
   # cp copies verbatim. .gitignore covers the repo but NOT this copy, and the difference is not
-  # theoretical: v0.2.x dev cards shipped .pyc files that the device can never load, because they
+  # theoretical: v0.2.x dev images shipped .pyc files that the device can never load, because they
   # are the HOST's CPython ABI (3.14) and the image runs 3.13. Pruned here rather than left to the
-  # release-only guard, since a dev card is exactly where it happened. Only the overlay's own: the
+  # release-only guard, since a dev image is exactly where it happened. Only the overlay's own: the
   # base's __pycache__ is the image's bytecode, compiled by its own interpreter (customize-base.sh).
   (cd "$OVERLAY" && find . -name __pycache__ -type d -prune -print0) | (cd "$stage" && xargs -0r rm -rf --)
 else
@@ -252,7 +252,7 @@ fi
 # the Makefile's DEV_WIFI mirrors this decision.
 dev_wifi=0
 if [ "${RETROFORGE_DEV:-}" = "1" ]; then
-  . "$ROOT/rootfs/lib-assemble-devcard.sh"
+  . "$ROOT/rootfs/lib-assemble-devimage.sh"
 fi
 
 # boot-splash runs on EVERY build; it only has to precede debug-capture.
@@ -502,7 +502,7 @@ for slot in a b; do
   # in bootconf naming: the kernel command line carries retroforge.slot=A|B, seed_var writes $SLOT,
   # and tests/test-post-install.sh asserts 'B'. This wrote 'a' and was the only thing in the
   # system spelling it lowercase -- discovered 2026-08-22 when installer/verify-install.sh, which
-  # runs the card's check list against a real install, disagreed with image/verify-card.sh about
+  # runs the image's check list against a real install, disagreed with image/verify-image.sh about
   # the same file. Nothing reads it at runtime (the initramfs takes the slot from the cmdline), so
   # this was cosmetic -- but a witness that answers differently depending on how the disk was made
   # is not a witness.

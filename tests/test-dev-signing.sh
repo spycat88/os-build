@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Offline test for ota/gen-dev-signing.sh: the build box's dev OTA key, which lets a dev card take a
+# Offline test for ota/gen-dev-signing.sh: the build box's dev OTA key, which lets a dev image take a
 # new build as an update (rauc install) instead of a reflash that erases its /home.
 #
 #   tests/test-dev-signing.sh
 #
-# WHY THIS EXISTS. Every rule below fails as a dev card that refuses its next bundle, which is found
-# only after a full build and a copy to the device: a CA regenerated over the one cards were flashed
+# WHY THIS EXISTS. Every rule below fails as a dev image that refuses its next bundle, which is found
+# only after a full build and a copy to the device: a CA regenerated over the one images were flashed
 # with; a signing cert rauc's check-purpose=codesign does not accept; private keys written into a
 # tracked tree; a keyring of the project CA plus the dev CA that does not verify the dev signature.
 # The guard's side (a release keyring is the project CA alone) is in rootfs/guard-rootfs.sh.
@@ -44,7 +44,7 @@ CASE="never over itself"
 before="$(fpr "$T/pki/ca.cert.pem")"
 DEV_PKIDIR="$T/pki" bash "$GEN" 2>"$T/err"; rc=$?
 [ "$rc" = 0 ] && [ "$(fpr "$T/pki/ca.cert.pem")" = "$before" ] && [ ! -s "$T/err" ] \
-  && ok "run again: the same CA, nothing said (cards flashed with it keep taking its bundles)" || bad "rc=$rc $(cat "$T/err")"
+  && ok "run again: the same CA, nothing said (images flashed with it keep taking its bundles)" || bad "rc=$rc $(cat "$T/err")"
 mkdir -p "$T/partial"; echo key >"$T/partial/ca.key.pem"
 DEV_PKIDIR="$T/partial" bash "$GEN" 2>"$T/err"; rc=$?
 [ "$rc" = 1 ] && grep -q "partial dev PKI" "$T/err" && [ "$(cat "$T/partial/ca.key.pem")" = key ] \
@@ -53,7 +53,7 @@ DEV_PKIDIR="$ROOT/ota/rauc/devtest" bash "$GEN" 2>"$T/err"; rc=$?
 [ "$rc" = 1 ] && [ ! -e "$ROOT/ota/rauc/devtest" ] && grep -q "inside the repo" "$T/err" \
   && ok "private keys never inside the tracked tree" || { bad "rc=$rc $(cat "$T/err")"; rm -rf "$ROOT/ota/rauc/devtest"; }
 
-CASE="a dev card's keyring"
+CASE="a dev image's keyring"
 { cat "$CA"; echo; cat "$T/pki/ca.cert.pem"; } >"$T/keyring.pem"
 openssl verify -CAfile "$T/keyring.pem" "$T/pki/release.cert.pem" >/dev/null 2>&1 \
   && ok "the project CA then the dev CA, in one keyring: the dev signature verifies" || bad "does not verify against the two-CA keyring"

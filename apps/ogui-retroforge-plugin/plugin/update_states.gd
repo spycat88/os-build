@@ -7,7 +7,7 @@ extends RefCounted
 
 enum Step { IDLE, CHECKING, AVAILABLE, INSTALLING, STAGED }
 
-## The channels' names as the player reads them; any other (a dev card's pin) shows as it is.
+## The channels' names as the player reads them; any other (a dev image's pin) shows as it is.
 const CHANNEL_NAMES := {"stable": "Stable", "beta": "Beta", "nightly": "Nightly"}
 ## What the channel dropdown says when `channels` fails: the hosted list could not be fetched.
 ## retroforge_os.gd fetches it again on the next visit to the page, which the text asks for.

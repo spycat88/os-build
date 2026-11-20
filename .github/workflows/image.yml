@@ -2,7 +2,7 @@
 #
 # workflow_call only: this builds nothing on its own schedule. .github/workflows/release-sdcard.yml
 # and release-bundle.yml call it on their own triggers, which is the whole reason it exists — the two
-# artifacts are wanted at different cadences (a card is for flashing a device from scratch, a bundle
+# artifacts are wanted at different cadences (an image is for flashing a device from scratch, a bundle
 # is for updating one already in the field) and neither should have to wait on the other.
 #
 # WHAT MAKES CI THE PRODUCER OF A RELEASE IMAGE is the CREDENTIALS, not a build gate. Signing a
@@ -14,13 +14,13 @@
 # impossible; it was retired 2026-08-04 along with the overlay store — see
 # .github/workflows/overlay.yml for the measurements behind that.
 #
-# THE TWO ARTIFACTS SHIP TO DIFFERENT PLACES, AND NEITHER SHIPS FROM HERE. A CARD goes to the
+# THE TWO ARTIFACTS SHIP TO DIFFERENT PLACES, AND NEITHER SHIPS FROM HERE. AN IMAGE goes to the
 # `image/v*` GitHub Release a person downloads and flashes from (524 MiB compressed, measured
 # 2026-10-13, against a 2 GiB per-asset cap). A BUNDLE goes to the R2 bucket
 # devices fetch their OTAs from — a different host, different credentials, different audience. Both
 # paths stop at a workflow artifact here and are handed off to a publishing job in the caller.
 #
-# The card used to be uploaded (to R2, then) from THIS job, which meant the credentials were in scope for the
+# The image used to be uploaded (to R2, then) from THIS job, which meant the credentials were in scope for the
 # whole 350-minute build — a job that bootstraps a rootfs, compiles the overlay from third-party
 # sources and runs several container stages as uid 0. Moving the upload out (2026-08-11) shrank that
 # window to the couple of minutes an upload takes, put the reviewer's approval AFTER a green build
@@ -40,7 +40,7 @@
 # hour of human latency. It buys back nothing if approvals are instant — they are not.
 #
 # THIS MODE IS NOT A THIRD RELEASE ARTIFACT. Nothing consumes a rootfs.img except the release job in
-# the same run, which is why it carries no release metadata and why the card path never asks for it.
+# the same run, which is why it carries no release metadata and why the image path never asks for it.
 #
 # THE OVERLAY STARTS FROM main's CACHE AND REBUILDS WHAT MOVED. Cold, the whole set is ~30
 # minutes on a native aarch64 runner. The build job restores work/repo/aarch64 from the
@@ -63,7 +63,7 @@
 # The staged version was therefore reverted to a plain `make sdcard`. Its cost was never the extra
 # steps — it was that deleting work/base while keeping work/.base.stamp depends on subtle make
 # semantics, and cleverness like that earns a baffling 40-minute rebuild eventually. That was a
-# reasonable trade against a hard limit and a bad one without it. `df -h` stays, because the card
+# reasonable trade against a hard limit and a bad one without it. `df -h` stays, because the image
 # only grows as packages land and this is where you would look first.
 #
 # The paths are root-owned (every container stage runs as uid 0 through the bind mount — the same
@@ -296,7 +296,7 @@ jobs:
             make sdcard
           fi
 
-      # gzip, not zstd, and level 6. MEASURED on a real card (19 G apparent / 17 G real, both slots
+      # gzip, not zstd, and level 6. MEASURED on a real image (19 G apparent / 17 G real, both slots
       # populated): gz -6 = 8.97 GiB in 33s, zstd -6 = 8.77 GiB in 7s, zstd -19 = 8.49 GiB in 444s.
       # Every option landed within 0.5 GiB of the others because the payload is ALREADY compressed
       # (the btrfs root carries compress=zstd), so this is not a size decision — it is a
@@ -304,17 +304,17 @@ jobs:
       # years. Note gzip's level knob does nothing at all here: -6 and -9 are byte-for-byte
       # identical.
       #
-      # Those numbers predate 2026-08-04, when release cards stopped populating slot B (a second
+      # Those numbers predate 2026-08-04, when release images stopped populating slot B (a second
       # copy of an incompressible root: see image/make-sdcard.sh). The same gz -6 over the same
-      # 19G-apparent card now measures 5.08 GiB — 3.89 GiB less, 43% off. Nothing about the CHOICE
+      # 19G-apparent image now measures 5.08 GiB — 3.89 GiB less, 43% off. Nothing about the CHOICE
       # changes: the payload is still already-compressed and the formats still land within a
       # fraction of each other, so the comparison above is kept as the record of why .gz.
       #
       # NAMED FOR THE RELEASE, retroforge-<version>.img.gz, not sdcard.img.gz: a user reported that a
       # download called sdcard.img.gz says nothing about what it is or which release it came from.
-      # The name is set here, before card-meta.sh hashes it, so sha256sums.txt names the file a
+      # The name is set here, before image-meta.sh hashes it, so sha256sums.txt names the file a
       # downloader actually has. release-sdcard.yml derives the same name from the same version.
-      - name: compress the card
+      - name: compress the image
         if: inputs.artifact == 'sdcard'
         run: |
           set -euo pipefail
@@ -347,13 +347,13 @@ jobs:
           cp --sparse=always out/images/rootfs.img out/images/rootfs.release upload/
           ls -lh upload/ >> "$GITHUB_STEP_SUMMARY"
 
-      # Checksums + the pins this image was actually built against. One producer (image/card-meta.sh)
+      # Checksums + the pins this image was actually built against. One producer (image/image-meta.sh)
       # for both the GitHub Release and the workflow artifact, so the two cannot drift.
       #
       # NOT ON THE ROOTFS PATH. The sums here are what a consumer checks against the thing they
       # fetched, and nobody fetches a rootfs.img — it is an intermediate that exists for exactly one
       # downstream job. Hashing it would produce a sha256sums.txt naming a file that never ships,
-      # sitting next to the one that does. release-bundle.yml's `release` job runs card-meta.sh over
+      # sitting next to the one that does. release-bundle.yml's `release` job runs image-meta.sh over
       # the SIGNED bundle instead, which is the artifact with an audience.
       - name: stage release metadata
         if: inputs.artifact != 'rootfs'
@@ -372,7 +372,7 @@ jobs:
           # Makefile's clean targets shell out to busybox rather than using host rm. The runner
           # cannot mkdir inside it. This bit once already; do not "tidy" the path back into out/.
           mkdir -p meta
-          image/card-meta.sh "$f" meta
+          image/image-meta.sh "$f" meta
 
       - name: upload metadata artifact
         if: inputs.artifact != 'rootfs'
@@ -383,11 +383,11 @@ jobs:
           if-no-files-found: error
 
       # The image itself, UNCONDITIONALLY — this is the only way it leaves this job now that neither
-      # artifact is shipped from here. The card path used to skip this upload when publishing,
+      # artifact is shipped from here. The image path used to skip this upload when publishing,
       # because the bucket already held the bytes; that shortcut died with the in-job upload.
       #
-      # RETENTION IS SHORT ON PURPOSE. A card is ~520 MiB and the repo default is 90 days, so keeping
-      # every release card around for a quarter is real storage against no use: a publishing job
+      # RETENTION IS SHORT ON PURPOSE. An image is ~520 MiB and the repo default is 90 days, so keeping
+      # every release image around for a quarter is real storage against no use: a publishing job
       # downloads this within the same run, and the only reason to want it afterwards is to re-run a
       # failed publish. Seven days is far longer than anyone takes to notice that.
       - name: upload the image artifact

@@ -1,7 +1,7 @@
 # Plan: store sign-in on the device (Chromium window)
 
 **Complexity**: Medium-High. **Branch**: `steam-armv8-proton`. **Status**: prototype committed at
-f8f62179 (2026-10-29), HW-OK on Pocket FIT for GOG and Epic + Google; D1, D4, D5 agreed 2026-10-29; Phase 1 done offline 2026-10-29 (`store browser status|setup`), HW pending; Phase 2 done offline 2026-10-29 (`sign-in` opens Chromium, python/chromium_signin.py; LAN page and qr.py removed), HW pending; Phase 3 done 2026-10-29 (plugin 0.1.93). Phases 1-3 HW-OK on the Pocket FIT 2026-10-29 (dev card): Chromium set-up, GOG (loki666b) and Epic (loki_666b) signed in from Settings > Stores, Guide > Exit cancels; found and fixed there: CDN resets (16b8f478), Epic digital extras listed as games (10a290c4). Air X pending (its Wi-Fi).
+f8f62179 (2026-10-29), HW-OK on Pocket FIT for GOG and Epic + Google; D1, D4, D5 agreed 2026-10-29; Phase 1 done offline 2026-10-29 (`store browser status|setup`), HW pending; Phase 2 done offline 2026-10-29 (`sign-in` opens Chromium, python/chromium_signin.py; LAN page and qr.py removed), HW pending; Phase 3 done 2026-10-29 (plugin 0.1.93). Phases 1-3 HW-OK on the Pocket FIT 2026-10-29 (dev image): Chromium set-up, GOG (loki666b) and Epic (loki_666b) signed in from Settings > Stores, Guide > Exit cancels; found and fixed there: CDN resets (16b8f478), Epic digital extras listed as games (10a290c4). Air X pending (its Wi-Fi).
 
 ## Summary
 

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# retroforge release-card metadata — the small files that travel with a card.
+# retroforge release-image metadata — the small files that travel with an image.
 #
-#   image/card-meta.sh <image-file>   ->  out/images/release-meta/{sha256sums.txt,provenance/}
+#   image/image-meta.sh <image-file>   ->  out/images/release-meta/{sha256sums.txt,provenance/}
 #
-# Its own script because more than one path needs the identical bytes: the card release attaches
+# Its own script because more than one path needs the identical bytes: the image release attaches
 # sha256sums.txt to the GitHub Release next to the image, and every CI build uploads both as a
 # workflow artifact. The provenance copy is not a release asset (dropped 2026-11-08). Building them twice from two copies of the same loop is how the two quietly drift.
 #
 # WHY THE SUM IS OVER THE COMPRESSED FILE. That is what a downloader has in hand before they
 # decompress, so it is the only sum they can check without first writing 19G to disk.
 #
-# WHY PROVENANCE TRAVELS WITH THE IMAGE. Without it a card months old cannot be traced to what it
+# WHY PROVENANCE TRAVELS WITH THE IMAGE. Without it an image months old cannot be traced to what it
 # installed. rootfs/manifest.lock answers that for every package: third-party rows by sha256, and our
 # own `retroforge` rows by packages/inputhash.sh over the sources they were built from. It used to be
 # accompanied by packages/*/artifact.pin, which answered "are these the reviewed BYTES?"; those were
@@ -36,5 +36,5 @@ mkdir -p "$OUT/provenance"
 
 cp "$ROOT/rootfs/manifest.lock" "$OUT/provenance/"
 
-echo "[card-meta] $(cat "$OUT/sha256sums.txt")" >&2
-echo "[card-meta] manifest.lock -> ${OUT#"$ROOT"/}" >&2
+echo "[image-meta] $(cat "$OUT/sha256sums.txt")" >&2
+echo "[image-meta] manifest.lock -> ${OUT#"$ROOT"/}" >&2

@@ -54,7 +54,7 @@ up behind the modeset's back. Both locks are needed -- dev_mutex does not cover
 `enabled`, which msm_dsi_host_enable/disable() write with no lock at all, so
 the latch is still what keeps the refcount balanced.
 
-MEASURED, both directions, on a MANGMI Pocket Max dev card (2026-09-07). The
+MEASURED, both directions, on a MANGMI Pocket Max dev image (2026-09-07). The
 race reproduces on demand in ~15 s -- hammer DCS 0x51 through the backlight
 sysfs while killing the gamescope session tree so it re-modesets -- and that rig
 answers the "is this import even needed" question in both directions:

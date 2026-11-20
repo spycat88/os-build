@@ -27,6 +27,6 @@ post-install hook rsyncs `/var` across on update
 | `lib-rclone.sh` + `rclone.pin` | Sourced, never executed. The R2 credential environment and the pinned, sha256-verified rclone. |
 
 Note that a green release workflow run does **not** by itself mean anything was published —
-check the bucket (bundles) or the GitHub Release (card).
+check the bucket (bundles) or the GitHub Release (image).
 
 _Phase 5._

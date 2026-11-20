@@ -31,7 +31,7 @@ Wants=dbus.service inputplumber.service
 [Service]
 Type=simple
 # pam_nologin refuses every login but root's while this exists, so a paired `player` SSH cannot come
-# back. It is on /run, so the reboot clears it. Dev cards keep root SSH.
+# back. It is on /run, so the reboot clears it. Dev images keep root SSH.
 ExecStartPre=/usr/bin/touch /run/nologin
 ExecStartPre=-/usr/bin/loginctl terminate-user 1000
 # OGUI sets InputPlumber's profile and intercept mode, and nothing puts them back when it dies. The

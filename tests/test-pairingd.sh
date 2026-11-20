@@ -312,7 +312,7 @@ print(ns['dnssd_object_path']())
 fi
 
 # THE CRASH-RESTART PATH, and it took hardware to find. systemd does NOT run ExecStopPost on the
-# Restart= auto-restart path -- measured on a dev card (systemd 258) with an ExecStopPost probe
+# Restart= auto-restart path -- measured on a dev image (systemd 258) with an ExecStopPost probe
 # that logged on `systemctl restart` and did NOT log between a SIGKILL and the restart it
 # triggered. So the replacement instance meets its predecessor's registration still in place, and
 # a plain RegisterService fails DnssdServiceExists: the advert survives, but owned by nothing, and

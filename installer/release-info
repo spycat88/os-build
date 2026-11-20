@@ -6,8 +6,8 @@
 # A DEV IMAGE INSTALLS ITSELF. On an image whose /etc/retroforge-release says RETROFORGE_MODE=dev,
 # this does not ask the server at all: it answers with the root this system booted from, as
 # BUNDLE=running:<device>, and retroforge-install copies that slot instead of streaming a bundle. A
-# dev card is pinned to the `dev` channel, which usually has nothing published, and even when it
-# has, what a person testing a dev card wants on internal storage is the build they are holding --
+# dev image is pinned to the `dev` channel, which usually has nothing published, and even when it
+# has, what a person testing a dev image wants on internal storage is the build they are holding --
 # not whatever was last pushed to a channel.
 #
 # IT EMITS key=value AND NO PROSE: the words belong to whatever is drawing the screen, the facts belong
@@ -107,7 +107,7 @@ def config():
     conf = read_env_file(CONFIG_FILE)
     # The host is never read from USER_CONFIG_FILE, for the reason retroforge-update's config() gives.
     url = os.environ.get("RETROFORGE_OTA_URL") or conf.get("OTA_URL") or DEFAULT_URL
-    # retroforge-update's channel_setting() order: env, /etc, $HOME, built-in. A dev card's pin in
+    # retroforge-update's channel_setting() order: env, /etc, $HOME, built-in. A dev image's pin in
     # /etc outranks the user's file on purpose.
     for channel in (
         os.environ.get("RETROFORGE_OTA_CHANNEL"),

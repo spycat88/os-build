@@ -302,7 +302,7 @@ jobs:
           Revisions for that date: \`$revs\`
 
           - [ ] diff its core.db/extra.db against the pinned revision — a respin usually carries fixes
-          - [ ] follow the bump drill: \`build/snapshot.pin\` + \`build/builder.pin\`, \`make overlay\`, relock both, a release card, HW
+          - [ ] follow the bump drill: \`build/snapshot.pin\` + \`build/builder.pin\`, \`make overlay\`, relock both, a release image, HW
           EOF
           )"
           fi

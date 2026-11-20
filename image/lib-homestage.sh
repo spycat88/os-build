@@ -4,7 +4,7 @@
 # SOURCED, never executed (hence mode 0644, like lib-slotwrite.sh).
 #
 # WHY THIS FILE EXISTS, and it is the same argument lib-slotwrite.sh opens with: /home is written
-# twice -- once by image/make-sdcard.sh into a card image at build time, and once by
+# twice -- once by image/make-sdcard.sh into an image at build time, and once by
 # installer/retroforge-install onto an internal disk on the device -- and the two must produce the
 # same tree. So the layout lives here and both callers ask for it.
 

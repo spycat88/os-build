@@ -5,7 +5,7 @@
 #   tests/test-plugin-install.sh
 #
 # WHY THIS EXISTS. OGUI only loads plugins from the player's ~/.local/share/opengamepadui/plugins,
-# so a fresh card has no ROM library and no Emulators page until something copies the image's copy
+# so a freshly flashed image has no ROM library and no Emulators page until something copies the image's copy
 # there. The rules, each of which goes wrong silently:
 #   - install when missing, or when the installed copy's version DIFFERS from the image's: an OS
 #     update brings a newer plugin, and a beta -> stable channel switch an OLDER one that must win
@@ -49,7 +49,7 @@ run() {
 }
 
 # =================================================================================================
-CASE="fresh card"
+CASE="fresh image"
 mkzip "$SRC" 0.2.0
 run
 [ "$RC" = 0 ] && [ "$(version_of "$DST")" = 0.2.0 ] && ok "installs the image's copy when none is there (exit 0)" || bad "rc=$RC installed=$(version_of "$DST") err=$ERR"

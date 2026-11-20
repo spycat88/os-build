@@ -5,7 +5,7 @@
 # BOTH slots: ESP + rootfs-a/-b + var-a/-b + home, and each slot's efi-a/efi-b partition with
 # that slot's STAGE-2 grub.cfg.
 #
-# The boot chain this card boots:
+# The boot chain this image boots:
 #
 #   ABL -> /EFI/BOOT/bootaa64.efi (the ESP GRUB, shared ESP: picks the slot from the grubenv)
 #       -> \EFI\steamos\grub.cfg on the SLOT's efi partition (stage 2: picks the board)
@@ -14,7 +14,7 @@
 # The ESP carries the ESP GRUB, the grubenv (RAUC's slot state + the saved board), parts.env and
 # OpenABL's Device model DTBs; each efi partition carries its slot's stage-2 grub.cfg.
 #
-# WHY B IS POPULATED ON A DEV CARD AND EMPTY ON A RELEASE CARD. The default follows RETROFORGE_DEV;
+# WHY B IS POPULATED ON A DEV IMAGE AND EMPTY ON A RELEASE IMAGE. The default follows RETROFORGE_DEV;
 # RETROFORGE_SLOT_B=0|1 overrides it in either direction.
 #
 # Dev (Phase 4b): the deliverable of the boot-path pass is that a slot switch and a rollback are
@@ -25,11 +25,11 @@
 # Release: B WOULD BE a byte-identical copy of a root that is ALREADY zstd-compressed inside btrfs,
 # so it would survive the release compression whole. Nothing dedupes it: the flash instruction is
 # `gzip -dc` (32 KiB window), and even zstd --long tops out at a 2 GiB window against a ~4 GiB gap
-# between the two copies. That was ~4 of the ~9 GiB a release card compressed to until 2026-08-04
+# between the two copies. That was ~4 of the ~9 GiB a release image compressed to until 2026-08-04
 # (measured for the old R2 publisher) — ~44% of every download — bought to cover a failover window that closes
 # the first time RAUC writes the slot, which it writes in FULL and reads nothing prior out of. A
 # user never hand-tests a slot switch, and a fresh-card A failure is media failure, which will not
-# politely spare B. With B left empty a card compresses to ~5 GiB instead.
+# politely spare B. With B left empty an image compresses to ~5 GiB instead.
 #
 # Flash time is unchanged either way: the dd writes the whole full-size image including its zeros.
 #
@@ -69,9 +69,9 @@ GRUB_CFG_B="$BOOT/grub-b.cfg"
 GRUB_FONT="$BOOT/fonts/dejavu-mono.pf2" # stage-2 boot font ($prefix/fonts/ in grub.cfg)
 GRUBENV="$BOOT/grubenv"                 # pristine env block (RAUC's slot state + saved_entry)
 
-# Populate the B slot too: on for a dev card, off for a release card. See the header for why.
+# Populate the B slot too: on for a dev image, off for a release image. See the header for why.
 # Read the mode rather than defaulting to 1, so that forgetting to forward RETROFORGE_DEV produces a
-# release-shaped card (small, one bootable slot) rather than silently shipping the 4 GiB copy.
+# release-shaped image (small, one bootable slot) rather than silently shipping the 4 GiB copy.
 SLOT_B="${RETROFORGE_SLOT_B:-$([ "${RETROFORGE_DEV:-}" = 1 ] && echo 1 || echo 0)}"
 
 MIB=$((1024 * 1024))
@@ -107,7 +107,7 @@ ESP_SIZE_MIB=$(part_mib esp)
 EFI_SIZE_MIB=$(part_mib efi-a)
 
 # Every populated filesystem must fit the slot the table declares for it. A silently truncated
-# dd would produce a card that boots into a corrupt filesystem, so fail loudly here instead.
+# dd would produce an image that boots into a corrupt filesystem, so fail loudly here instead.
 fits() {  # <file> <slot-mib> <what>
   local bytes slot_bytes; bytes=$(stat -c %s "$1"); slot_bytes=$(( $2 * MIB ))
   [ "$bytes" -le "$slot_bytes" ] || {
@@ -215,9 +215,9 @@ fatdir "$esp" /EFI/BOOT
 fatdir "$esp" /EFI/steamos
 fatdir "$esp" /dtbs/qcom
 # The pristine env block comes from out/boot, not from a `grub-editenv create` here: the internal
-# installer starts from the same file, so a card and an install carry the same object. The slot
-# state is seeded on a copy: A is the only slot a fresh card is sure to have, and B is OK only when
-# this card populates it. RAUC makes B OK itself the first time it writes it.
+# installer starts from the same file, so an image and an install carry the same object. The slot
+# state is seeded on a copy: A is the only slot a freshly flashed image is sure to have, and B is OK only when
+# this image populates it. RAUC makes B OK itself the first time it writes it.
 envtmp="$(mktemp)"
 cp "$GRUBENV" "$envtmp"
 grub-editenv "$envtmp" set "ORDER=A B" "A_OK=1" "A_TRY=0" "B_OK=$SLOT_B" "B_TRY=0"
@@ -281,7 +281,7 @@ write_part "$P_HOME"  "$home"   "retroforge-home (ext4, grows on first boot)"
 
 echo "  ok   $(du -h "$IMG" | cut -f1) -> ${IMG#"$ROOT"/}"
 
-# 6. No compression here. The image compresses hard (most of the card is empty — B slots plus the
+# 6. No compression here. The image compresses hard (most of the image is empty — B slots plus the
 # unallocated tail), but single-threaded gzip over ~19GiB dominates the wall time of an otherwise
 # incremental rebuild, and every local consumer of this image dd's the raw .img anyway. Compression
 # is a release/CI concern: do it there, where it runs once per artifact instead of once per edit.

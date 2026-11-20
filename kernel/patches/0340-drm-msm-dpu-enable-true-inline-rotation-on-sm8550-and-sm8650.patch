@@ -65,7 +65,7 @@ into one.
 NOT UPSTREAM as of the 7.2.5 tree this is pinned to: neither DPU 9.0 nor
 10.0 declares a rotator there, and both bugs above are present in it.
 
-HW-VALIDATED 2026-09-12 on three boards from one dev card, both catalog
+HW-VALIDATED 2026-09-12 on three boards from one dev image, both catalog
 entries exercised:
   Pocket ACE  qcs8550  DPU 9.0   1080x1620  PASS  rotation=8, 0 flip errors
   Pocket FIT  sm8650   DPU 10.0  1080x1920  PASS  rotation=8, 0 flip errors

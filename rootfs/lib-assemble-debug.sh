@@ -13,7 +13,7 @@
 # STAGE debug-capture — journald log capture (RETROFORGE_DEBUG=1). INDEPENDENT of RETROFORGE_DEV, applies to release too.
 # This device has no UART and is usually powered off abruptly, and journald's default
 # SyncIntervalSec=5min means a short boot's system logs (kernel/NetworkManager/wpa_supplicant/
-# regulatory) never reach disk before the power is cut — that is why a released card's persistent
+# regulatory) never reach disk before the power is cut — that is why a released image's persistent
 # journal held only the late gamescope session and none of the Wi-Fi bring-up. Under DEBUG, force
 # persistent storage, sync every few seconds so logs survive a power-yank, drop the rate limit so
 # gamescope's chatter cannot evict other units, and cap size generously. Diagnostic builds only —
@@ -37,7 +37,7 @@ SystemMaxUse=500M
 DBG
 
   # (b) The real capture: journald reliably RECEIVES system logs into its runtime journal but on
-  # this RO-root device it does not persist them to /var before power is cut (a released card kept
+  # this RO-root device it does not persist them to /var before power is cut (a released image kept
   # only the late gamescope session). So stream the live journal to the ext4 /home partition, which
   # IS writable and survives a power-yank. `journalctl -b -f` first dumps the WHOLE boot backlog
   # (kernel/NM/wpa/regulatory, even though this unit starts at multi-user) then follows live — so it

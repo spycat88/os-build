@@ -1,7 +1,7 @@
 # retroforge release update bundle — builds a RAUC bundle for a device already in the field.
 #
 # Separate from release-sdcard.yml on purpose: an update ships on its own cadence, and coupling it to
-# card builds would mean either cutting cards nobody asked for or delaying updates until someone did.
+# image builds would mean either cutting images nobody asked for or delaying updates until someone did.
 # Both delegate to image.yml so the rootfs recipe exists once.
 #
 # ============================================================================================
@@ -40,13 +40,13 @@
 #      caller cannot attach an environment to a reusable workflow's job from outside), and the
 #      `build` job below passes it only on a tag.
 #
-# VERIFIED 2026-08-11: `environment: ''` means "no environment" rather than an error. Every card run
+# VERIFIED 2026-08-11: `environment: ''` means "no environment" rather than an error. Every image run
 # has taken that path since release-sdcard.yml was written, and the `build` job below now takes it
 # unconditionally — a build that names no environment is the entire point of the split. (Recorded
 # here as UNVERIFIED until the split made it load-bearing for bundles too. Had it failed, the fix
 # would have been two jobs in image.yml picked with an `if:`, not a change to the model.)
 # WHERE THE BUNDLE GOES: the Cloudflare R2 bucket devices update from, since 2026-10-13 (it replaced
-# a self-hosted nginx box). Not a GitHub release asset like the card and installer: a card is
+# a self-hosted nginx box). Not a GitHub release asset like the image and installer: an image is
 # downloaded by a person with a browser, a bundle is fetched by a device with a keyring, which needs a
 # stable public url and Range support (rauc streams the bundle). The transport is
 # ota/publish-bundle.sh, called by the `release` job below (sign-publish-bundle.yml); the bucket layout is
@@ -72,11 +72,11 @@
 # that names it, and the environment only accepts deployments from `ota/v*` tags.
 name: release bundle
 
-# TAG NAMESPACE: `ota/v*`. Bundles and cards ship on independent cadences — an update goes out far
-# more often than a card — so each gets its own namespace instead of sharing a bare `v*`. Until this
-# trigger existed, release-sdcard.yml owned `v*` alone, so tagging a release built a CARD and never
+# TAG NAMESPACE: `ota/v*`. Bundles and images ship on independent cadences — an update goes out far
+# more often than an image — so each gets its own namespace instead of sharing a bare `v*`. Until this
+# trigger existed, release-sdcard.yml owned `v*` alone, so tagging a release built an IMAGE and never
 # a bundle: exactly backwards. `ota/v1.3.0` and `image/v1.3.0` on one commit are the same OS shipped
-# two ways; a run of ota tags with no card between them is the normal state.
+# two ways; a run of ota tags with no image between them is the normal state.
 on:
   workflow_dispatch:
     inputs:
@@ -112,7 +112,7 @@ jobs:
           elif [ "$GITHUB_REF_TYPE" = tag ]; then
             v="${REF_NAME#ota/}"
           else
-            # Empty is legitimate here, unlike the card path: the image then calls itself `dev` and
+            # Empty is legitimate here, unlike the image path: the image then calls itself `dev` and
             # genbundle.sh names the bundle after its build timestamp, which is still unique per
             # build. A dispatch with no version is a smoke test, and it is labelled as one.
             v=""
@@ -168,7 +168,7 @@ jobs:
   # Assembling a rootfs needs no release key, so gating the build would only park a 30-minute job
   # in `waiting` — and burn an approval every time an upstream outage (kernel.org, github.com
   # mid-clone) kills it. The gate sits on `release`, where the keys are actually used, so a reviewer
-  # approves a build that has already succeeded — the same shape as the card path, whose upload
+  # approves a build that has already succeeded — the same shape as the image path, whose upload
   # lives outside its build job (see image.yml's header).
   #
   # `secrets: inherit` stays, and stays safe for the same reason as before: the signing secrets are
@@ -211,9 +211,9 @@ jobs:
 
   # A GitHub Release for the update, NOTES ONLY. The bundle itself lives in R2 and reaches devices
   # through latest.json; this is the human-readable record of what the update changed, next to the
-  # card releases. After `release`, so a Release never announces an update the fleet cannot get.
+  # image releases. After `release`, so a Release never announces an update the fleet cannot get.
   #
-  # Not the "Latest" release: that badge belongs to the newest card, which is what someone arriving
+  # Not the "Latest" release: that badge belongs to the newest image, which is what someone arriving
   # at the releases page wants to download. A beta update is marked as a pre-release.
   #
   # The notes are written by Cloudflare Workers AI from the commits since the previous ota/ tag (a stable
@@ -254,7 +254,7 @@ jobs:
             echo '### Install'
             echo
             echo "Devices on the \`$CHANNEL\` channel are offered this update in Settings > General > Updates."
-            echo 'To set up a new device, flash the latest card release instead.'
+            echo 'To set up a new device, flash the latest image release instead.'
           } > notes.md
           pre=()
           [ "$CHANNEL" = stable ] || pre=(--prerelease)

@@ -34,7 +34,7 @@ scrape 113, ui 301, plugin-install 14 — all 0 failed. code-reviewer: APPROVE, 
 its LOWs fixed (visibility_changed disconnected in detach + nodes nulled, pending() guards a
 deleted inbox, the no-cancel-on-unload choice commented); its remaining LOW is a phase 5 HW item:
 gamepad focus when the row hides after a successful run (FocusGroup vs a hidden focused child).
-Remaining: phase 5 HW on the ACE. 2026-10-20 first HW pass (dev card 20261020T155335Z, over SSH):
+Remaining: phase 5 HW on the ACE. 2026-10-20 first HW pass (dev image 20261020T155335Z, over SSH):
 image plumbing OK (inbox + README on first boot), plugin 0.1.61 loads with zero GDScript errors
 and both settings rows attach, empty inbox -> nothing-to-do exit 0, garbage pkg -> real headless
 RPCS3 ran, `failed` line, exit 3, file kept; vfs seeded, dev_hdd0 on ~/saves/ps3 (RPCS3 makes an
@@ -156,7 +156,7 @@ beside the install. Nothing in RetroForge scans, installs or launches them today
   fd via pass_fds (flock follows the open file description), so a SIGKILLed launcher no longer
   frees the lock while RPCS3 lives. Declined LOWs: /tmp fallback hygiene and keying the guard on
   the emulator rather than system "ps3" (single-user device; launch.conf has one ps3 mapping).
-  NOT yet HW-tested (the guard landed after the 2026-10-20 pass; rides the next dev card).
+  NOT yet HW-tested (the guard landed after the 2026-10-20 pass; rides the next dev image).
 - **D11 — card box art seeded from ICON0.PNG** (after the HW pass: RCR DX's card was blank —
   digital-only titles often have no box scan on ScreenScraper; its fanart/wheel DID download, so
   only the portrait card suffered). `--psn-install` copies the installed game's own ICON0.PNG
@@ -215,7 +215,7 @@ beside the install. Nothing in RetroForge scans, installs or launches them today
    appears named from PARAM.SFO, art scrape by name, boot via `%RPCS3_GAMEID%:`, licence honoured
    (game starts past the NPDRM check), update pkg installs without a second card, failed/garbage
    pkg stays in the inbox with a readable result. Also: README.txt present in the inbox on a
-   fresh card and survives an install run; firmware-missing path still works (stub launch goes
+   fresh image and survives an install run; firmware-missing path still works (stub launch goes
    through the normal flow, so the PS3UPDAT.PUP install step fires as today); gamepad focus is
    sane when the settings row hides itself after a successful run (code-reviewer LOW: FocusGroup
    vs a hidden focused child).

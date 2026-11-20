@@ -66,14 +66,14 @@ dead card. That is a setting, not a fault.
 - **`/home` is shared and survives everything** — including the paired SSH keys in
   `/home/player/.ssh`, and the offloaded `/var/log`. This is why an OTA does not lock you out.
 
-## Get a release card
+## Get a release image
 
-**A release card is published only by CI**, through a reviewed `release-cards` approval — but `make
+**A release image is published only by CI**, through a reviewed `release-cards` approval — but `make
 sdcard` on a dev box (no `RETROFORGE_DEV`) builds the same kind of image, which is how a release image's first boot gets
 tested on hardware without waiting for a run.
 
-The card is an asset of the `image/v*` GitHub Release (`card/v*` up to v0.0.8), next to its
-checksums and the package lock it was built from. A release card compresses to 524 MiB (gz -6,
+The image is an asset of the `image/v*` GitHub Release (`card/v*` up to v0.0.8), next to its
+checksums and the package lock it was built from. A release image compresses to 524 MiB (gz -6,
 measured 2026-10-13), well inside GitHub's 2 GiB per-asset cap; `release-sdcard.yml` refuses to
 publish one that has grown past it.
 The asset is named for the release, `retroforge-<version>.img.gz`. The repo is public, so it
@@ -98,8 +98,8 @@ on any failure, `.github/scripts/release-notes.sh` writes the plain commit list 
 never waits on it. An `ota/` Release carries notes only (the bundle is on R2), is never marked
 Latest, and is a pre-release for a beta tag.
 
-To cut a card: tag `image/vX.Y.Z`. To cut an update instead, tag `ota/vX.Y.Z` — the two ship on
-independent cadences and a bundle is expected far more often than a card. There is nothing to line
+To cut an image: tag `image/vX.Y.Z`. To cut an update instead, tag `ota/vX.Y.Z` — the two ship on
+independent cadences and a bundle is expected far more often than an image. There is nothing to line
 up first: the release run compiles the overlay from the sources in the commit it is building
 (~34 min on top of the image), so a tag is never waiting on a separate pipeline to have published
 anything.
@@ -114,15 +114,15 @@ moved and `ci.yml` passed on it, signed by a 90-day nightly cert. It is the one 
 without a hardware install. Renew that cert with `make renew-nightly-cert` when its issue appears
 (`docs/ota.md`, "Nightly").
 
-The version and commit a card was built from are stamped into `/etc/retroforge-release` on the device
+The version and commit an image was built from are stamped into `/etc/retroforge-release` on the device
 (`RETROFORGE_VERSION`, `RETROFORGE_GIT`), so a running system can name where it came from.
 
-## Build and flash a dev card
+## Build and flash a dev image
 
 ```sh
 set -a; . ./dev.env; set +a                   # RETROFORGE_DEV=1 + optional Wi-Fi creds
 make sdcard                                   # -> out/images/sdcard.img
-make verify-card                              # GPT, ESP, per-slot filesystem identities
+make verify-image                              # GPT, ESP, per-slot filesystem identities
 sudo dd if=out/images/sdcard.img of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
@@ -145,21 +145,21 @@ the card on first boot. Each `efi-*` partition carries that slot's stage-2 `grub
 
 **Whether slot B is populated follows the build mode**, and `RETROFORGE_SLOT_B=0|1` overrides it:
 
-* **Dev card** (`RETROFORGE_DEV=1`): B is populated, carrying a distinct btrfs fsid, because a slot
+* **Dev image** (`RETROFORGE_DEV=1`): B is populated, carrying a distinct btrfs fsid, because a slot
   switch cannot be proven against a slot that does not boot. Set `RETROFORGE_SLOT_B=0` for a faster
-  local loop, at the cost of a card whose first slot switch can only exercise the failover path.
-* **Release card**: B is left empty **and the grubenv says `B_OK=0`**. B would be a byte-identical
+  local loop, at the cost of an image whose first slot switch can only exercise the failover path.
+* **Release image**: B is left empty **and the grubenv says `B_OK=0`**. B would be a byte-identical
   copy of an already-compressed root, surviving release compression whole — a second root's worth of
   download for a failover window that closes the first time RAUC writes the slot. `B_OK=0` (and the
   ESP GRUB's check for a kernel) is what keeps it from being tried. The first update writes B in
   full and RAUC marks it OK.
 
-Run `verify-card` before you commit a card to a device — it asserts the built image rather than
+Run `verify-image` before you commit an image to a device — it asserts the built image rather than
 the source tree, which is the only place the GPT, the ESP contents and the per-slot filesystem
 identities are checked at all.
 
 **The board comes from OpenABL's Device model when it is set.** One image serves every supported
-board (the README's table is the roster), so the DTB is the one thing the card cannot know.
+board (the README's table is the roster), so the DTB is the one thing the image cannot know.
 OpenABL installs the DTB of its Device model (it lists the ones in the ESP's `/dtbs/qcom`) before it
 starts the ESP GRUB, and the stage-2 config boots the entry for that model with the slot's own DTB.
 With no Device model, **the first boot stops at the stage-2 board menu and waits**; the choice is
@@ -168,13 +168,13 @@ comes back for 3 seconds when a board that has never had a boot confirmed is tri
 how a wrong board shows itself and how to get back from it — and when no slot has tries left. With a
 Device model set, change the board in OpenABL's menu instead.
 
-### Update a dev card instead of reflashing it
+### Update a dev image instead of reflashing it
 
-A reflash erases `/home`: Steam and its games, the x86 guest, emulators, Wi-Fi. A dev card takes a
+A reflash erases `/home`: Steam and its games, the x86 guest, emulators, Wi-Fi. A dev image takes a
 new build as an update instead, into its other slot, keeping `/home`. `dev.env` mints the build
 box's own dev OTA key once (`ota/gen-dev-signing.sh`, into `work/dev-pki/`, kept like the dev SSH
-key), every dev card built after that trusts it beside the project CA (STAGE `dev-ota-key`), and a
-dev build's `make bundle` signs with it. Flash a card once; after that:
+key), every dev image built after that trusts it beside the project CA (STAGE `dev-ota-key`), and a
+dev build's `make bundle` signs with it. Flash an image once; after that:
 
 ```sh
 set -a; . ./dev.env; set +a
@@ -185,8 +185,8 @@ ssh -i work/dev-ssh/id_ed25519 root@<device> 'rauc install /home/retroforge-<bui
 
 `/home` has the room (the bundle is ~1 GB); `/tmp` is RAM. A release device rejects these bundles
 (the guard keeps the dev CA out of release keyrings), and `ota/publish-bundle.sh` refuses them. A
-card flashed before its build box had a dev key, or from another build box, trusts no dev bundle:
-reflash it once. Deleting `work/dev-pki` does the same to every card flashed with it.
+image flashed before its build box had a dev key, or from another build box, trusts no dev bundle:
+reflash it once. Deleting `work/dev-pki` does the same to every image flashed with it.
 
 ## Reach the device
 
@@ -211,7 +211,7 @@ Access is granted at runtime by whoever is holding the device:
 Pairing is separate from sshd, which is always on and key-only. Full protocol notes, the Windows
 invocations and what persists across an update: [`remote-access.md`](remote-access.md).
 
-### Dev card
+### Dev image
 
 `dev.env` bakes `RETROFORGE_SSH_PUBKEY` into `root`'s `authorized_keys` and generates a throwaway
 identity for it:
@@ -221,7 +221,7 @@ ssh -i work/dev-ssh/id_ed25519 root@<device>
 ```
 
 That key survives `make distclean`, so your `known_hosts` entry keeps working across rebuilds. A
-dev card built with no Wi-Fi credentials (or `RETROFORGE_WIFI=0`) has no network and no SSH by
+dev image built with no Wi-Fi credentials (or `RETROFORGE_WIFI=0`) has no network and no SSH by
 design — that is the shipping first-boot condition, and the only honest way to exercise it.
 
 ## Ship an update
@@ -323,7 +323,7 @@ retroforge-bootctl mark-good            # confirm THIS boot (rauc status mark-go
 ```
 
 **All of these need root, and a release image ships no `sudo`.** As `player` the tool cannot answer
-any of it. On a dev card, `ssh -i work/dev-ssh/id_ed25519 root@<device>`; on a release device,
+any of it. On a dev image, `ssh -i work/dev-ssh/id_ed25519 root@<device>`; on a release device,
 read the state off the card offline (below). `rauc install` is the deliberate exception — it goes
 through rauc's D-Bus service and its open bus policy, which is why it works as `player`.
 

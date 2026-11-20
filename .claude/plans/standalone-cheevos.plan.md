@@ -115,7 +115,7 @@ world-readable data anyway: obfuscation, not secrecy).
 - Tests: test-cheevos 49, test-achievements 83 (RetroArch as the sixth emulator, the old-place
   cases), test-launch 587, test-plugin 561 with Godot 4.7.1 arm64 + OGUI 0.47.0 compile.
 
-## Phase 2 — HW (dev card)
+## Phase 2 — HW (dev image)
 
 0. On a card that already had a RetroArch sign-in (0.1.110+): still signed in after the update,
    in RetroArch and the five; the first Hardcore toggle creates retroachievements.json.
@@ -129,9 +129,9 @@ world-readable data anyway: obfuscation, not secrecy).
    the next launch re-tightens; note which ones).
 7. One unlock in one standalone (softcore), seen on retroachievements.org.
 
-### Phase 2 notes (2026-11-14, Pocket FIT, dev card 91487d90, fresh card)
+### Phase 2 notes (2026-11-14, Pocket FIT, dev image 91487d90, fresh image)
 
-- Step 0 not run: fresh card, no earlier sign-in.
+- Step 0 not run: fresh image, no earlier sign-in.
 - 1: DONE. Settings sign-in writes retroachievements.json (0600). Each emulator logged in at its
   first launch, on the seeded config: RetroArch (armgba core, gba), DuckStation, Flycast, PPSSPP,
   ARMSX2 and Dolphin. Dolphin's log shows "loki666 logged in successfully". Its red "not supported

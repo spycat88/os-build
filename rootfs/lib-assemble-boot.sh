@@ -64,11 +64,11 @@ chmod 0444 "$stage/usr/lib/retroforge/boot/dtbs"/*.dtb
 # .claude/plans/internal-install.plan.md). image/genpart.sh --append lays our eight partitions into
 # an OEM disk's free space and reports where they landed; partition-table.txt is the single source
 # of the sizes, types and GPT names it works from, and the same file image/make-sdcard.sh uses for
-# a card.
+# an image.
 #
 # VERBATIM IS THE POINT, and guard-rootfs.sh diffs the two copies rather than trusting this line.
 # An installer working from a stale table would produce a disk whose partition SIZES differ from the
-# card the release was tested on, and the first symptom is a rootfs image that does not fit a slot --
+# image the release was tested on, and the first symptom is a rootfs image that does not fit a slot --
 # after the OEM's userdata has already been destroyed, which is not a state to discover a drift in.
 # genpart.sh resolves the table next to itself for exactly this reason, so it needs no argument here
 # and behaves identically from image/ in the repo and from /usr/lib/retroforge/install/ on a device.

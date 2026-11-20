@@ -111,6 +111,6 @@ report. The third writes `\SteamOS\conf\<image>.conf` through the firmware's `EF
 make grub
 ```
 
-The binaries reach a card through `image/make-sdcard.sh`, and reach an updated slot through the
+The binaries reach an image through `image/make-sdcard.sh`, and reach an updated slot through the
 RAUC post-install hook, which takes them from `/usr/lib/retroforge/boot/` inside the root it just
 installed — so a root and the software that boots it always come from one build.

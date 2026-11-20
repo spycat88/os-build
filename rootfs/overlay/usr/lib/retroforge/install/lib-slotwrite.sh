@@ -418,7 +418,7 @@ fat_type_for() {  # <dev> -> 32 or 16
 
 # Read the width back off the superblock and refuse a filesystem outside its own valid range. This
 # is what turns the failure above from "the device does not boot, with no clue why" into a message
-# at the point of creation -- neither the offline suites nor a card build can reach the 4Kn path.
+# at the point of creation -- neither the offline suites nor an image build can reach the 4Kn path.
 #
 # FAT_ASSERT=0 is the sandbox seam, and it is the same trade DEVTEST makes. tests/test-install.sh
 # stubs mkfs.vfat to a recorder, so there is no superblock to read back and this could only ever

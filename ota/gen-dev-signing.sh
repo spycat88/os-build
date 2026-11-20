@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# retroforge DEV signing key — what lets a dev card take a new build as an update instead of a
+# retroforge DEV signing key — what lets a dev image take a new build as an update instead of a
 # reflash, so its /home (Steam and its games, the x86 guest, emulators, Wi-Fi) survives.
 #
 #   ota/gen-dev-signing.sh                 # mints into work/dev-pki/, once (dev.env runs it)
@@ -7,9 +7,9 @@
 #
 # A device installs a bundle only if its signature chains to /etc/rauc/keyring.pem, and every image
 # carries the project's CA there (ota/rauc/retroforge-ca.pem), whose key is not on a dev box. So a
-# dev card ALSO trusts this build box's own dev CA: rootfs/lib-assemble-devcard.sh appends
+# dev image ALSO trusts this build box's own dev CA: rootfs/lib-assemble-devimage.sh appends
 # work/dev-pki/ca.cert.pem to its keyring, and a dev build's `make bundle` signs with
-# work/dev-pki/release.{cert,key}.pem. Then, once a card is flashed with that keyring:
+# work/dev-pki/release.{cert,key}.pem. Then, once an image is flashed with that keyring:
 #
 #   set -a; . ./dev.env; set +a; make bundle
 #   scp out/images/retroforge-<build>.raucb root@<device>:/home/  &&  ssh root@<device> rauc install /home/retroforge-<build>.raucb
@@ -18,19 +18,19 @@
 # ota/rauc/release.ext), so rauc's check-purpose=codesign accepts it exactly as it does a release
 # signature: a CA that signs nothing but the signing cert, and a CA:FALSE codeSigning leaf.
 #
-# Only dev cards trust it: the dev-card stage is never sourced for a release image, and
+# Only dev images trust it: the dev-image stage is never sourced for a release image, and
 # rootfs/guard-rootfs.sh fails a release image whose keyring is anything but the project CA. A
 # release device rejects these bundles, and ota/publish-bundle.sh refuses to publish one (it
 # verifies against the project CA alone).
 #
 # Like the dev SSH key (dev.env, work/dev-ssh/), it is per build box, lives under work/ (gitignored,
-# kept by `make distclean`), and is never regenerated over itself: cards flashed with this CA reject
-# bundles signed by any other. Deleting work/dev-pki means reflashing those cards once more.
+# kept by `make distclean`), and is never regenerated over itself: images flashed with this CA reject
+# bundles signed by any other. Deleting work/dev-pki means reflashing those images once more.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="${DEV_PKIDIR:-$ROOT/work/dev-pki}"
 RELEASE_EXT="$ROOT/ota/rauc/release.ext"
-DAYS="${DEV_DAYS:-3650}"  # a dev card may live for years between reflashes
+DAYS="${DEV_DAYS:-3650}"  # a dev image may live for years between reflashes
 HOST="$(hostname -s 2>/dev/null || echo local)"
 
 command -v openssl >/dev/null 2>&1 || { echo "openssl not found" >&2; exit 1; }
@@ -72,4 +72,4 @@ openssl verify -CAfile "$work/ca.cert.pem" "$work/release.cert.pem" >/dev/null |
 install -m0600 "$work/ca.key.pem" "$work/release.key.pem" "$DIR/"
 install -m0644 "$work/ca.cert.pem" "$DIR/ca.cert.pem"
 install -m0644 "$work/release.cert.pem" "$DIR/release.cert.pem"
-echo "dev signing: minted a dev OTA CA and signing key in ${DIR#"$ROOT"/} (dev cards trust it from their next flash)" >&2
+echo "dev signing: minted a dev OTA CA and signing key in ${DIR#"$ROOT"/} (dev images trust it from their next flash)" >&2

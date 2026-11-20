@@ -125,7 +125,7 @@ diff -urN a/grub-core/commands/efi/retroforge.c b/grub-core/commands/efi/retrofo
 + *       print `old -> new`, which nobody could ever read: the success arm of
 + *       the config is a bare `true` with no dwell, so GRUB draws the menu and
 + *       clears the line immediately. HW-confirmed 2026-09-01 — not seen even
-+ *       on a fresh card's first boot, where the menu waits for input, because
++ *       on a freshly flashed image's first boot, where the menu waits for input, because
 + *       DRAWING the menu is what clears the screen. Giving the healthy path a
 + *       dwell would tax every boot on every device to report nothing, so the
 + *       line went instead. The counter's effect is read from the conf: from

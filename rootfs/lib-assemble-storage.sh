@@ -12,7 +12,7 @@
 
 # STAGE first-boot-storage — the player user's growable home. We dd a fixed image to a card, so we grow on first boot instead. Three pieces:
 #  - /etc/fstab mounts the dedicated home partition (/dev/retroforge/retroforge-home, ext4) at /home.
-#    nofail so a card without that partition (the old 2-partition test image) still boots.
+#    nofail so an image without that partition (the old 2-partition test image) still boots.
 #  - retroforge-grow-home: a oneshot that extends the home partition (systemd-repart) + its ext4
 #    (resize2fs from e2fsprogs, in the base) to fill the device on first boot, before /home mounts.
 #  - the player user (uid 1000) is baked into the base /etc (customize-base.sh); /home/player is
@@ -93,7 +93,7 @@ HOME_DEV=/dev/retroforge/retroforge-home
 # the probe that creates the symlink is async, so poll briefly, and settle the queue only if it has
 # still not appeared. Settling FIRST waited out the whole boot-time coldplug -- 2.6s on the Air X,
 # on the path to local-fs, on every boot (measured 2026-10-31) -- for one symlink that is usually
-# already there. A card without a home partition (nofail / old 2-partition test image) never shows
+# already there. An image without a home partition (nofail / old 2-partition test image) never shows
 # it, so give up and no-op (x-systemd.growfs covers any fs at mount) rather than hang boot.
 i=0
 while [ ! -b "$HOME_DEV" ] && [ "$i" -lt 50 ]; do

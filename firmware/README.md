@@ -46,7 +46,7 @@ sha256), and `qcom-fw/` is whatever the pinned qcom-firmwares commit contains. B
 trees are then installed into the rootfs by `rootfs/assemble-rootfs.sh`, less what each device
 serves itself: `packages/msm-firmware-loader` reads every board's own `qcom/` firmware (DSPs, GPU
 microcode and zap shaders, amp configs, WPSS) and `qca/` Bluetooth firmware from its Android
-partitions, so the card ships only the video firmware, Wi-Fi and the AudioReach topologies
+partitions, so the image ships only the video firmware, Wi-Fi and the AudioReach topologies
 (`fw_from_device` there). Nothing is built into the kernel (`kernel/embed.list` is empty). The
 installer medium still takes both trees whole, as it has no loader yet.
 

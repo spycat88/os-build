@@ -168,7 +168,7 @@ CASE="channel-precedence"
 # pairingd hands out a `player` login and never root's — so without it the channel is whatever the
 # image says, forever, and the shell (which carries no environment of ours) can never be aimed
 # anywhere else. With it, /etc still wins: the one image that ships /etc/retroforge/ota.conf is a dev
-# card, where the pin stops the card being offered a stable release that would downgrade it, and a
+# image, where the pin stops the image being offered a stable release that would downgrade it, and a
 # file in $HOME must not undo that quietly.
 manifest etcchan  '{"version":"2.0.0","bundle":"retroforge-2.0.0.raucb","size":100}'
 manifest userchan '{"version":"3.0.0","bundle":"retroforge-3.0.0.raucb","size":100}'
@@ -637,7 +637,7 @@ fi
 CASE="channel-picker"
 # `channels` + `set-channel` replace the old Steam-shaped retroforge-select-branch: the shell's picker
 # reads the list, writes the choice, and the next `check` follows it. The choice lands in the USER
-# file only, and is refused when /etc or the environment outranks it (a dev card's pin).
+# file only, and is refused when /etc or the environment outranks it (a dev image's pin).
 PICK="$W/pick/ota.conf"
 # The list the picker shows is the hosted ota/channels.json. The sandbox serves the repository's own
 # copy, so this also checks that the file that ships on main parses and offers the three CI publishes.

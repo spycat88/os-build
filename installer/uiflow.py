@@ -30,8 +30,8 @@ SPINE = os.environ.get("RETROFORGE_SPINE", "/usr/lib/retroforge/install/retrofor
 VERIFY_INSTALL = os.environ.get(
     "RETROFORGE_VERIFY_INSTALL", "/usr/lib/retroforge/install/verify-install.sh")
 # WHERE THE BYTES COME FROM. The OS bundle is resolved from the update channel at install time by
-# installer/release-info, so any card installs the current release. /home needs nothing from
-# anywhere: the spine stages an empty player home exactly as the card does.
+# installer/release-info, so any image installs the current release. /home needs nothing from
+# anywhere: the spine stages an empty player home exactly as the image does.
 #
 # On a dev image release-info answers `running:<root device>` instead of a URL: the spine copies the
 # running root rather than streaming a bundle. Nothing here needs to know; it is passed through.
@@ -162,7 +162,7 @@ def resolve_release():
     facts = kv(out)
     state = facts.get("STATE", "")
     if not state:
-        # release-info always prints a STATE, so no STATE means it did not run: a card that
+        # release-info always prints a STATE, so no STATE means it did not run: an image that
         # shipped without it, or a python that could not start. HW 2026-08-24 taught this shape
         # once already, with lib-gpt.sh -- a tool that is missing must not read as an answer.
         state, facts = "no-tool", {

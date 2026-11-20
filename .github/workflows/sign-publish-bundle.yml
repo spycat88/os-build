@@ -183,7 +183,7 @@ jobs:
           ls -lh upload/ >> "$GITHUB_STEP_SUMMARY"
 
       # Over the SIGNED bundle: the sum a consumer checks has to be the sum of the bytes they receive,
-      # and those bytes do not exist until the step above runs. card-meta.sh's other half — the
+      # and those bytes do not exist until the step above runs. image-meta.sh's other half — the
       # provenance copy of rootfs/manifest.lock — comes from this job's checkout, which is the same
       # commit the build job used.
       - name: stage release metadata
@@ -192,7 +192,7 @@ jobs:
           f=$(find upload -maxdepth 1 -name '*.raucb' -print -quit)
           [ -n "$f" ] && [ -f "$f" ] || { echo "::error::no bundle to hash"; exit 1; }
           mkdir -p meta
-          image/card-meta.sh "$f" meta
+          image/image-meta.sh "$f" meta
 
       - name: upload metadata artifact
         uses: actions/upload-artifact@v7

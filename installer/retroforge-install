@@ -8,7 +8,7 @@
 # THE SOURCE IS A BUNDLE, OR THE RUNNING ROOT. `running:<dev>` is what installer/release-info
 # answers on a dev image: the root slot this card booted from is copied byte for byte into root-a
 # instead of a bundle being streamed, and then the SAME handler a bundle install runs
-# (post-install-fresh.sh) re-randomises its fsid and seeds var-a. A dev card's channel usually has
+# (post-install-fresh.sh) re-randomises its fsid and seeds var-a. A dev image's channel usually has
 # nothing published, and what a person testing one wants on internal storage is the build in their
 # hand. It is the running system, so there is no signature to check: it is exactly as trusted as
 # the code doing the copying. verify_sources() checks instead that the device really is the
@@ -126,7 +126,7 @@ PARTTABLE=${RETROFORGE_PARTITION_TABLE:-$(find_component partition-table.txt ima
 RUNNING_MNT=${RETROFORGE_RUNNING_MNT:-/}
 MOUNTINFO=${RETROFORGE_MOUNTINFO:-/proc/self/mountinfo}
 # The Wi-Fi networks this card knows, carried to the install (carry_wifi). The merged /etc view, so
-# a network joined in Settings (the /etc overlay upper) and one baked into a dev card both count.
+# a network joined in Settings (the /etc overlay upper) and one baked into a dev image both count.
 NM_CONNECTIONS=${RETROFORGE_NM_CONNECTIONS:-/etc/NetworkManager/system-connections}
 
 # --- arguments -----------------------------------------------------------------------------------
@@ -668,7 +668,7 @@ carve() {
 # =================================================================================================
 # FOUR, not six. var-a is NOT here: seed_var() reformats it itself, because the reformat and the
 # population are one operation -- a var partition that has been mkfs'd and not populated is a slot
-# that does not boot. And var-b is not touched AT ALL, matching the release card's empty-B shape;
+# that does not boot. And var-b is not touched AT ALL, matching the release image's empty-B shape;
 # the first OTA fills it. root-a is RAUC's.
 #
 # /home is skipped on a reinstall that keeps it. That is the whole content of the reinstall promise
@@ -730,7 +730,7 @@ copy_running_root() {
 # overlay upper in var-a, which seed_var has just created. NetworkManager itself is still running
 # here (the installer starts from Settings, over Wi-Fi), so its directory is complete.
 #
-# Wi-Fi profiles only: a profile of another type -- the dev card's USB gadget, a wired one -- describes
+# Wi-Fi profiles only: a profile of another type -- the dev image's USB gadget, a wired one -- describes
 # the card's setup, not the network the user is on. Regular files only, 0600 as NetworkManager
 # insists, or it ignores the file.
 #

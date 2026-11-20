@@ -1095,7 +1095,7 @@ case "$out" in *mmcblk*) bad "part_uuid leaked the disk name into its answer: $o
   *) ok "the answer names no disk, so the p-infix spelling cannot enter it" ;; esac
 
 # --- 16. image/lib-homestage.sh — one /home layout, two writers --------------------------------
-# make-sdcard.sh builds this tree into a card image at build time and retroforge-install builds it
+# make-sdcard.sh builds this tree into an image at build time and retroforge-install builds it
 # onto an internal disk on the device. Both call the same function, so the layout is asserted once
 # here: an empty `player` home, owned by the session user, with nothing to unpack into it.
 HOMESTAGE="$ROOT/image/lib-homestage.sh"
@@ -1513,7 +1513,7 @@ grep -q "var=$SP_PART/aaaaaaaa-bbbb-cccc-dddd-000000000011" "$SP/calls" \
 if grep -q 'mkfs.ext4 .*000000000012' "$SP/calls"; then
   bad "var-B was formatted -- a release install leaves B empty, matching the card"
 else
-  ok "var-B is untouched, matching the release card's empty-B shape"
+  ok "var-B is untouched, matching the release image's empty-B shape"
 fi
 if grep -q 'mkfs.ext4 .*000000000011' "$SP/calls"; then
   bad "the spine formatted var-A; seed_var reformats AND populates it as one operation, and a var that is mkfs'd but not populated is a slot that does not boot"
@@ -1521,7 +1521,7 @@ else
   ok "the spine does not format var-A -- the handler owns the slot, the spine owns the disk"
 fi
 
-CASE="spine: /home is the empty player home, exactly as the card builds it"
+CASE="spine: /home is the empty player home, exactly as the image builds it"
 # The mount stub populates nothing, so stage_player_home writes into the real mountpoint directory.
 [ -d "$SP_RUN/home/player/.config" ] && [ -d "$SP_RUN/home/player/.local/share" ] \
   && ok "stage_player_home built player/ on the freshly made home partition" \

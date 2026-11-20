@@ -3,7 +3,7 @@
 # games get the same Mesa pin and Adreno patches as the host. packages/mesa-x86/README.md has the
 # why and the recipe.
 #
-# DOWNLOADED BY THE DEVICE, NEVER IN THE OS IMAGE. Nothing here touches image.yml or the card,
+# DOWNLOADED BY THE DEVICE, NEVER IN THE OS IMAGE. Nothing here touches image.yml or the image,
 # bundle or installer: a device fetches the published .sqsh on demand, named by
 # rootfs/overlay/usr/share/retroforge/steam/x86-guest.pin. Publishing one does not change what any
 # device uses until that pin is bumped to it.
@@ -19,7 +19,7 @@
 # tag fex-guest/v26.2.4-1, asset retroforge-fex-guest-26.2.4-1.sqsh. To publish a new guest for the
 # same Mesa, bump guest.pin's revision in a commit, then dispatch.
 #
-# THE REPO IS PUBLIC (since 2026-11), and that matters more here than for a card: a device has no
+# THE REPO IS PUBLIC (since 2026-11), and that matters more here than for an image: a device has no
 # GitHub login, so while the repo was private x86-guest.pin could not point at this asset at all.
 # Now a published asset's browser_download_url is fetchable as-is. See the README.
 name: release fex guest
@@ -112,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # For the reviewer, as on the card: devices will mount what this publishes once a pin names it.
+    # For the reviewer, as for the image: devices will mount what this publishes once a pin names it.
     environment: ${{ vars.CARDS_ENVIRONMENT || 'release-cards' }}
     steps:
       - name: fetch the image

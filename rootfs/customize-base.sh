@@ -223,7 +223,7 @@ PKGS=(wpa_supplicant wireless-regdb openssh vulkan-icd-loader vulkan-freedreno v
 # (`Create window` / `Show window`) yet gamescope never selects it as focus and commits zero flips,
 # and with no X tools on the image the only way to ask "is it override-redirect / IsViewable /
 # what size" was to infer it from gamescope's source. Inference is what made that investigation
-# expensive; measuring is cheap. DEV-only — a release card has no business carrying X debug tools.
+# expensive; measuring is cheap. DEV-only — a release image has no business carrying X debug tools.
 # alsa-utils: amixer/alsamixer to read and set the mixer, alsaucm to ask what UCM actually resolved,
 # aplay + speaker-test to generate a tone without going through Steam. Added 2026-08-10 for the
 # same reason as the X tools, and it cost the same way: the MANGMI Pocket Max (SM8250) came up

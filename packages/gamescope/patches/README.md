@@ -147,7 +147,7 @@ and 3.16.26 — the first with composite rotation upstream — is already on 0.2
 to let us drop `0001` needs `0007`.
 
 **While it is in `source.pin`, `fetchlock.sh` reports the gamescope row as built from UNADOPTED
-sources.** That is expected on a dev card and is exactly why it must come back out, with a
+sources.** That is expected on a dev image and is exactly why it must come back out, with a
 `make relock`, before any commit or release build.
 
 `0008`-`0013` — **RETIRED 2026-09-14 when HDR was dropped (issue #93).** The EDID-synthesis +

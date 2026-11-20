@@ -16,7 +16,7 @@
 #   §4d names it. "If no controller is detected, fall back to a typed phrase on a USB keyboard if
 #   one is attached." This is that fallback, and it is also what an operator gets over SSH.
 #
-#   The whole spine is hardware-gated over SSH from a dev card BEFORE any GUI exists (plan's
+#   The whole spine is hardware-gated over SSH from a dev image BEFORE any GUI exists (plan's
 #   verification step 3). Without this there would be no way to take consent during the run that
 #   proves the install works, and the temptation would be an --assume-yes flag -- which §4d
 #   forbids outright and which would then be permanently reachable.

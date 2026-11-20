@@ -52,7 +52,7 @@ It was retired because its premise was a **dev-box** number. An overlay build co
 emulation on a workstation, and the store existed so nothing paid that twice. CI never paid it: on
 `ubuntu-24.04-arm` the packages measured `sddm 5m, mesa 5m, gamescope 4m, scx-scheds 4m,
 mangohud 3m, rauc 1m` — well under half an hour for the set (the larger set the tree started from
-took ~34 minutes), against a release card build that already ran 33–41 minutes. Both PAT secrets can
+took ~34 minutes), against a release image build that already ran 33–41 minutes. Both PAT secrets can
 be deleted; nothing reads them.
 
 That half hour is still paid by every release build job, rebuilding identical sources almost every
@@ -76,28 +76,28 @@ summary.
 work/ peaks near 30 GB and out/ near 21 GB against ~109 G free on the runner, measured by
 `preflight.yml` — there is room, and an earlier design that deleted each stage's inputs as it went
 was reverted as cleverness bought against a limit that is not there. Thin callers invoke it on
-their own triggers, because a flashable card and a field update are wanted at
+their own triggers, because a flashable image and a field update are wanted at
 different cadences:
 
 | workflow | trigger | secrets | ships to |
 |---|---|---|---|
-| `release-sdcard.yml` | `image/v*` tag (`card/v*` up to v0.0.8), or manual | `GITHUB_TOKEN`, plus the ScreenScraper login (`RETROFORGE_SS_*`, baked into the image); `release-cards` for its reviewer | a GitHub Release carrying the card and its checksums (the build's `manifest.lock` stays in the workflow artifact) |
+| `release-sdcard.yml` | `image/v*` tag (`card/v*` up to v0.0.8), or manual | `GITHUB_TOKEN`, plus the ScreenScraper login (`RETROFORGE_SS_*`, baked into the image); `release-cards` for its reviewer | a GitHub Release carrying the image and its checksums (the build's `manifest.lock` stays in the workflow artifact) |
 | `release-bundle.yml` | `ota/v*` tag, or manual | `RAUC_CERT_PEM`/`RAUC_KEY_PEM` and `R2_*`, in the `release-signing` environment (`ota/v*` tags only) | the Cloudflare R2 bucket in `vars.R2_BUCKET`, `<channel>/` prefix, served at `https://ota.retroforge.org` (see `docs/ota.md`) |
 | `nightly-bundle.yml` | daily 02:30 UTC, or manual (`force` to build an unchanged or CI-red `main`) | `RAUC_NIGHTLY_CERT_PEM`/`RAUC_NIGHTLY_KEY_PEM` (a 90-day cert, `make renew-nightly-cert`) and `R2_*`, in the `nightly-signing` environment (`main` only, **no reviewer**) | the same bucket, `nightly/` prefix; skipped when `main` has not moved or `ci.yml` has not passed on it, rebuilt anyway when the published nightly is over 30 days old |
 
-**The tag namespaces are separate on purpose.** A bundle ships far more often than a card, so each
+**The tag namespaces are separate on purpose.** A bundle ships far more often than an image, so each
 gets its own namespace rather than sharing a bare `v*`. That also fixes a real inversion: while
 `release-sdcard.yml` owned `v*` alone and `release-bundle.yml` had no tag trigger, tagging a release
-built a card and *never* a bundle. `image/v1.3.0` and `ota/v1.3.0` on one commit are the same OS
-delivered two ways. Cards were tagged `card/v*` up to `card/v0.0.8`; since 2026-11-19 they are
+built an image and *never* a bundle. `image/v1.3.0` and `ota/v1.3.0` on one commit are the same OS
+delivered two ways. Images were tagged `card/v*` up to `card/v0.0.8`; since 2026-11-19 they are
 `image/v*` (`ota/v*` unchanged). A `card/` tag no longer starts anything, and `release-notes.sh`
-still counts the old `card/` tags as earlier cards, so the first `image/` notes diff against
+still counts the old `card/` tags as earlier images, so the first `image/` notes diff against
 `card/v0.0.8`.
 
-**The card is a release asset** since 2026-10-13: a release card compresses to 524 MiB (gz -6), a
+**The image is a release asset** since 2026-10-13: a release image compresses to 524 MiB (gz -6), a
 quarter of GitHub's 2 GiB per-asset cap, and the release job checks the cap before uploading. It went
 to R2 while it measured 5.08 GiB (2026-08-04, root still carrying an x86 stack). The repo is public
-(since 2026-11), so a card downloads with no login. Nothing but OTA bundles is published to
+(since 2026-11), so an image downloads with no login. Nothing but OTA bundles is published to
 R2 any more.
 
 **CI is the only thing that PUBLISHES a release image**, because the reviewer gates and the signing
@@ -118,7 +118,7 @@ Not part of any OS image. It builds `packages/mesa-x86` (our Mesa pin and patche
 i686) on an `ubuntu-24.04` x86_64 runner, composes it over FEX's ArchLinux RootFS, and uploads the
 squashfs as a workflow artifact. With `publish` ticked it cuts a Release `fex-guest/v<version>` on
 the built commit (reviewer: the `release-cards` environment), after the same 2 GiB per-asset check
-as the card. **`workflow_dispatch` is its only trigger**: no push, tag or schedule, so nothing
+as the image. **`workflow_dispatch` is its only trigger**: no push, tag or schedule, so nothing
 starts it but a person. The version comes from the tree (`<mesa pkgver>-<guest.pin revision>`),
 not from an input. Devices only use a published guest once
 `rootfs/overlay/usr/share/retroforge/steam/x86-guest.pin` names it; its Release asset url is
@@ -142,7 +142,7 @@ job's steps live in the reusable `sign-publish-bundle.yml` (inputs `channel`, `e
   until the repo went public (2026-11) GitHub Free had no environments and they were repo-wide.
   It has a required reviewer (since 2026-11-09), so `release` waits for that single approval;
   `release-cards` has the same reviewer, and its deployment policy accepts `image/v*` tags and
-  `main` (a publish dispatch of the card or the FEX guest) and nothing else. Keys are written to `$RUNNER_TEMP`, never the workspace — the
+  `main` (a publish dispatch of the image or the FEX guest) and nothing else. Keys are written to `$RUNNER_TEMP`, never the workspace — the
   repo tree gets uploaded as artifacts and cached.
 - **The run ends published or red.** Missing R2 credentials fail the job before anything is
   signed, and `ota/publish-bundle.sh` checks the bundle against the device keyring and refuses a

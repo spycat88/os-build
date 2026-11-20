@@ -501,7 +501,7 @@ func test_internal_install() -> void:
 func test_update_states() -> void:
 	check("channels: stable and beta, not pinned",
 		UpdateStates.parse_channels("stable\nbeta\n"), {"channels": ["stable", "beta"], "pinned": "", "labels": {}, "descriptions": {}})
-	check("channels: a dev card's pin is listed and named",
+	check("channels: a dev image's pin is listed and named",
 		UpdateStates.parse_channels("stable\nbeta\ndev\npinned\t/etc/retroforge/ota.conf\n"),
 		{"channels": ["stable", "beta", "dev"], "pinned": "/etc/retroforge/ota.conf", "labels": {}, "descriptions": {}})
 	check("channel: the name before the tab", UpdateStates.parse_channel("beta\t/home/player/.config/retroforge/ota.conf\n"), "beta")
@@ -1528,7 +1528,7 @@ GD
     cat >"$T/updates/fake-update" <<'SH'
 #!/bin/bash
 # Fake retroforge-update. State in $FAKE_DIR: channel, staged (version), latest.<channel>, and
-# pinned: a dev card, whose /etc/retroforge/ota.conf pins `dev` and refuses set-channel.
+# pinned: a dev image, whose /etc/retroforge/ota.conf pins `dev` and refuses set-channel.
 D=$FAKE_DIR; echo "$*" >> $D/calls
 ch=$(cat $D/channel 2>/dev/null || echo stable); src=/home/player/.config/retroforge/ota.conf
 [ -e $D/pinned ] && { ch=dev; src=/etc/retroforge/ota.conf; }
@@ -1763,7 +1763,7 @@ func test_background_check(previous: Node) -> Node:
 	check("background check: nothing installed", FileAccess.file_exists(D.path_join("staged")), false)
 	return menu3
 
-# A dev card: /etc/retroforge/ota.conf pins `dev`. The dropdown shows it, greyed out with the file
+# A dev image: /etc/retroforge/ota.conf pins `dev`. The dropdown shows it, greyed out with the file
 # that pins it, and a check asks the dev channel only -- never stable or beta, never a set-channel.
 func test_pinned(previous: Node) -> void:
 	put("pinned", "")

@@ -1,12 +1,12 @@
 # image/
 
 Turning a built root into **partitions on a disk**: the A/B layout, the initramfs that mounts
-the booted slot, the card assembler that populates both slots, and the verifier that reads the
+the booted slot, the image assembler that populates both slots, and the verifier that reads the
 result back. What goes *inside* the root is `rootfs/`; wrapping it for OTA is `ota/`.
 
 A/B atomic updates, SteamOS-style: RAUC + Btrfs read-only root. The recipes consume the staged
 kernel (`kernel/build.sh`), fetched firmware (`firmware/fetch-qcom-fw.sh` +
-`firmware/fetch-linux-fw.sh`), and the assembled root, and emit a flashable card.
+`firmware/fetch-linux-fw.sh`), and the assembled root, and emit a flashable image.
 
 ## The layout
 
@@ -29,8 +29,8 @@ kernel (`kernel/build.sh`), fetched firmware (`firmware/fetch-qcom-fw.sh` +
 |---|---|
 | `make-sdcard.sh` | Lay the **full** GPT from the table and populate **both** slots (Phase 5): the ESP carries the ESP GRUB + a grubenv seeded with RAUC's slot state + `parts.env` + OpenABL's `/dtbs/qcom`; each slot's `efi-*` partition carries its stage-2 `grub.cfg`; root-A/B + var-A/B + home. `/home` is pre-seeded with the native arm64 Steam client. → `out/images/sdcard.img`. Unprivileged (mtools + sgdisk + `dd`, no loop). |
 | `lib-homestage.sh` | Sourced, never executed. The player user's `/home`, built once and used by two writers — `make-sdcard.sh` at build time and `installer/retroforge-install` on the device — because the two must produce the same tree. The parts that drift silently are the `~/.steam` compat symlinks: a missing sdk64 does not stop Steam starting, it makes an x86 title's `SteamAPI_Init()` fail at launch, on that medium only. |
-| `verify-card.sh` | Read the built card back and assert what actually landed: the GPT against the table, each slot's stage-2 config, the seeded grubenv. `make verify-card`. |
-| `card-meta.sh` | Emit the card's own metadata (version, git, mode, sizes) for the release workflows. |
+| `verify-image.sh` | Read the built image back and assert what actually landed: the GPT against the table, each slot's stage-2 config, the seeded grubenv. `make verify-image`. |
+| `image-meta.sh` | Emit the image's own metadata (version, git, mode, sizes) for the release workflows. |
 
 ## End-to-end
 
@@ -41,7 +41,7 @@ image/make-sdcard.sh
 sudo dd if=out/images/sdcard.img of=/dev/sdX bs=4M conv=fsync status=progress
 ```
 
-For a throwaway card that joins your LAN and accepts SSH, see `rootfs/README.md` — the
+For a throwaway image that joins your LAN and accepts SSH, see `rootfs/README.md` — the
 credentials are injected during rootfs assembly, not here.
 
 Individual tools (btrfs-progs, gdisk, dosfstools, mtools, rauc, casync, openssl) live in
@@ -55,7 +55,7 @@ docker run --rm -v "$PWD":/src -w /src retroforge-build image/make-sdcard.sh
 (the ESP GRUB picks the slot + the per-slot stage-2 config picks the board + kernel in the slot root), initramfs `/efi` mount,
 both slots populated by `make-sdcard.sh`, and the offline suites in `make test`
 (`tests/test-stage2-grub.sh`, `tests/test-units.sh`, `tests/test-bootctl.sh`,
-`tests/test-post-install.sh`) plus `make verify-card` against the built image.
+`tests/test-post-install.sh`) plus `make verify-image` against the built image.
 **Deferred (needs hardware):** the whole chain end to end — ABL chainloading stage 1, the board
 choice persisting to the ESP grubenv, a slot switch, and the demote path. All of those, plus the
 stage-2 `retroforge_bootattempts` counter that rolls back a slot never reaching systemd, are

@@ -133,7 +133,7 @@ device.
 | `rootfs/` | **What is inside a root.** The package closure (`manifest.lock` + its generator and materializer), the bootstrap that lays it down, and the seal/trim/guard trio that says what a release root must not be able to do |
 | `rootfs/overlay/` | The payload injected into every root with a single `cp -a` — one tree mirroring the device's own filesystem |
 | `rootfs/conf/` | The declarative inputs: `pacman.conf`, `os-release`, `trim.list`, `seal.list` |
-| `image/` | **Turning a root into partitions.** The A/B layout and its `sgdisk` emitter, the initramfs, the card assembler, and the verifier that reads the result back |
+| `image/` | **Turning a root into partitions.** The A/B layout and its `sgdisk` emitter, the initramfs, the image assembler, and the verifier that reads the result back |
 | `ota/` | **Getting an image onto a device already in the field.** Signed RAUC bundles and the signing CA that mints their cert, the publishers, and the nginx/CI-user setup for the OTA host |
 | `installer/` | The internal installer, shipped in the root and started from Settings: the partition carve, the on-device UI, and the read-only board probe |
 | `packages/` | From-source overlay: PKGBUILDs + source pins for what we patch or version-bump, plus the builder that turns them into a local pacman repo |

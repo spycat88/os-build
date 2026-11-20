@@ -598,7 +598,7 @@ kill "$p" 2>/dev/null; wait "$p" 2>/dev/null
 # =================================================================================================
 # release-info — what the medium would install, and why it sometimes cannot
 # =================================================================================================
-# The card carries no bundle at all, so this is the program that says what will be downloaded. Every
+# The image carries no bundle at all, so this is the program that says what will be downloaded. Every
 # failure below reaches a person as a line on the pre-flight screen or the Settings row, and a 404 on
 # <channel>/latest.json is exactly the answer this file has to name.
 RELINFO="$ROOT/installer/release-info"
@@ -707,7 +707,7 @@ printf '%s' "$out" | grep -q 'BUNDLE=https://ota.example/dev/' \
   || bad "the bundle URL kept the default channel: $out"
 
 CASE="release-info: the channel is the one Updates shows"
-# Same order as retroforge-update's channel_setting(): env, /etc, $HOME, built-in. A dev card pins
+# Same order as retroforge-update's channel_setting(): env, /etc, $HOME, built-in. A dev image pins
 # OTA_CHANNEL in /etc on purpose, and the user's file must not undo that.
 mkdir -p "$T/userconf"
 relchan() {
@@ -716,7 +716,7 @@ relchan() {
 printf 'OTA_CHANNEL=beta\n' >"$T/userconf/ota.conf"
 [ "$(relchan)" = beta ] && ok "the channel picked in Updates is the one installed from" \
   || bad "the user's channel is ignored: $(relchan)"
-[ "$(REL_CONF="$T/rel/ota.conf" relchan)" = dev ] && ok "and a dev card's pin in /etc still outranks it" \
+[ "$(REL_CONF="$T/rel/ota.conf" relchan)" = dev ] && ok "and a dev image's pin in /etc still outranks it" \
   || bad "the user's file undid the pin: $(REL_CONF="$T/rel/ota.conf" relchan)"
 printf 'OTA_CHANNEL=../../elsewhere\n' >"$T/userconf/ota.conf"
 [ "$(relchan)" = stable ] && ok "one that is not a path segment is refused: player writes this file, root reads it" \

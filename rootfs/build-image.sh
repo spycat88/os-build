@@ -41,7 +41,7 @@ if [ ! -d "$FW" ]; then
 fi
 
 # 3. assemble the read-only Btrfs root. Forward the TEST-ONLY credential env (a no-op
-# unless RETROFORGE_DEV=1) so a dev card can carry Wi-Fi + SSH creds; see assemble-rootfs.sh.
+# unless RETROFORGE_DEV=1) so a dev image can carry Wi-Fi + SSH creds; see assemble-rootfs.sh.
 # Env flags must precede the image name, so spell this docker run out rather than reuse DK.
 ctr run --rm -v "$ROOT":/src -w /src \
   -e RETROFORGE_DEV -e RETROFORGE_WIFI -e RETROFORGE_WIFI_SSID -e RETROFORGE_WIFI_PSK -e RETROFORGE_SSH_PUBKEY \
@@ -53,6 +53,6 @@ cat <<EOF
 Image flow done. Read-only root at out/images/rootfs.img.
 The root carries its own boot half (Phase 5): /boot/{vmlinuz.efi, initramfs-retroforge.img, dtbs} and the
 /usr/lib/retroforge/boot mirror (run boot/grub.sh for out/boot/* first).
-Next — the flashable card:
+Next — the flashable image:
   image/make-sdcard.sh             # -> out/images/sdcard.img (or `make sdcard`)
 EOF

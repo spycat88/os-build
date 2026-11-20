@@ -20,7 +20,7 @@
 #     needs it;
 #   - the release already installed: no download, nothing said;
 #   - GitHub unreachable, rate limited, answering nonsense or with no arm64 build: the installed
-#     release stays (exit 0); on a fresh card, exit 1 and no tool;
+#     release stays (exit 0); on a fresh image, exit 1 and no tool;
 #   - a new release replaces the old one under the same name, by rename, keeping the player's
 #     user_settings.py; while a process runs from the tool (a mapped file) it waits, checked, and goes
 #     in at a later run without a second download; one withdrawn meanwhile is dropped;
@@ -538,7 +538,7 @@ start=$SECONDS; tools install --wait
   && ok "--wait (the store, retroforge-proton): waits for that run, then installs and names the folder" || bad "rc=$RC out=$OUT err=$ERR"
 wait "$HOLDER2" 2>/dev/null
 
-CASE="helper: offline on a fresh card"
+CASE="helper: offline on a fresh image"
 rm -rf "$SROOT"
 mkpin "" "" "http://127.0.0.1:1/repos/CachyOS/proton-cachyos/releases"
 tools install
@@ -802,7 +802,7 @@ proton 0 status
   && ok "the tool, its name and the installed release, as JSON" || bad "rc=$CRC out=$COUT err=$CERR"
 rm -rf "$SROOT"
 proton 0 status
-[ "$(field "$COUT" installed)" = null ] && ok "installed null on a fresh card" || bad "out=$COUT"
+[ "$(field "$COUT" installed)" = null ] && ok "installed null on a fresh image" || bad "out=$COUT"
 mkdir -p "$TOOL"; touch "$TOOL/proton" "$TOOL/toolmanifest.vdf" "$TOOL/compatibilitytool.vdf"; printf 'tag: x\n' >"$TOOL/.retroforge-pin"
 proton 0 status
 [ "$(field "$COUT" installed)" = null ] && ok "installed null for a folder RetroForge did not install" || bad "out=$COUT"

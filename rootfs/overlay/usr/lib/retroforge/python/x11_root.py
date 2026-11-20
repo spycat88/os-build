@@ -9,7 +9,7 @@
 # the root gamescope reads.
 #
 # libX11 through ctypes: the image has libX11 (gamescope, Xwayland and SDL need it) but no X tools on
-# a release card (xorg-xprop is a dev package, rootfs/customize-base.sh) and no python-xlib. The value
+# a release image (xorg-xprop is a dev package, rootfs/customize-base.sh) and no python-xlib. The value
 # is UTF8_STRING, 8-bit, which gamescope reads with XGetTextProperty.
 #
 # Monitors: an emulator that opens one window per panel needs its X server to show both panels as

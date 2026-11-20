@@ -1,7 +1,7 @@
 # retroforge master build orchestrator.
 #
 # Drives the whole Phase-1 pipeline — toolchain image, kernel, firmware, base
-# rootfs, read-only root, boot artifact, SD card / RAUC bundle — as one incremental
+# rootfs, read-only root, boot artifact, SD-card image / RAUC bundle — as one incremental
 # dependency graph so each stage rebuilds only when its inputs change. The individual
 # stage scripts under kernel/ firmware/ rootfs/ image/ ota/ boot/ stay the source of truth; this
 # file only wires them together and pins WHERE each one runs (host vs container).
@@ -42,11 +42,11 @@ SIGN_IMG  ?= retroforge-sign
 #                Wi-Fi creds. A RELEASE image (no RETROFORGE_DEV) builds locally too — it just
 #                cannot be published, since the release reviewer and signing credentials only exist in CI.
 #   RETROFORGE_WIFI_SSID/PSK  OPTIONAL dev-only Wi-Fi profile, injected from the environment so it
-#                never touches the repo. Absent => a card with NO network and no SSH, i.e. the
+#                never touches the repo. Absent => an image with NO network and no SSH, i.e. the
 #                shipping first-boot condition (the only honest way to test OOBE locally).
 #   RETROFORGE_WIFI  intent knob for the above: 1 = require creds (fail loudly rather than hand you
-#                an unreachable card), 0 = no profile even when creds are set. See dev.env.
-#   RETROFORGE_SSH_PUBKEY  root's authorized_keys on a dev card. dev.env generates a throwaway key
+#                an unreachable image), 0 = no profile even when creds are set. See dev.env.
+#   RETROFORGE_SSH_PUBKEY  root's authorized_keys on a dev image. dev.env generates a throwaway key
 #                under work/dev-ssh/ rather than using your personal one.
 BASE_CONFIG ?=
 
@@ -121,9 +121,9 @@ RAUC_KEY  ?= /pki/release.key.pem
 endif
 
 # A DEV build (RETROFORGE_DEV=1, dev.env) with no PKIDIR signs with the build box's own dev key,
-# work/dev-pki (ota/gen-dev-signing.sh, run by dev.env), which a dev card trusts beside the project
-# CA (rootfs/lib-assemble-devcard.sh, STAGE dev-ota-key). `make bundle` then makes a bundle a dev
-# card installs over itself with `rauc install`, keeping its /home, instead of a throwaway cert no
+# work/dev-pki (ota/gen-dev-signing.sh, run by dev.env), which a dev image trusts beside the project
+# CA (rootfs/lib-assemble-devimage.sh, STAGE dev-ota-key). `make bundle` then makes a bundle a dev
+# image installs over itself with `rauc install`, keeping its /home, instead of a throwaway cert no
 # device accepts. A release device rejects it and ota/publish-bundle.sh refuses it. /src is the repo
 # itself, so the key needs no mount of its own.
 ifndef PKIDIR
@@ -181,7 +181,7 @@ ID_ENV := -e RETROFORGE_VERSION -e RETROFORGE_GIT=$(RETROFORGE_GIT)
 # the image calls itself.
 VERSION_STAMP := work/.rootfs-version-$(if $(RETROFORGE_VERSION),$(RETROFORGE_VERSION),dev)
 
-# RETROFORGE_SSH_PUBKEY is the same trap again: it is root's authorized_keys on a dev card, but make
+# RETROFORGE_SSH_PUBKEY is the same trap again: it is root's authorized_keys on a dev image, but make
 # cannot see it, so changing the key (say, from dev.env's throwaway key to your own) left an existing
 # rootfs.img looking up-to-date and you flashed the OLD key. Keyed on a hash, not the key itself, so
 # the marker name stays short and filename-safe. Release builds never read the key, so they share one marker.
@@ -191,19 +191,19 @@ SSHKEY_STAMP := work/.rootfs-sshkey-$(SSHKEY_HASH)
 # RETROFORGE_DEV changes the rootfs CONTENT (Wi-Fi profile, SSH host keys + authorized_keys) but is
 # an environment variable, which make cannot see. Without this, an existing release rootfs.img looks
 # up-to-date to a `RETROFORGE_DEV=1 make sdcard`, the assembler is skipped, and you flash a RELEASE
-# root wrapped in a dev-built card — no Wi-Fi, no SSH, and no error anywhere. (Cost me a boot cycle
+# root wrapped in a dev-built image — no Wi-Fi, no SSH, and no error anywhere. (Cost me a boot cycle
 # on 2026-07-09.) Encode the mode in a stamp file that rootfs depends on, so flipping it rebuilds.
 # Lives under work/ (host-owned); out/images is written by the container as root.
 #
 # THE NAME: this was RETROFORGE_TEST until 2026-07-30. It was chosen while debugging the very first
-# Steam OOBE, where "test" meant a throwaway card, and it long outlived that — this is the normal
+# Steam OOBE, where "test" meant a throwaway image, and it long outlived that — this is the normal
 # development cycle now, and the release path is the one that is special. Renamed with the artifact
 # pins, since both turn on the same distinction: who built these bytes.
 # The Wi-Fi profile is a THIRD state, not a sub-detail of dev, and it has to reach the stamp or it
 # fails exactly the way RETROFORGE_DEV did before this stamp existed. "dev with creds" and "dev
 # without creds" produce different rootfs CONTENT (an /etc/NetworkManager profile that auto-joins,
 # or nothing), so sharing work/.rootfs-mode-dev between them means dropping the creds leaves the
-# image looking up-to-date: the assembler is skipped and you flash the PREVIOUS card, still
+# image looking up-to-date: the assembler is skipped and you flash the PREVIOUS image, still
 # auto-joining, while believing you are testing the offline first boot. No error anywhere.
 #
 # DEV_WIFI mirrors the assembler's own decision (rootfs/assemble-rootfs.sh, `dev_wifi`) and must
@@ -215,7 +215,7 @@ DEV_WIFI     := $(if $(filter 0,$(RETROFORGE_WIFI)),,$(if $(RETROFORGE_WIFI_SSID
 ROOTFS_MODE  := $(if $(filter 1,$(RETROFORGE_DEV)),dev$(if $(DEV_WIFI),,-nowifi),release)
 MODE_STAMP   := work/.rootfs-mode-$(ROOTFS_MODE)
 # The dev OTA CA a dev root's keyring carries (STAGE dev-ota-key): a prerequisite once dev.env has
-# minted it, so the first dev card after that is re-assembled with it in the keyring.
+# minted it, so the first dev image after that is re-assembled with it in the keyring.
 DEV_CA       := $(if $(filter 1,$(RETROFORGE_DEV)),$(wildcard work/dev-pki/ca.cert.pem))
 
 # The BASE tree is mode-dependent for the same reason and needs the same treatment: RETROFORGE_DEV=1
@@ -224,8 +224,8 @@ DEV_CA       := $(if $(filter 1,$(RETROFORGE_DEV)),$(wildcard work/dev-pki/ca.ce
 # encodes the mode, so without this a base built in one mode looks up-to-date to the other and make
 # never invokes customize-base.sh at all — its mode-aware reuse key (`dev:1`, line 306) is
 # unreachable in exactly the case it was written for. Caught on 2026-07-28 building a release bundle
-# straight after a dev card: the release guard tripped on `only in tree: evtest usbutils`. The
-# reverse direction — a release base under a DEV card — has no guard at all (guard-rootfs.sh is
+# straight after a dev image: the release guard tripped on `only in tree: evtest usbutils`. The
+# reverse direction — a release base under a DEV image — has no guard at all (guard-rootfs.sh is
 # release-only) and is the direction that cost the 2026-07-09 boot cycle.
 #
 # This is a PREREQUISITE stamp, not a per-mode rename of $(BASE_STAMP). Naming the stamp
@@ -356,7 +356,7 @@ ASSEMBLE_SRC += installer/shipped-files \
 # kernel/build.sh IS here (added 2026-07-26): it is the recipe itself — it decides the config
 # merge, the firmware embed and the =m/=y assertions, so editing it changes the Image but make
 # could not see that. Editing it alone used to be a silent no-op that only showed up as a stale
-# kernel on the card. Same class of bug as the bootstrap-script dep fixed in c0d2cb6.
+# kernel in the image. Same class of bug as the bootstrap-script dep fixed in c0d2cb6.
 KERNEL_SRC := kernel/SOURCE.pin kernel/embed.list kernel/build.sh \
               $(wildcard kernel/*.config) \
               $(wildcard kernel/patches/*.patch) \
@@ -395,7 +395,7 @@ RETROFORGE_CCACHE ?= $(if $(CI),0,1)
 # ==============================================================================
 .PHONY: help all image toolchain kernel fw-linux fw-qcom base overlay verify-lock check-hw-paths \
         rootfs relock \
-        initramfs splash plugin gptk-interpose mesa-x86 grub sdcard verify-card test test-disk bundle sign-bundle publish-bundle renew-nightly-cert \
+        initramfs splash plugin gptk-interpose mesa-x86 grub sdcard verify-image test test-disk bundle sign-bundle publish-bundle renew-nightly-cert \
         clean clean-base clean-overlay clean-ccache distclean
 
 # An always-out-of-date prerequisite, for rules that must re-evaluate their own inputs every run
@@ -430,11 +430,11 @@ gptk-interpose: $(GPTK_LIB) ## Build PortMaster gptokeyb2's pad interposer (in c
 grub:      $(GRUB)         ## Build the ESP GRUB + per-slot grub.cfg (in container)
 sdcard:    $(SDCARD)       ## Build the flashable SD-card image (in container)
 
-# Asserts the BUILT card the way guard-rootfs.sh asserts the built tree — the guard stops at the
+# Asserts the BUILT image the way guard-rootfs.sh asserts the built tree — the guard stops at the
 # staged tree (it runs before mkfs), so nothing else checks the GPT, the ESP, or the per-slot
 # filesystem identities an A/B switch depends on. Unprivileged: no loop mounts, no root.
-verify-card: $(SDCARD) | $(BUILD_STAMP) ## Verify the built A/B card image (in container)
-	$(INBUILD) $(IMAGE_DIR)/verify-card.sh
+verify-image: $(SDCARD) | $(BUILD_STAMP) ## Verify the built A/B image (in container)
+	$(INBUILD) $(IMAGE_DIR)/verify-image.sh
 
 # The two offline suites over the A/B boot logic. Neither needs a build, a container, root or a
 # device — they are pure shell over temp-dir state — so there is no reason not to run them, and
@@ -760,7 +760,7 @@ $(VERSION_STAMP):
 	@mkdir -p $(@D) && rm -f work/.rootfs-version-* && touch $@
 	@echo "[retroforge] rootfs version: $(if $(RETROFORGE_VERSION),$(RETROFORGE_VERSION),dev)"
 
-# Same shape for the dev card's root SSH key (see SSHKEY_STAMP).
+# Same shape for the dev image's root SSH key (see SSHKEY_STAMP).
 $(SSHKEY_STAMP):
 	@mkdir -p $(@D) && rm -f work/.rootfs-sshkey-* && touch $@
 	@echo "[retroforge] root SSH key: $(SSHKEY_HASH)"
@@ -784,7 +784,7 @@ $(INITRAMFS): $(IMAGE_DIR)/mkinitramfs.sh $(IMAGE_DIR)/initramfs/init $(IMAGE_DI
 
 # The boot splash: a static aarch64 drawer plus the flattened logo. Both are initramfs payload,
 # which is why they are prerequisites of it rather than of the rootfs alone — a theme or binary
-# change that did not rebuild the cpio would leave the OLD splash on the card with no sign of it.
+# change that did not rebuild the cpio would leave the OLD splash in the image with no sign of it.
 $(PLUGIN_ZIP): $(PLUGIN_SRC)
 	apps/ogui-retroforge-plugin/build.sh $(OUT)/plugins
 
@@ -823,8 +823,8 @@ $(VARIMG_B): $(ROOTFS)
 # RETROFORGE_DEV and RETROFORGE_SLOT_B have to be FORWARDED, not just set: this rule ran through plain
 # $(INBUILD), so neither reached the container and `RETROFORGE_SLOT_B=0 make sdcard` silently did
 # nothing at all. It matters more now that the mode picks the default -- make-sdcard.sh populates
-# slot B for a dev card and leaves it empty for a release card, and an unforwarded RETROFORGE_DEV
-# would build every card release-shaped. No mode stamp is needed on top: $(ROOTFS) already depends
+# slot B for a dev image and leaves it empty for a release image, and an unforwarded RETROFORGE_DEV
+# would build every image release-shaped. No mode stamp is needed on top: $(ROOTFS) already depends
 # on $(MODE_STAMP), so flipping the mode rebuilds the rootfs and this rule with it.
 $(SDCARD): $(ROOTFS) $(VARIMG) $(VARIMG_B) $(GRUB) boot/esp-dtbs.sh $(IMAGE_DIR)/make-sdcard.sh | $(BUILD_STAMP)
 	$(DOCKER) -e RETROFORGE_DEV -e RETROFORGE_SLOT_B $(BUILD_IMG) $(IMAGE_DIR)/make-sdcard.sh

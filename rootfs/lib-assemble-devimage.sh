@@ -12,11 +12,11 @@
 
 # STAGE dev-wifi-ssh — DEV-ONLY Wi-Fi/SSH injection (RETROFORGE_DEV=1). NEVER part of a release/RAUC build:
 # the release base is packages-only and first-boot networking is the shell's job. Here
-# we add ALL the scaffolding a throwaway card needs to auto-join the LAN and accept an SSH
+# we add ALL the scaffolding a throwaway image needs to auto-join the LAN and accept an SSH
 # login to run vulkaninfo — a NetworkManager connection profile, regdom, the Wi-Fi PSK + SSH
 # key (from the environment, so secrets never touch the repo), service enablement, and host
 # keys. The runtime packages (networkmanager + its wpa_supplicant backend, openssh) come from
-# the base (customize-base.sh). The test card deliberately uses the SAME manager as release —
+# the base (customize-base.sh). The test image deliberately uses the SAME manager as release —
 # NetworkManager — so this path validates the real release Wi-Fi stack (incl. its unaided recovery
 # across a retroforge-suspend cycle) instead of a divergent test-only wpa_supplicant@wlan0 + networkd path.
 # Initialised OUTSIDE the dev branch because this script runs under `set -u`: a release build
@@ -24,14 +24,14 @@
 # variable and abort the assembler.
 if [ "${RETROFORGE_DEV:-}" = "1" ]; then
   # WI-FI IS OPTIONAL, and which way it went is stamped by ROOTFS_MODE so make re-assembles on a
-  # flip (see the Makefile). A card with no profile is the SHIPPING first-boot condition — no
+  # flip (see the Makefile). An image with no profile is the SHIPPING first-boot condition — no
   # network until the user joins one in the UI — which is the only honest way to exercise OOBE
   # locally. It is also unreachable: no profile means no SSH, and this device has no UART, so the
   # only debug path left is the offline card-mount (`journalctl -D`).
   #
-  # These vars used to be `:?` REQUIRED here, which made a no-network dev card impossible to
+  # These vars used to be `:?` REQUIRED here, which made a no-network dev image impossible to
   # build. Optional is right, but "absent means skip" alone would trade one footgun for a worse
-  # one: forgetting to source dev.env.local would silently hand you an unreachable card. So intent
+  # one: forgetting to source dev.env.local would silently hand you an unreachable image. So intent
   # is what decides, and RETROFORGE_WIFI=1 is how a caller that depends on SSH states it.
   dev_wifi=1
   if [ "${RETROFORGE_WIFI:-}" = "0" ]; then
@@ -39,27 +39,27 @@ if [ "${RETROFORGE_DEV:-}" = "1" ]; then
   elif [ -z "${RETROFORGE_WIFI_SSID:-}" ] || [ -z "${RETROFORGE_WIFI_PSK:-}" ]; then
     if [ "${RETROFORGE_WIFI:-}" = "1" ]; then
       echo "RETROFORGE_WIFI=1 requires RETROFORGE_WIFI_SSID + RETROFORGE_WIFI_PSK" >&2
-      echo "  put them in dev.env.local (gitignored), or unset RETROFORGE_WIFI for a no-network card" >&2
+      echo "  put them in dev.env.local (gitignored), or unset RETROFORGE_WIFI for a no-network image" >&2
       exit 1
     fi
     dev_wifi=0
   fi
 
   if [ "$dev_wifi" = "0" ]; then
-    echo "  [DEV] NO Wi-Fi profile — this card will NOT auto-join and is NOT reachable over SSH."
+    echo "  [DEV] NO Wi-Fi profile — this image will NOT auto-join and is NOT reachable over SSH."
     echo "  [DEV]   first boot starts offline (the shipping OOBE condition); debug via card-mount."
-    echo "  [DEV]   for a reachable card, set RETROFORGE_WIFI_SSID + RETROFORGE_WIFI_PSK in dev.env.local."
+    echo "  [DEV]   for a reachable image, set RETROFORGE_WIFI_SSID + RETROFORGE_WIFI_PSK in dev.env.local."
   fi
 fi
 
-# STAGE dev-ota-channel — DEV-ONLY. A dev card must NEVER be offered a stable release, because taking
-# one is a DOWNGRADE that silently destroys whatever the card was built to test.
+# STAGE dev-ota-channel — DEV-ONLY. A dev image must NEVER be offered a stable release, because taking
+# one is a DOWNGRADE that silently destroys whatever the image was built to test.
 #
-# HW-OBSERVED 2026-08-06: a dev card at RETROFORGE_GIT=afabca8 — built specifically to test the
+# HW-OBSERVED 2026-08-06: a dev image at RETROFORGE_GIT=afabca8 — built specifically to test the
 # gamescope 3.16.25 bump — showed an update notification in the Steam UI. Pressing Apply ran
 # steamos-update -> retroforge-update -> rauc and began writing stable's retroforge-v0.2.1.raucb (3.7 GB)
 # into the inactive slot. v0.2.1 carries gamescope 3.16.23.2, i.e. exactly the build whose bug the
-# card existed to test a fix for, and on completion it would have become primary.
+# image existed to test a fix for, and on completion it would have become primary.
 #
 # WHY it was offered at all: retroforge-update compares the running version to the channel's for
 # INEQUALITY, not for ordering, and a dev image stamps RETROFORGE_VERSION=dev (see the
@@ -69,26 +69,26 @@ fi
 #
 # WHAT THIS BUYS with no server-side work: retroforge-update's manifest() FAILS CLOSED. A channel
 # whose latest.json does not exist cannot be reached, and `check` then exits EXIT_NONE (7) — the
-# same "no update available" it returns for a healthy up-to-date device. So a dev card stops being
+# same "no update available" it returns for a healthy up-to-date device. So a dev image stops being
 # offered anything the moment this lands, and publishing a real dev channel later is additive.
 #
 # This writes the documented override file (retroforge-update's CONFIG_FILE, /etc/retroforge/ota.conf),
-# NOT a new code path, so the operator override surface is unchanged and a dev card can still be
+# NOT a new code path, so the operator override surface is unchanged and a dev image can still be
 # repointed by hand ([[devices-are-operator-reachable]]). A RELEASE image gets no ota.conf at all
 # and keeps retroforge-update's own DEFAULT_CHANNEL="stable".
 if [ "${RETROFORGE_DEV:-}" = "1" ]; then
-  echo "  [DEV] pinning the OTA channel to 'dev' — a dev card is never offered a stable release"
+  echo "  [DEV] pinning the OTA channel to 'dev' — a dev image is never offered a stable release"
   install -d -m 0755 "$stage/etc/retroforge"
   cat >"$stage/etc/retroforge/ota.conf" <<'OTACONF'
-# DEV CARD ONLY — written by rootfs/assemble-rootfs.sh under RETROFORGE_DEV=1.
+# DEV IMAGE ONLY — written by rootfs/assemble-rootfs.sh under RETROFORGE_DEV=1.
 # A release image does not ship this file and uses retroforge-update's built-in "stable" default.
 #
 # A dev build stamps RETROFORGE_VERSION=dev, and the update check compares versions for INEQUALITY,
 # so every stable release would otherwise read as an available update — and taking it downgrades
-# the card to the release it was built to test against. Point it somewhere that is not stable.
+# the image to the release it was built to test against. Point it somewhere that is not stable.
 #
 # If this channel has no latest.json on the server the check fails closed and reports "no update
-# available", which is the intended behaviour for a dev card. Set OTA_URL here too to point at a
+# available", which is the intended behaviour for a dev image. Set OTA_URL here too to point at a
 # different server entirely.
 OTA_CHANNEL=dev
 OTACONF
@@ -133,21 +133,21 @@ EOF
   install -d -m0755 "$stage/etc/conf.d"
   printf '\nWIRELESS_REGDOM="BE"\n' >>"$stage/etc/conf.d/wireless-regdom"
 
-  # No resume hook needed: the test card runs NetworkManager (same as release), and NM re-associates
+  # No resume hook needed: the test image runs NetworkManager (same as release), and NM re-associates
   # Wi-Fi unaided after a retroforge-suspend thaw — HW-validated 2026-06-25, which is why the former
   # 50-nm-reup hook was dropped as moot.
 fi
 
 # The rest of the dev scaffolding is NOT conditional on Wi-Fi. The SSH key is useful on a
-# no-Wi-Fi card the moment OOBE joins a network, and the smoke helper is a local tool — gating
-# either on a profile that may not exist would make a no-network dev card less useful than it
+# no-Wi-Fi image the moment OOBE joins a network, and the smoke helper is a local tool — gating
+# either on a profile that may not exist would make a no-network dev image less useful than it
 # needs to be, for no reason.
 if [ "${RETROFORGE_DEV:-}" = "1" ]; then
   # sshd itself is NOT enabled here anymore: it ships always-on for EVERY build via the rootfs/overlay
   # (60-retroforge-sshd.preset + the committed multi-user.target.wants/sshd.service symlink), because
   # release remote access is key-only and a keyless sshd admits nobody. NetworkManager is likewise
   # enabled for every build in customize-base.sh. So this block only adds the TEST credential
-  # below — the root key that gives the throwaway card a root@device login for bring-up.
+  # below — the root key that gives the throwaway image a root@device login for bring-up.
 
   # HOST KEYS ARE DELIBERATELY *NOT* GENERATED HERE. This block used to run ssh-keygen into
   # $stage/etc/ssh, on the reasoning that "a read-only root cannot generate them at boot". That
@@ -200,7 +200,7 @@ if [ "${RETROFORGE_DEV:-}" = "1" ]; then
   install -d -m0755 "$stage/usr/local/lib/retroforge"
   cat >"$stage/usr/local/lib/retroforge/usb-gadget-ncm" <<'GADGET'
 #!/bin/sh
-# DEV CARD ONLY (rootfs/lib-assemble-devcard.sh, STAGE dev-usb-gadget). Idempotent.
+# DEV IMAGE ONLY (rootfs/lib-assemble-devimage.sh, STAGE dev-usb-gadget). Idempotent.
 set -eu
 G=/sys/kernel/config/usb_gadget/retroforge
 udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
@@ -220,7 +220,7 @@ if [ ! -d "$G" ]; then
   echo 0x01   > "$G/bDeviceProtocol"
   echo "$h"          > "$G/strings/0x409/serialnumber"
   echo "RetroForge"  > "$G/strings/0x409/manufacturer"
-  echo "RetroForge dev card" > "$G/strings/0x409/product"
+  echo "RetroForge dev image" > "$G/strings/0x409/product"
   echo "NCM"         > "$G/configs/c.1/strings/0x409/configuration"
   echo 250           > "$G/configs/c.1/MaxPower"
   mac 06 > "$G/functions/ncm.usb0/dev_addr"
@@ -236,7 +236,7 @@ GADGET
   chmod 0755 "$stage/usr/local/lib/retroforge/usb-gadget-ncm"
 
   cat >"$stage/etc/systemd/system/retroforge-usb-gadget.service" <<'UNIT'
-# DEV CARD ONLY (rootfs/lib-assemble-devcard.sh, STAGE dev-usb-gadget).
+# DEV IMAGE ONLY (rootfs/lib-assemble-devimage.sh, STAGE dev-usb-gadget).
 [Unit]
 Description=RetroForge dev USB Ethernet gadget (NCM)
 Requires=sys-kernel-config.mount
@@ -255,13 +255,13 @@ UNIT
 
   install -d -m0755 "$stage/etc/udev/rules.d"
   cat >"$stage/etc/udev/rules.d/90-retroforge-usb-gadget.rules" <<'RULE'
-# DEV CARD ONLY (rootfs/lib-assemble-devcard.sh, STAGE dev-usb-gadget): (re)bind when a UDC appears.
+# DEV IMAGE ONLY (rootfs/lib-assemble-devimage.sh, STAGE dev-usb-gadget): (re)bind when a UDC appears.
 ACTION=="add", SUBSYSTEM=="udc", TAG+="systemd", ENV{SYSTEMD_WANTS}+="retroforge-usb-gadget.service"
 RULE
 
   install -d -m0755 "$stage/etc/systemd/network"
   cat >"$stage/etc/systemd/network/50-retroforge-usb-gadget.network" <<'NET'
-# DEV CARD ONLY (rootfs/lib-assemble-devcard.sh, STAGE dev-usb-gadget).
+# DEV IMAGE ONLY (rootfs/lib-assemble-devimage.sh, STAGE dev-usb-gadget).
 [Match]
 Name=usb0
 
@@ -298,7 +298,7 @@ NET
 
   install -d -m0755 "$stage/etc/NetworkManager/conf.d"
   cat >"$stage/etc/NetworkManager/conf.d/90-retroforge-usb-gadget.conf" <<'NMCONF'
-# DEV CARD ONLY (rootfs/lib-assemble-devcard.sh, STAGE dev-usb-gadget): systemd-networkd owns usb0.
+# DEV IMAGE ONLY (rootfs/lib-assemble-devimage.sh, STAGE dev-usb-gadget): systemd-networkd owns usb0.
 [keyfile]
 unmanaged-devices=interface-name:usb0
 NMCONF
@@ -306,20 +306,20 @@ fi
 
 # STAGE dev-ota-key — DEV-ONLY. The build box's own dev OTA CA (ota/gen-dev-signing.sh, minted by
 # dev.env into work/dev-pki/) is appended to the keyring rauc-boot-mirror installed, after the
-# project CA. A dev build's `make bundle` signs with that dev key, so a dev card takes every later
+# project CA. A dev build's `make bundle` signs with that dev key, so a dev image takes every later
 # build as an update (`rauc install`): the other slot is written and /home -- Steam and its games,
 # the x86 guest, emulators, Wi-Fi -- is kept, where a reflash erased it (HW, KONKR Pocket FIT,
-# 2026-10-21: Hades downloaded again after every card). Never in a release image: this file is not
+# 2026-10-21: Hades downloaded again after every image). Never in a release image: this file is not
 # sourced for one, and rootfs/guard-rootfs.sh fails a release keyring that is not the project CA
 # alone. The installer runs from the card and verifies against this same keyring
-# (installer/rauc-session.sh), so a dev card can also install a dev bundle to internal storage.
+# (installer/rauc-session.sh), so a dev image can also install a dev bundle to internal storage.
 if [ "${RETROFORGE_DEV:-}" = "1" ]; then
   dev_ca="$ROOT/work/dev-pki/ca.cert.pem"
   if [ -s "$dev_ca" ] && openssl x509 -in "$dev_ca" -noout 2>/dev/null; then
     { echo; cat "$dev_ca"; } >>"$stage/etc/rauc/keyring.pem"
     echo "  [TEST] RAUC keyring: + this build box's dev OTA CA ($(openssl x509 -in "$dev_ca" -noout -subject | sed 's/^subject=//'))"
   else
-    echo "  [TEST] WARNING: no dev OTA CA (work/dev-pki/ca.cert.pem; source dev.env) — this card takes no dev bundle, only a reflash"
+    echo "  [TEST] WARNING: no dev OTA CA (work/dev-pki/ca.cert.pem; source dev.env) — this image takes no dev bundle, only a reflash"
   fi
   unset dev_ca
 fi

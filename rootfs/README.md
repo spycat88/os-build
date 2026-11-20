@@ -56,7 +56,7 @@ just no longer one 1535-line file. Each is **sourced**, so it reads the assemble
 | `lib-assemble-storage.sh` | `first-boot-storage` — the `/home` + `/esp` fstab rows and `grow-home.sh` | every build |
 | `lib-assemble-offload.sh` | `offload-mounts` — the offload bind mounts under `/home/.retroforge/offload` | every build |
 | `lib-assemble-splash.sh` | `boot-splash` — the splash drawer + its asset in the sealed root | every build |
-| `lib-assemble-devcard.sh` | `dev-wifi-ssh` + `dev-ota-channel` — Wi-Fi profile, OTA channel pin, root `authorized_keys` | **`RETROFORGE_DEV=1` only** |
+| `lib-assemble-devimage.sh` | `dev-wifi-ssh` + `dev-ota-channel` — Wi-Fi profile, OTA channel pin, root `authorized_keys` | **`RETROFORGE_DEV=1` only** |
 | `lib-assemble-debug.sh` | `debug-capture` — journald debug capture | **`RETROFORGE_DEBUG=1` only** |
 
 The last two are sourced *inside* their gate, so a release build never reads those files — the
@@ -102,9 +102,9 @@ run in `retroforge-build`. Device-proprietary firmware is fetched from the pinne
 retroforge-linux/qcom-firmwares repo (`firmware/fetch-qcom-fw.sh`, idempotent — no device dump
 needed). Output is `out/images/rootfs.img`; the root carries its own boot half
 (`/boot/{Image, initramfs-retroforge.img, dtbs}` + the `/usr/lib/retroforge/boot` mirror).
-The flashable card is `image/make-sdcard.sh` (or `make sdcard`).
+The flashable image is `image/make-sdcard.sh` (or `make sdcard`).
 
-### Test card: Wi-Fi + SSH (test-only)
+### Test image: Wi-Fi + SSH (test-only)
 
 The release runtime (NetworkManager, openssh, mesa/Turnip/vulkan-tools) ships in every build
 via `customize-base.sh`. **Credentials** are not — they are injected only when assembling with
@@ -112,14 +112,14 @@ via `customize-base.sh`. **Credentials** are not — they are injected only when
 them from `set -a; . ./dev.env; set +a` (tracked and secret-free; it sources the gitignored
 `dev.env.local` for your SSID/PSK and generates a throwaway SSH key under `work/dev-ssh/`).
 
-The Wi-Fi profile is **optional**. With no creds — or with `RETROFORGE_WIFI=0` — you get a card
+The Wi-Fi profile is **optional**. With no creds — or with `RETROFORGE_WIFI=0` — you get an image
 that starts with no network and no SSH, which is the shipping first-boot condition and the only
 honest way to exercise OOBE locally. `RETROFORGE_WIFI=1` makes missing creds a hard error instead,
 for anything that depends on being able to SSH in. Which way it went is recorded in
 `ROOTFS_MODE` (`dev` vs `dev-nowifi`), so flipping it re-assembles the rootfs rather than handing
-back the previous card.
+back the previous image.
 
-Spelled out, for a throwaway card that joins your LAN and accepts SSH:
+Spelled out, for a throwaway image that joins your LAN and accepts SSH:
 
 ```
 docker run --rm -v "$PWD":/src -w /src \

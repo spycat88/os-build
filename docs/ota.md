@@ -46,11 +46,11 @@ environment, falling back to `DEFAULT_URL`. A channel is a directory, not a migr
 | source | who can write it | note |
 |---|---|---|
 | `RETROFORGE_OTA_CHANNEL` | whoever runs the command | one invocation only |
-| `/etc/retroforge/ota.conf` | root | only a **dev** card ships this file, pinned to `dev` so the card is never offered a stable release |
+| `/etc/retroforge/ota.conf` | root | only a **dev** image ships this file, pinned to `dev` so the image is never offered a stable release |
 | `~/.config/retroforge/ota.conf` | the user, no root needed | `/home/player/.config/retroforge/ota.conf` (spelled out, not `$HOME`); the only one reachable on a release device |
 | built-in `stable` | — | |
 
-`/etc` outranks `$HOME` on purpose: a file in `$HOME` must not silently undo the dev card's pin. On
+`/etc` outranks `$HOME` on purpose: a file in `$HOME` must not silently undo the dev image's pin. On
 a release image `/etc/retroforge/ota.conf` does not exist, so the user's file is the only entry in the
 chain. It may set `OTA_CHANNEL` **only** — `OTA_URL` is read from `/etc` and the environment, never
 from `$HOME`, because which host a device fetches from is an operator decision and one writable file
@@ -83,7 +83,7 @@ OGUI's own updater with:
 - **Update channel**, Stable, Beta or Nightly. Switching either way needs no confirmation and checks the new
   channel at once; going back to Stable offers stable's release even when it is older than the beta
   running (the check compares for inequality). The dropdown is disabled when `/etc` or the
-  environment pins the channel, as on a dev card.
+  environment pins the channel, as on a dev image.
 - **A background check** 3 minutes after the shell starts, then every 6 hours, never while a game runs.
   It posts one notification per version found and never installs.
 
@@ -122,9 +122,9 @@ publishes to `stable`, `ota/v0.3.0-beta.1` to `beta`. Not a separate tag namespa
 version string then records the channel and duplicate detection turns on that string: two channels
 publishing the same `0.3.0` would leave a device switching stable → beta believing it is already up
 to date. A beta bundle is signed with the same release key and gated exactly as hard; the channel
-decides who is offered it, not whether it is trustworthy. `image/` (card) tags refuse a pre-release suffix
-outright: there is no beta card, and a card's installer installs from the channel picked in Updates
-whatever the card's own version says. An `ota/` tag with a `-nightly` suffix is refused: only
+decides who is offered it, not whether it is trustworthy. `image/` tags refuse a pre-release suffix
+outright: there is no beta image, and an image's installer installs from the channel picked in Updates
+whatever the image's own version says. An `ota/` tag with a `-nightly` suffix is refused: only
 `nightly-bundle.yml` publishes to `nightly`.
 
 A choice made in `~/.config` survives an OTA and a slot switch on its own: `/home` is one partition
@@ -237,23 +237,23 @@ present but *not* named by `latest.json` is a run that died before the pointer w
 
 ### Validating a release on hardware, before anything is published
 
-**Proving the update path needs no published card and no published bundle.** It needs a device on
+**Proving the update path needs no published image and no published bundle.** It needs a device on
 the boot flow you are shipping and a bundle that device will accept, and both are buildable locally.
 
 One thing decides whether a boot-flow change can be shipped as an OTA at all: **RAUC runs the BOOTED
 slot's post-install handler, not the bundle's.** A device runs the handler of the release it is on,
 so a change the old handler does not understand (a new boot layout, a file it requires that the new
-image no longer ships) cannot be fixed in the bundle — the next card is then a mandatory reflash for
+image no longer ships) cannot be fixed in the bundle — the next image is then a mandatory reflash for
 every device in the field. Read the running release's `usr/lib/rauc/post-install.sh` against the new
 image before promising an OTA. A handler that dies partway is safe for the running system but is
 **not a dry run**: it can leave the target slot overwritten and unbootable while the booted slot
 keeps running.
 
 ```sh
-# 1. the device: build the new boot flow locally and flash it. Give the CARD a version too, or
+# 1. the device: build the new boot flow locally and flash it. Give the IMAGE a version too, or
 #    both ends render `dev` and there is no version change to detect.
 set -a; . ./dev.env; set +a
-RETROFORGE_VERSION=<base> PKIDIR=$HOME/retroforge-pki make sdcard    # dev card, new boot flow
+RETROFORGE_VERSION=<base> PKIDIR=$HOME/retroforge-pki make sdcard    # dev image, new boot flow
 
 # 2. a bundle the device will accept: a DEV image with a REAL signature.
 #    rauc gates on the signature, so this installs exactly like a release bundle.
@@ -276,8 +276,8 @@ at the channel with
 ssh player@<device> 'mkdir -p ~/.config/retroforge && echo OTA_CHANNEL=test > ~/.config/retroforge/ota.conf'
 ```
 
-(on a DEV card `/etc/retroforge/ota.conf` pins `dev` and outranks this file, so edit that one — you have
-root on a dev card), and drive check → install → restart from the shell. Then check again — it must
+(on a DEV image `/etc/retroforge/ota.conf` pins `dev` and outranks this file, so edit that one — you have
+root on a dev image), and drive check → install → restart from the shell. Then check again — it must
 report up-to-date and **not** re-offer. **Reset the channel when you are done**: `~/.config` is on
 `/home`, shared by both slots, so `OTA_CHANNEL=test` survives the update and the device silently
 keeps reading it forever. `retroforge-update status` names the file it came from.
@@ -286,7 +286,7 @@ keeps reading it forever. `retroforge-update status` names the file it came from
 protects `stable` from a test image reaching the fleet; hand-placing a bundle in a channel of your
 own is you doing something explicit. The gate is on publishing, not installing.
 
-Only once that passes: tag `image/vX.Y.Z` (the card), then `ota/vX.Y.Z`.
+Only once that passes: tag `image/vX.Y.Z` (the image), then `ota/vX.Y.Z`.
 
 **`ota/vX.Y.Z` publishes by itself.** `release-bundle.yml` builds the rootfs, then its `release`
 job signs the bundle with the release cert and runs `ota/publish-bundle.sh` against the bucket with

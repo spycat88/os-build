@@ -1,32 +1,32 @@
-# retroforge release SD card — a flashable image for bringing a device up from scratch.
+# retroforge release image — a flashable SD-card image for bringing a device up from scratch.
 #
-# Separate from release-bundle.yml because the two are wanted at different cadences: a card is what
+# Separate from release-bundle.yml because the two are wanted at different cadences: an image is what
 # you flash onto a new device or after a wipe, a bundle is what updates one already in the field.
 # Both delegate to image.yml so the rootfs recipe exists once.
 #
 # TAG NAMESPACE: `image/v*`, NOT a bare `v*` (it was `card/v*` up to card/v0.0.8; renamed
 # 2026-11-19, `ota/v*` unchanged). The two artifacts have independent cadences — a bundle ships far
-# more often than a card — so they get independent tag namespaces rather than sharing one and
+# more often than an image — so they get independent tag namespaces rather than sharing one and
 # hoping. This also fixes a real inversion: while this workflow triggered on `v*` and
-# release-bundle.yml had no tag trigger at all, tagging a release built a card and NEVER a bundle,
+# release-bundle.yml had no tag trigger at all, tagging a release built an image and NEVER a bundle,
 # which is backwards from how the two actually ship. `image/v1.3.0` and `ota/v1.3.0` on the same
-# commit mean the same OS delivered two ways; a run of ota tags with no card between them is normal.
+# commit mean the same OS delivered two ways; a run of ota tags with no image between them is normal.
 #
 # NEEDS NO SIGNING KEY AND NO R2 CREDENTIAL. Nothing here is signed — an sdcard is flashed over USB
 # by someone holding the device, so there is no signature for anything to verify — and since
-# 2026-10-13 the card is a GitHub Release asset rather than an R2 object. A release card measured
+# 2026-10-13 the image is a GitHub Release asset rather than an R2 object. A release image measured
 # 524 MiB under gz -6 that day (b6abe83, 5.5 GB nominal / 1.9 GB real), a quarter of GitHub's 2 GiB
 # per-asset cap; the 5.08 GiB that put it in R2 (2026-08-04) was a root still carrying an x86 stack.
 # The only credential left is the job-scoped GITHUB_TOKEN, plus the ScreenScraper developer login
 # the build bakes into the image (see the sdcard job).
 #
-# THE REPO IS PUBLIC (since 2026-11), so a card Release asset downloads with no login. From
+# THE REPO IS PUBLIC (since 2026-11), so an image Release asset downloads with no login. From
 # 2026-10-13 until then it needed a GitHub login with access to os-build.
 #
 # THE `release-cards` ENVIRONMENT STILL GATES THE RELEASE JOB, for its reviewer rather than its
 # secrets: a Release is the record people flash from, so a person signs off on a finished build
 # before one is cut. Its policy allows the `image/v*` tags AND `main`, because a dispatch with
-# publish:true is a supported way to cut a card and a tag-only policy would reject it at the gate.
+# publish:true is a supported way to cut an image and a tag-only policy would reject it at the gate.
 #
 # A LOCAL `make sdcard` PRODUCES THE SAME KIND OF IMAGE. It used to fail an artifact-pin gate by
 # design, which made flashing this workflow's output the only way to see a real release image; that
@@ -35,16 +35,16 @@
 name: release sdcard
 
 on:
-  # Manual by default: a card is cut when someone wants one, not on every push.
+  # Manual by default: an image is cut when someone wants one, not on every push.
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version for this card, with its v (e.g. v1.3.0 -> tag image/v1.3.0; default: v<date>.<shortsha>)'
+        description: 'Version for this image, with its v (e.g. v1.3.0 -> tag image/v1.3.0; default: v<date>.<shortsha>)'
         required: false
         type: string
         default: ''
       publish:
-        description: 'Cut a GitHub Release carrying the card (off for a plain test build)'
+        description: 'Cut a GitHub Release carrying the image (off for a plain test build)'
         required: false
         type: boolean
         default: false
@@ -89,19 +89,19 @@ jobs:
           case "$v" in
             *[!A-Za-z0-9._-]*) echo "::error::version '$v' has characters that do not belong in a URL path"; exit 1 ;;
           esac
-          # THERE IS NO SUCH THING AS A BETA CARD. release-bundle.yml reads a semver pre-release
+          # THERE IS NO SUCH THING AS A BETA IMAGE. release-bundle.yml reads a semver pre-release
           # suffix as "publish to the beta channel" (its prep job carries the reasoning), so
-          # `image/v0.3.0-beta.1` is a tag that LOOKS like it selects something and cannot: a card is
-          # a flashable image, not a channel, and every card lands a device on `stable` —
-          # ota.conf is written only by rootfs/lib-assemble-devcard.sh, which a release build never
+          # `image/v0.3.0-beta.1` is a tag that LOOKS like it selects something and cannot: an image is
+          # flashed whole, not a channel, and every image lands a device on `stable` —
+          # ota.conf is written only by rootfs/lib-assemble-devimage.sh, which a release build never
           # sources, so a release image ships no /etc/retroforge/ota.conf and
           # retroforge-update falls through to its built-in DEFAULT_CHANNEL.
           #
           # Refused rather than silently accepted, because the failure is otherwise invisible: the
-          # card would build, publish, flash and run, and the only symptom of the misunderstanding
+          # image would build, publish, flash and run, and the only symptom of the misunderstanding
           # would be a device someone believed was on beta quietly taking stable releases.
           case "$v" in
-            *-*) echo "::error::version '$v' carries a pre-release suffix, which on an ota/ tag means the beta channel. There is no beta card: every card lands on stable. Tag the card without the suffix."; exit 1 ;;
+            *-*) echo "::error::version '$v' carries a pre-release suffix, which on an ota/ tag means the beta channel. There is no beta image: every image lands on stable. Tag the image without the suffix."; exit 1 ;;
           esac
           # A tag always publishes. A dispatch publishes only when asked, so the common case —
           # "does this still build?" — cannot cut a Release nobody asked for.
@@ -114,14 +114,14 @@ jobs:
           echo "publish=$p" >> "$GITHUB_OUTPUT"
           echo "version=$v publish=$p" >> "$GITHUB_STEP_SUMMARY"
 
-  # NO ENVIRONMENT AND NO SIGNING OR UPLOAD CREDENTIAL. Nothing in a card build is signed and nothing
+  # NO ENVIRONMENT AND NO SIGNING OR UPLOAD CREDENTIAL. Nothing in an image build is signed and nothing
   # in it is uploaded, so this job — the long one, six hours of bootstrapping a rootfs and compiling
   # the overlay from third-party sources as uid 0 — holds no key that matters. It ends at a workflow
   # artifact.
   #
   # ONE EXCEPTION, by name: RetroForge's ScreenScraper developer login, which the build writes into
   # the image (rootfs/lib-assemble-scraper.sh) as a world-readable file, so the build code seeing it
-  # exposes nothing a card holder cannot already read. Without it the card cannot scrape ROM art
+  # exposes nothing anyone holding the image cannot already read. Without it the image cannot scrape ROM art
   # (card/v0.0.8 shipped that way). Both are REPOSITORY secrets, so they resolve here with no
   # environment.
   #
@@ -139,14 +139,14 @@ jobs:
       RETROFORGE_SS_DEVID: ${{ secrets.RETROFORGE_SS_DEVID }}
       RETROFORGE_SS_DEVPASSWORD: ${{ secrets.RETROFORGE_SS_DEVPASSWORD }}
 
-  # The publish half: the card and its checksums, as one GitHub Release. Split from
+  # The publish half: the image and its checksums, as one GitHub Release. Split from
   # the build so the reviewer's approval lands on a finished image rather than before a six-hour
   # build, so `contents: write` is scoped to this job alone (the build, which runs far more
   # third-party code, stays read-only), and so a failed upload is "Re-run failed jobs" rather than a
   # rebuild.
   #
   # PUBLISH IS NOT THE SAME AS TAG: a `workflow_dispatch` with publish:true is a supported way to cut
-  # a card, so this gates on prep's `publish` output and creates the `image/<version>` tag itself,
+  # an image, so this gates on prep's `publish` output and creates the `image/<version>` tag itself,
   # on the commit that was built, when the run did not start from one — the exact inverse of prep
   # stripping `image/` from a tag, so a dispatch of `v1.3.0` and a push of `image/v1.3.0` produce the
   # same tag and the same version string in the image. The common case — a dispatch
@@ -163,7 +163,7 @@ jobs:
     environment: ${{ vars.CARDS_ENVIRONMENT || 'release-cards' }}
     steps:
       # FIRST, because checkout cleans the workspace and the downloads below land in it. Full
-      # history and tags, because the notes summarise the commits since the previous card (a
+      # history and tags, because the notes summarise the commits since the previous image (an
       # image/ tag, or a card/ one from before the rename).
       - uses: actions/checkout@v7
         with:
@@ -180,9 +180,9 @@ jobs:
         run: .github/scripts/release-notes.sh "image/$VERSION" "$GITHUB_SHA" "$RUNNER_TEMP/changes.md"
 
       # download-artifact v8 ERRORS on a digest mismatch rather than warning as v4 did, and that
-      # default is deliberately left alone: the alternative is attaching a corrupted card next to a
+      # default is deliberately left alone: the alternative is attaching a corrupted image next to a
       # sha256sums.txt that describes the good bytes.
-      - name: fetch the card
+      - name: fetch the image
         uses: actions/download-artifact@v8
         with:
           name: retroforge-sdcard
@@ -195,17 +195,17 @@ jobs:
           path: meta
 
       # GitHub refuses an asset over 2 GiB, but only once the upload is under way. Check first, so a
-      # card that has grown says so in plain words rather than as an HTTP error from gh.
-      - name: check the card fits a release asset
+      # image that has grown says so in plain words rather than as an HTTP error from gh.
+      - name: check the image fits a release asset
         env:
           VERSION: ${{ needs.prep.outputs.version }}
         run: |
           set -euo pipefail
           size="$(stat -c %s "upload/retroforge-$VERSION.img.gz")"
           limit=$((2 * 1024 * 1024 * 1024))
-          echo "card: $((size / 1048576)) MiB of a $((limit / 1048576)) MiB asset cap" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "image: $((size / 1048576)) MiB of a $((limit / 1048576)) MiB asset cap" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ "$size" -ge "$limit" ]; then
-            echo "::error::retroforge-$VERSION.img.gz is $size bytes, over GitHub's 2 GiB per-asset cap. Shrink the card, or move it to a host without the cap (git history has the old R2 publisher, ota/publish-card.sh)."
+            echo "::error::retroforge-$VERSION.img.gz is $size bytes, over GitHub's 2 GiB per-asset cap. Shrink the image, or move it to a host without the cap (git history has the old R2 publisher, ota/publish-card.sh)."
             exit 1
           fi
 
@@ -215,12 +215,12 @@ jobs:
       #
       # THE NOTES DO NOT TELL ANYONE TO RUN `gh release download`: the image is right there in the
       # release's assets, and a user found the CLI recipe confusing (2026-11-07). They open with what
-      # changed (written by Cloudflare Workers AI from the commits since the previous card, see the step
+      # changed (written by Cloudflare Workers AI from the commits since the previous image, see the step
       # above), then say which file to take, how to check it, and how to write it.
       #
       # A TAG THAT ALREADY EXISTS MUST BE THIS COMMIT. When the tag is missing, the release API
       # creates it on --target; when it exists, the API uses it as-is and IGNORES --target. So a
-      # dispatch reusing a version whose tag sits on an older commit would hang this build's card
+      # dispatch reusing a version whose tag sits on an older commit would hang this build's image
       # on that commit, under a tag that says it was built from there. Checked against the API,
       # not a checkout: matching-refs is a prefix match, hence the exact-ref filter, and a missing
       # ref answers the commits endpoint with 422 rather than 404, hence asking existence first.
@@ -242,7 +242,7 @@ jobs:
           if [ "$exists" != 0 ]; then
             at="$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$tag" --jq .sha)"
             if [ "$at" != "$GITHUB_SHA" ]; then
-              echo "::error::tag $tag already exists on $at, but this card was built from $GITHUB_SHA. Pick a new version, or run from the tag itself."
+              echo "::error::tag $tag already exists on $at, but this image was built from $GITHUB_SHA. Pick a new version, or run from the tag itself."
               exit 1
             fi
           fi

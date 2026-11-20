@@ -199,8 +199,8 @@ def channel_setting():
     would have made them two.
 
     env > /etc > $HOME > built-in, and the middle pair is in THAT order deliberately. The only
-    image that ships CONFIG_FILE is a dev card, where assemble-rootfs.sh pins OTA_CHANNEL=dev so
-    the card is never offered a stable release — taking one downgrades the card to the very
+    image that ships CONFIG_FILE is a dev image, where assemble-rootfs.sh pins OTA_CHANNEL=dev so
+    the image is never offered a stable release — taking one downgrades the image to the very
     release it was built to test against. A user file outranking that would undo the pin silently,
     which is the failure the pin exists to prevent. On a release image CONFIG_FILE does not exist
     at all, so the user's choice is the only one in the chain and wins by default rather than by
@@ -661,7 +661,7 @@ def cmd_channel():
     This exists so a channel picker does not re-implement channel_setting(). That function's
     docstring is emphatic that ONE place decides the precedence, and a second reader of the same
     four sources is exactly the drift it warns about — a picker would answer "which channel is in
-    force" from its own guess while the fetch used this one, and on a dev card the two disagree by
+    force" from its own guess while the fetch used this one, and on a dev image the two disagree by
     design.
 
     TAB-SEPARATED, one line, on STDOUT. The source is a path or a variable name and can contain

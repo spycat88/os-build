@@ -20,11 +20,11 @@
 # On the shared ESP because nothing here wipes it and both slots boot from it. No request: exit 0,
 # nothing touched (the initramfs only calls this when the file is there, but a stale call is harmless).
 #
-# WHAT A RESET IS (plan D1, D2): the device as a freshly flashed card starts, the OS slots untouched.
+# WHAT A RESET IS (plan D1, D2): the device as a freshly flashed image starts, the OS slots untouched.
 #   /home soft  everything goes except player/{roms,bios,saves,states} -- the four SMB shares. The
 #               offload tree (/home/.retroforge: logs, /root, pacman cache) goes too; the next boot
 #               recreates it and seeds it from the read-only root (retroforge-offload-prepare), which
-#               is what brings a dev card's SSH key back.
+#               is what brings a dev image's SSH key back.
 #   /home hard  a new filesystem (mkfs_home, the installer's) and an empty staged player home.
 #   var-a/var-b BOTH reseeded from /usr/lib/retroforge/var-seed.tar.zst with seed_var, as the
 #               installer does: Wi-Fi, pairings, machine-id, SSH host keys gone. Both, because the

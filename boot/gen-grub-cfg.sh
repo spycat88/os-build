@@ -89,7 +89,7 @@ done
 # partition names, and `search --label` matches the FILESYSTEM label — two different things that
 # cannot even hold the same value here, since a FAT label is capped at 11 characters and
 # RETROFORGE-ESP is fourteen. Searching for a file the ESP is the only partition to carry needs no
-# agreement between this generator and the card assembler at all, which is the point: the last
+# agreement between this generator and the image assembler at all, which is the point: the last
 # version of this config searched for a FAT label that image/make-sdcard.sh had stopped writing,
 # and nothing failed — the grubenv simply went missing. The grubenv is that file now: the ESP GRUB
 # (boot/gen-esp-cfg.sh) keeps the slot state in it, so every retroforge ESP carries one.
@@ -144,7 +144,7 @@ done < "$BOARDS"
 # leaves it at the default). So the override is keyed on the SoC, by DTB name prefix, mirroring
 # that table — a new SoC that needs one adds a case here, not a catalog column that would drift.
 # Only the odd ones out produce a line, keyed on the SAVED entry (the console block below says why
-# a fresh card cannot be helped).
+# a freshly flashed image cannot be helped).
 soc_grub_rotation() {  # <dtb basename> -> GRUB rotation for a non-default board, or "" for the 270 default
   case "$1" in
     # The two landscape-native panels in the fleet (1280x960, no DTS rotation): nothing to rotate.
@@ -218,7 +218,7 @@ insmod regexp
 
 # --- where our eight partitions actually are ----------------------------------------------------
 # The indices are the one thing in this config an install to internal storage can invalidate. On a
-# card image/genpart.sh owns the whole medium and lays us down at 1..8, so the build-time constants
+# card, image/genpart.sh owns the whole medium and lays us down at 1..8, so the build-time constants
 # below are right by construction. An internal install APPENDS our eight to the OEM's existing GPT
 # instead, and where that lands is a per-vendor fact — userdata is sda11 on the AYANEO-family boards
 # and sda17 on the Odin 2 — so a baked gpt1 would address an OEM partition.
@@ -241,7 +241,7 @@ insmod regexp
 # half from this build, because a root from one layout with a /var from another is worse than either
 # on its own. That is also why the loaded names differ from the consumed ones — load_env cannot
 # rename, so loading straight into esp_idx would destroy the default before it could be judged. A
-# MISSING file is silent: that is every card built before this landed, and it is not an error.
+# MISSING file is silent: that is every image built before this landed, and it is not an error.
 set esp_idx=$P_ESP
 set root_idx=$P_ROOT
 set var_idx=$P_VAR
@@ -344,7 +344,7 @@ fi
 # (rf_board_ok, which retroforge-bootctl mark-good writes), because that is when a wrong board shows
 # itself; a confirmed board was not what failed, and a device shut down before its confirmation
 # must not get the menu for it. It also shows when no slot had tries left (rf_fallback), and it
-# waits on a fresh card that neither OpenABL nor a saved choice can name the board for.
+# waits on a freshly flashed image that neither OpenABL nor a saved choice can name the board for.
 if [ -n "\${saved_entry}" ]; then
   set default="\${saved_entry}"
   set rf_menu=""
@@ -376,7 +376,7 @@ fi
 set rotation=270
 # SoCs whose panels sit the other way round for GRUB (SM6115 — the MANGMI Air X — and SM4450 — the
 # RP Classic and RG 55G1 — want 90, as in ROCKNIX). Only a board that has been chosen once can be
-# honoured here: on a fresh card nothing says which board this is, so the first menu paints
+# honoured here: on a freshly flashed image nothing says which board this is, so the first menu paints
 # upside-down on them; every boot after the choice is right.
 $ROT_OVERRIDES
 set menu_color_normal=cyan/blue

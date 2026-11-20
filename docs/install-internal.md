@@ -17,7 +17,7 @@ channel ([ota.md](ota.md)). The card's OS itself is not copied. Connect to Wi-Fi
 - [When it refuses](#when-it-refuses)
 - [When it fails](#when-it-fails)
 - [How it runs](#how-it-runs)
-- [Testing it on a dev card](#testing-it-on-a-dev-card)
+- [Testing it on a dev image](#testing-it-on-a-dev-image)
 - [What it deliberately does not do](#what-it-deliberately-does-not-do)
 
 ---
@@ -41,7 +41,7 @@ and are safe by construction, on any layout, including boards nobody has capture
 the new `/home` starts empty: games and saves on the card do not come across.
 
 **Your Wi-Fi networks do come across.** Every Wi-Fi profile NetworkManager has on the card (the
-networks joined in Settings, and a dev card's baked-in one) is copied into the new slot's `/etc`
+networks joined in Settings, and a dev image's baked-in one) is copied into the new slot's `/etc`
 overlay, so the first internal boot joins the same network. Other connection types are left behind.
 This is best-effort: a profile that cannot be copied is logged, and the install carries on.
 
@@ -126,7 +126,7 @@ every tool the install path calls. `tests/test-installer-shipped.sh` checks the 
 
 ---
 
-## Testing it on a dev card
+## Testing it on a dev image
 
 A dev image (`RETROFORGE_MODE=dev` in `/etc/retroforge-release`) installs **itself**: it does not ask
 the update server. `release-info` answers with the root the card booted from
@@ -153,7 +153,7 @@ Environment=RETROFORGE_INSTALL_BUNDLE=http://<host>:8088/<bundle>.raucb
 CONF
 ```
 
-Then use the Settings row. A dev card keeps root SSH while the installer runs, and the spine can be
+Then use the Settings row. A dev image keeps root SSH while the installer runs, and the spine can be
 driven from a root shell with `RETROFORGE_CONFIRM=/usr/lib/retroforge/install/confirm-tty` once the
 session is stopped.
 

@@ -82,7 +82,7 @@ expect() {  # <substring> <what>
   case "$P" in *"$1"*) ok "$2" ;; *) bad "$2 -- got: ${P:-<no probe>}" ;; esac
 }
 
-echo "== a fresh card: A only =="
+echo "== a fresh image: A only =="
 mkdisk 0
 setenv "ORDER=A B" A_OK=1 A_TRY=0 B_OK=0 B_TRY=0
 boot; expect 'slot=A retry=[] fallback=[]' "boots A, not a retry"

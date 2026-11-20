@@ -28,7 +28,7 @@ booted from internal, with **no card inserted**.
 
 **`sgdisk` is NOT on the image** — gptfdisk is not in the package list, so every `sgdisk -p` below
 has to be `sfdisk -d`, which is in util-linux and is equally sector-exact (it prints `start=` and
-`size=` per partition). Confirmed missing on a 2026-09-01 DEV card.
+`size=` per partition). Confirmed missing on a 2026-09-01 DEV image.
 
 ```
 lsblk -o NAME,PARTLABEL,SIZE,PARTUUID,FSTYPE
@@ -165,7 +165,7 @@ No OTA is planned in this configuration. These only confirm rauc *resolves* the 
 
 ## What has actually been run
 
-Executed 2026-09-01 on an sm8650 board, DEV card, `RETROFORGE_GIT=0d1a284`. The device had **no
+Executed 2026-09-01 on an sm8650 board, DEV image, `RETROFORGE_GIT=0d1a284`. The device had **no
 internal retroforge install** — its `sda`–`sde` are the stock Android/UFS stack, and the only
 `retroforge-*` GPT names anywhere on it were on `mmcblk0`. So this run retires the regression risk and
 leaves the branch's actual purpose untested.
@@ -180,7 +180,7 @@ leaves the branch's actual purpose untested.
 
 **Group 1 — the configuration this branch exists for — PASSES.** Run against a v0.3.0 RELEASE
 internal install (`RETROFORGE_GIT=9f13131`, i.e. an image PREDATING this branch) with a freshly
-flashed DEV card booted via ABL force-external. Sixteen duplicate GPT names were visible, 8 on
+flashed DEV image booted via ABL force-external. Sixteen duplicate GPT names were visible, 8 on
 `sda` and 8 on `mmcblk0`:
 
 - `/dev/retroforge/` held 8 links, **every one on `mmcblk0`**; `/`, `/home`, `/esp` and `/efi` all
@@ -283,7 +283,7 @@ still *produces* links, but not that it spans both disks. The 16-link discrimina
 hardware.
 
 **`guard-rootfs.sh` assertion 7b has still never run.** The sealed-root guard is release-only —
-`rootfs/assemble-rootfs.sh` skips it when `RETROFORGE_DEV=1` — so the DEV card that proved everything
+`rootfs/assemble-rootfs.sh` skips it when `RETROFORGE_DEV=1` — so the DEV image that proved everything
 above skipped it by construction. It needs a RELEASE build.
 
 ---

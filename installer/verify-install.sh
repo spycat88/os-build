@@ -5,9 +5,9 @@
 #   installer/verify-install.sh            # discover the installed disk
 #   installer/verify-install.sh /dev/sda   # check exactly this disk
 #
-# THE SAME CHECK LIST AS image/verify-card.sh, against real mounts. That one is unprivileged and
+# THE SAME CHECK LIST AS image/verify-image.sh, against real mounts. That one is unprivileged and
 # reads image files at byte offsets with mtools; this one has root and real block devices, so it
-# mounts read-only instead. The lists are kept deliberately parallel: a card and an install that
+# mounts read-only instead. The lists are kept deliberately parallel: an image and an install that
 # pass different checks are two artifacts nobody can reason about together.
 #
 # WHY IT EXISTS SEPARATELY FROM THE INSTALLER. The spine writes; this reads. An installer that
@@ -145,14 +145,14 @@ expect_fs retroforge-home   ext4
 
 # SLOT B IS EMPTY ON A FRESH INSTALL, and that is a claim worth asserting rather than a gap in the
 # list. The spine formats four filesystems, not six: the RAUC handler owns var-A, and root-B/var-B
-# are left untouched so the disk matches the release card's shape. A populated B here means either
+# are left untouched so the disk matches the release image's shape. A populated B here means either
 # an update has already been applied (fine -- set RETROFORGE_SLOT_B=1) or the installer wrote a slot
 # it had no business writing.
 if [ "${RETROFORGE_SLOT_B:-0}" = 1 ]; then
   expect_fs retroforge-root-B btrfs
   expect_fs retroforge-var-B  ext4
   # Content-identical roots that SHARE an fsid make mounting B hand you A, and every slot test
-  # after that is meaningless. Same check, same reason, as image/verify-card.sh.
+  # after that is meaningless. Same check, same reason, as image/verify-image.sh.
   a="$(fsuuid "${DEV[retroforge-root-A]}")"; b="$(fsuuid "${DEV[retroforge-root-B]}")"
   { [ -n "$a" ] && [ "$a" != "$b" ]; } \
     && ok "root-A / root-B fsids differ (${a:0:8} vs ${b:0:8})" \
@@ -178,7 +178,7 @@ echo "  2. slot witness"
 # convention -- the witness records the slot "in the bootconf naming (A/B)" -- and asserts 'B' for
 # slot B. seed_var writes $SLOT, which is that same naming.
 #
-# THE CARD DISAGREES: image/verify-card.sh expects lowercase 'a', and passes, so a card's var-a
+# THE IMAGE DISAGREES: image/verify-image.sh expects lowercase 'a', and passes, so an image's var-a
 # really does carry 'a' while an install's var-A carries 'A'. Nothing reads this file at runtime --
 # it is a witness for diagnosis, and the two verifiers are its only readers -- so it costs nothing
 # today. It is still two artifacts answering the same question differently, which is the thing

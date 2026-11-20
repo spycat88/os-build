@@ -11,7 +11,7 @@
 # STAGE ogui-plugin — the RetroForge OpenGamepadUI plugin (ROM library, Main menu > Emulators), read-only
 # in the image. OGUI only loads plugins from the player's home, so retroforge-session copies it there
 # at every start when it is missing or of another version (/usr/lib/retroforge/install-ogui-plugin): a
-# fresh card works offline, and after an OS update or a channel switch the plugin matches the image.
+# freshly flashed image works offline, and after an OS update or a channel switch the plugin matches the image.
 #
 # Built by `make plugin` (a $(ROOTFS) prerequisite). Missing means a stale invocation bypassed make;
 # fail rather than assemble an image whose library has no ROM tabs.

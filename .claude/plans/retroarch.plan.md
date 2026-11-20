@@ -117,7 +117,7 @@ hand to `~/emulators/retroarch`, cores by hand:
 
 GATE: 1, 2 or 3 failing stops the plan. 5 failing for N64 drops Phase 6 (D7).
 
-### Phase 0 notes (2026-11-09, Air X MQ66 = A610, dev card 78354ddb, kernel 7.3.3, 192.168.1.100)
+### Phase 0 notes (2026-11-09, Air X MQ66 = A610, dev image 78354ddb, kernel 7.3.3, 192.168.1.100)
 
 Set-up (gone at reboot): bind mounts over `/usr/share/retroforge/emulators` (+ `retroarch/` spike
 definition), `/usr/share/retroforge/catalog.json` (+ `retroarch` entry) and `/etc/retroforge/launch.conf`
@@ -259,7 +259,7 @@ PHASE 0 DONE 2026-11-09: gate passed (steps 1-3 OK). Next: Phase 1.
   row's own args (--core=). FIXED there: 9c4a1a16's library_roms.gd did not parse (loop var `path`
   shadowed a local) -- caught by compiling against OGUI; test-plugin.sh now parses every plugin
   script when RETROFORGE_OGUI_PROJECT is set (526 passed with it).
-- Phase 2 HW check still to do (Air X off the network): a game per system from a dev card or the
+- Phase 2 HW check still to do (Air X off the network): a game per system from a dev image or the
   spike, Repair after deleting a core, a core Revert from the Apps page.
 
 ## Phase 3 — RetroAchievements sign-in
@@ -319,11 +319,11 @@ PHASE 0 DONE 2026-11-09: gate passed (steps 1-3 OK). Next: Phase 1.
 
 ## Phase 5 — HW validation, merge, push
 
-Dev card (`source dev.env`), A610 + SM8250: a game per system boots; saves land in `~/saves/<system>`;
+Dev image (`source dev.env`), A610 + SM8250: a game per system boots; saves land in `~/saves/<system>`;
 Guide hotkeys; clean Exit; per-core and RetroArch Revert; sign-in + one achievement; Mega CD with and
 without BIOS; no menu path installs a core. Then merge (ff) and push.
 
-DONE 2026-11-09 on the Pocket ACE (SM8550, dev card fea75717, plugin 0.1.110):
+DONE 2026-11-09 on the Pocket ACE (SM8550, dev image fea75717, plugin 0.1.110):
 - Apps > RetroArch > Download installed RetroArch 1.22.2 + armGBA v1.5 + Snes9x and Genesis Plus GX
   nightlies (2026-11-09 / 2026-11-07); `retroforge-emu check retroarch` resolves all four on the device.
 - Games: GBC (Tetris DX) + GBA (TMNT, from .7z) on armGBA, SNES (Super Mario All-Stars) on Snes9x,

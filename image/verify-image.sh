@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Offline verification of a built A/B card image — out/images/sdcard.img.
+# Offline verification of a built A/B image — out/images/sdcard.img.
 #
 # Same doctrine as rootfs/guard-rootfs.sh: assert the BUILT ARTIFACT, not the source diff. That
 # guard stops at the staged tree (it runs before mkfs), so nothing checked the partition table,
 # the ESP contents, or the filesystem identities the A/B switch depends on. This closes that gap
 # for the parts a slot switch can be silently wrong about.
 #
-# The card boots ABL → the ESP GRUB (on the ESP; it picks the slot) → the slot's stage-2 grub.cfg
+# The image boots ABL → the ESP GRUB (on the ESP; it picks the slot) → the slot's stage-2 grub.cfg
 # (on its efi-a/b partition; it picks the board) → kernel. So beyond the filesystem identities this
 # asserts the two boot homes: the ESP carries the ESP GRUB + the grubenv with RAUC's seeded slot
 # state + parts.env + OpenABL's Device model DTBs, and each efi partition carries its stage-2 config.
@@ -19,7 +19,7 @@
 # read the ESP/efi partitions with mtools. No loop mounts, no root.
 #
 # Run inside the build image (needs sgdisk, blkid, debugfs, mtools, cpio, zstd):
-#   docker run --rm -v "$PWD":/src -w /src retroforge-build image/verify-card.sh
+#   docker run --rm -v "$PWD":/src -w /src retroforge-build image/verify-image.sh
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,7 +27,7 @@ IMG="${1:-$ROOT/out/images/sdcard.img}"
 TABLE="$ROOT/image/partition-table.txt"
 INITRAMFS="$ROOT/out/initramfs.cpio.zst"
 
-[ -f "$IMG" ] || { echo "no card image: $IMG (run make sdcard)" >&2; exit 1; }
+[ -f "$IMG" ] || { echo "no image: $IMG (run make sdcard)" >&2; exit 1; }
 for t in sgdisk blkid debugfs mdir mtype mlabel cpio cmp zstd; do
   command -v "$t" >/dev/null 2>&1 || { echo "$t not found — run inside retroforge-build" >&2; exit 1; }
 done
@@ -70,7 +70,7 @@ for p in "$P_ROOTA" "$P_ROOTB" "$P_VARA" "$P_VARB"; do
 done
 
 if [ -z "${U[$P_ROOTB]:-}" ]; then
-  ok "slot B is empty (release card, or RETROFORGE_SLOT_B=0) — skipping the A/B identity checks"
+  ok "slot B is empty (release image, or RETROFORGE_SLOT_B=0) — skipping the A/B identity checks"
   SLOT_B=0
 else
   SLOT_B=1
@@ -146,7 +146,7 @@ if [ -f "$BOOTDIR/grub-esp.efi" ]; then
     || bad "bootaa64.efi is not this build's ESP GRUB (out/boot/grub-esp.efi)"
 fi
 
-mdir -i "$IMG@@$espoff" ::/KERNEL >/dev/null 2>&1 && bad "/KERNEL present on the card" \
+mdir -i "$IMG@@$espoff" ::/KERNEL >/dev/null 2>&1 && bad "/KERNEL present in the image" \
                                                    || ok "no /KERNEL"
 mdir -i "$IMG@@$espoff" ::/SteamOS >/dev/null 2>&1 && bad "/SteamOS present: the boot confs belong to the steamcl chain" \
                                                    || ok "no /SteamOS (no boot confs)"
@@ -163,7 +163,7 @@ want_b_ok=0; [ "${SLOT_B:-1}" = 1 ] && want_b_ok=1
 for kv in "ORDER=A B" "A_OK=1" "A_TRY=0" "B_OK=$want_b_ok" "B_TRY=0"; do
   grep -aqx -- "$kv" "$T/grubenv" && ok "grubenv $kv" || bad "grubenv does not carry $kv"
 done
-grep -aq '^saved_entry=' "$T/grubenv" && bad "grubenv carries a saved_entry -- this card would pin one board" \
+grep -aq '^saved_entry=' "$T/grubenv" && bad "grubenv carries a saved_entry -- this image would pin one board" \
                                        || ok "grubenv has no saved board"
 
 # OpenABL's Device model list: one DTB per shipped board, each with the splash region that keeps
@@ -188,9 +188,9 @@ check_efi() {  # <partnum> <letter>
   done
 
   # parts.env: where our eight partitions are on THIS medium, read by the stage-2 grub.cfg before it
-  # can address anything. On a card the values equal the generator's build-time defaults, so a wrong
+  # can address anything. In the image the values equal the generator's build-time defaults, so a wrong
   # one is invisible at boot — which is exactly why it is asserted here against the same table both
-  # sides derive from. A card whose map disagrees with its own GPT is a card that would boot fine and
+  # sides derive from. An image whose map disagrees with its own GPT is an image that would boot fine and
   # then teach the installer's reader the wrong lesson.
   mtype -i "$IMG@@$off" ::/EFI/steamos/parts.env >"$T/parts-$letter.env" 2>/dev/null || true
   grep -aq "GRUB Environment Block" "$T/parts-$letter.env" \
@@ -200,11 +200,11 @@ check_efi() {  # <partnum> <letter>
             "nd_root_a=$P_ROOTA" "nd_root_b=$P_ROOTB" \
             "nd_var_a=$P_VARA" "nd_var_b=$P_VARB" "nd_home=$P_HOME"; do
     grep -aqx -- "$kv" "$T/parts-$letter.env" && ok "p$p parts.env $kv" \
-      || bad "p$p parts.env does not carry $kv (the card's map disagrees with ${TABLE#"$ROOT"/})"
+      || bad "p$p parts.env does not carry $kv (the image's map disagrees with ${TABLE#"$ROOT"/})"
   done
   # The shipped grub.cfg must be EXACTLY what boot/gen-grub-cfg.sh produces for THIS slot. One
   # comparison covers the whole class: a stale out/boot from an older build, slot A's config
-  # written onto slot B's partition, or a generator change that never reached the card. What the
+  # written onto slot B's partition, or a generator change that never reached the image. What the
   # config has to CONTAIN is asserted by tests/test-stage2-grub.sh; this asserts it arrived.
   if [ -x "$ROOT/boot/gen-grub-cfg.sh" ]; then
     if "$ROOT/boot/gen-grub-cfg.sh" "$letter" "$T/expect-$letter.cfg" >/dev/null 2>&1; then
@@ -244,5 +244,5 @@ else
 fi
 
 echo
-[ "$FAIL" = 0 ] && echo "  card OK" || echo "  card FAILED verification"
+[ "$FAIL" = 0 ] && echo | echo "  card FAILED|"  image OK" || echo "  image FAILED|| echo "  card FAILED verification"
 exit "$FAIL"

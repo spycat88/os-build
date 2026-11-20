@@ -88,7 +88,7 @@ MB = 1 << 20
 
 EXIT_OK, EXIT_USAGE, EXIT_NET, EXIT_VERIFY, EXIT_LOCAL = 0, 2, 3, 4, 5
 
-# Download sizes for the bar (2026-10): what each stage fetches on a fresh card.
+# Download sizes for the bar (2026-10): what each stage fetches on a freshly flashed image.
 CLIENT_STAGES = {"bootstrap": 110 * MB, "guest": 1296 * MB, "update": 652 * MB}
 PROTON_STAGE = 420 * MB  # Proton-CachyOS ARMv8.0's tarball, on ARMv8.0 CPUs only
 # The client's unpacking and install of its update, weighted for the bar like a 400 MB download (it

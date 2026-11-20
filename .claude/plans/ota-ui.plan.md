@@ -94,7 +94,7 @@ first beta.
 - Build/sign `0.0.4-beta.1`, install it on the ACE from a local file first (`docs/ota.md` step 2),
   then tag `ota/v0.0.4-beta.1` (creates `beta/` in the bucket).
 - ACE: stable -> beta, check, install (progress), Restart now, trial boot confirmed; beta -> stable
-  (older build offered, install, restart); dev card shows the channel pinned; nothing before first boot.
+  (older build offered, install, restart); dev image shows the channel pinned; nothing before first boot.
 - Look for rauc's `using HTTP/1` warning on the first real R2 stream (never observed yet).
 - Remote access on the ACE: the switch starts/stops pairingd with no password prompt (polkit needs
   the OGUI session to be `subject.local`), a key registers, it is off after a reboot; an OTA from an
@@ -102,7 +102,7 @@ first beta.
 - Settings > General in the real shell: OGUI's updater rows gone, focus starts on System update,
   no crash at start (release export).
 
-**HW so far (ACE, 2026-10-18)**: local release card `v0.0.4-beta.0` (0d231886): Stable check offers
+**HW so far (ACE, 2026-10-18)**: local release image `v0.0.4-beta.0` (0d231886): Stable check offers
 v0.0.3, Beta empty -> no update; pairing switch on -> key registered from the PC -> off, no polkit
 prompt; no plugin errors in the shell log. `v0.0.4-beta.1` bundle (same commit, release key)
 verified and installed from a local file, rebooted into B, trial boot good, pairing off after the

@@ -179,7 +179,7 @@ cp -f "$OUT/fonts/dejavu-mono.pf2" "$OUT/fonts/default.pf2"
 #   the internal installer  cp's it out of /usr/lib/retroforge/boot/ of the root it just wrote
 #
 # The installer seeds RAUC's slot variables into its copy with the image's own grub-editenv (built
-# below); starting from this constant keeps the block it writes byte-identical to a card's.
+# below); starting from this constant keeps the block it writes byte-identical to an image's.
 #
 # EMPTY IS THE ASSERTION THAT MATTERS. grub-editenv is being run on a build host, and a block that
 # arrived carrying a `saved_entry` would pin every device flashed or installed from this build to
@@ -189,7 +189,7 @@ echo "[grub] grub-editenv create -> grubenv"
 rm -f "$OUT/grubenv"
 grub-editenv "$OUT/grubenv" create
 [ "$(wc -c <"$OUT/grubenv")" = 1024 ] \
-  || { echo "grubenv is $(wc -c <"$OUT/grubenv") bytes, not 1024 -- grub_envblk_open only requires the signature to FIT, so a wrong-length block reads back fine and is not the object a card carries" >&2; exit 1; }
+  || { echo "grubenv is $(wc -c <"$OUT/grubenv") bytes, not 1024 -- grub_envblk_open only requires the signature to FIT, so a wrong-length block reads back fine and is not the object an image carries" >&2; exit 1; }
 [ -z "$(grub-editenv "$OUT/grubenv" list)" ] \
   || { echo "grubenv is not pristine -- it carries: $(grub-editenv "$OUT/grubenv" list | tr '\n' ' ')" >&2; exit 1; }
 

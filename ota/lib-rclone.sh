@@ -2,7 +2,7 @@
 # ota/publish-bundle.sh to put OTA bundles in the bucket devices update from.
 #
 # Sourced, never executed. Its own file so the credential setup and the fetch-and-verify live in one
-# place; it served the card publisher too until cards became GitHub Release assets (2026-10-13).
+# place; it served the image publisher too until images became GitHub Release assets (2026-10-13).
 # shellcheck shell=bash
 
 RCLONE_PIN="${RCLONE_PIN:-$ROOT/ota/rclone.pin}"

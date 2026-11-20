@@ -310,7 +310,7 @@ def advertise():
         bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
 
         # Take the name over rather than assuming it is free. systemd does NOT run ExecStopPost on
-        # the Restart= auto-restart path -- measured on a dev card, systemd 258: an ExecStopPost
+        # the Restart= auto-restart path -- measured on a dev image, systemd 258: an ExecStopPost
         # probe logged on a `systemctl restart` and did NOT log between a SIGKILL and the restart
         # it triggered -- so a crashed instance leaves its registration behind and RegisterService
         # then fails DnssdServiceExists. That is exactly the case Restart=on-failure exists to

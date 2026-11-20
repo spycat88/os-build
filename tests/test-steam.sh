@@ -138,7 +138,7 @@ for k in ("runtime_base", "runtime_channel", "runtime_snapshot"):
     assert field(k) is None, f"{k}: the client runs without a Steam Runtime"
 PY
 
-CASE="fresh card, not installed"
+CASE="fresh image, not installed"
 mkpin
 mkclient "$T/client.zip"; mkmanifest "$T/client.zip"
 bootn
@@ -148,7 +148,7 @@ bootn
 OUT="$(python3 "$BOOT" --bogus 2>"$T/err")"; RC=$?
 [ "$RC" = 2 ] && grep -q "usage: steam-bootstrap \[--install\]" "$T/err" && ok "an unknown argument: exit 2" || bad "rc=$RC $(cat "$T/err")"
 
-CASE="fresh card"
+CASE="fresh image"
 boot RETROFORGE_STEAM_PROGRESS=1
 [ "$RC" = 0 ] && [ "$OUT" = "$CLIENT" ] && ok "exit 0, prints the client's path" || bad "rc=$RC out=$OUT err=$ERR"
 [ -f "$CLIENT" ] && [ "$(mode "$CLIENT")" = 755 ] \
@@ -248,7 +248,7 @@ boot
 [ "$RC" = 1 ] && grep -q "unsafe path" <<<"$ERR" && ok "a path leaving the folder is refused" || bad "rc=$RC err=$ERR"
 [ -z "$(find "$T" -name escaped)" ] && [ ! -e "$STEAM_ROOT/steamrtarm64" ] && ok "and nothing was written" || bad "$(find "$T" -name escaped)"
 
-CASE="offline on a fresh card"
+CASE="offline on a fresh image"
 rm -rf "$CDN" "$DATA"
 boot
 [ "$RC" = 1 ] && [ -z "$OUT" ] && grep -q "could not download" <<<"$ERR" && ok "exit 1, says what it could not fetch" || bad "rc=$RC out=$OUT err=$ERR"

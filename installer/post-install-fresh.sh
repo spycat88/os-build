@@ -32,7 +32,7 @@ log() { printf '[%s] %s\n' "$PROG" "$1"; }
 die() { printf '[%s] ERROR: %s\n' "$PROG" "$1" >&2; exit 1; }
 
 # A fresh install writes slot A and only slot A. B is left empty and B_OK=0, matching the release
-# card's shape so the ESP GRUB only ever tries A rather than switching into a slot that has no
+# image's shape so the ESP GRUB only ever tries A rather than switching into a slot that has no
 # kernel; the first OTA fills it. So this is a constant, not a decision.
 SLOT=A
 

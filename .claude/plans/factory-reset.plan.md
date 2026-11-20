@@ -28,9 +28,9 @@ next boot carries it out from the initramfs, which runs a reset script out of th
 
 - **Device identity**: the stable Wi-Fi/BT addresses come from GRUB (`retroforge_radiomac`,
   `boot/gen-grub-cfg.sh:401`), not `/var`: the same after any reset.
-- **Dev cards**: the dev SSH key is seeded into `/root` from the read-only root by
+- **Dev images**: the dev SSH key is seeded into `/root` from the read-only root by
   `retroforge-offload-prepare` at every boot, and the var seed is built from the same tree as the
-  card's var images (`rootfs/assemble-rootfs.sh:431-456`), so a reset dev card should stay reachable
+  image's var images (`rootfs/assemble-rootfs.sh:431-456`), so a reset dev image should stay reachable
   (checked on HW).
 - **A factory `/var` is not an empty one**: it is `/usr/lib/retroforge/var-seed.tar.zst` (~13 MiB),
   laid down by `seed_var` (`install/lib-slotwrite.sh`), as the installer does.
@@ -59,7 +59,7 @@ next boot carries it out from the initramfs, which runs a reset script out of th
 | Category | Source | Pattern |
 |---|---|---|
 | Slot `/var` | `rootfs/overlay/usr/lib/retroforge/install/lib-slotwrite.sh` `seed_var` | reformat + unpack the seed + slot file, chained EXIT trap |
-| Player home | `image/lib-homestage.sh` `stage_player_home` | the one layout shared by card and installer |
+| Player home | `image/lib-homestage.sh` `stage_player_home` | the one layout shared by image and installer |
 | Home mkfs | `installer/retroforge-install` | flags and label of the installer's home |
 | Root gate | `retroforge-installer.service`, `50-retroforge-installer.rules` | Conflicts with the session, `/run/nologin`, polkit start for local active wheel |
 | Consent | `installer/uiflow.py`, `installer/confirm-ui` | pad-sequence consent inside the one UI client |
@@ -90,7 +90,7 @@ next boot carries it out from the initramfs, which runs a reset script out of th
 3. Gate and UI: `retroforge-reset.service`, polkit rule, installer UI reset mode (`test-ui.sh`),
    plugin row (`test-plugin.sh`).
 4. Docs; HW: soft and hard, card boot and internal install with a second ROM card inserted; a dev
-   card stays reachable; MAC unchanged.
+   image stays reachable; MAC unchanged.
 
 ## Risks
 
@@ -106,4 +106,4 @@ next boot carries it out from the initramfs, which runs a reset script out of th
 
 - [x] Soft and hard from Settings, consent on the device, reset at the next boot
 - [x] Offline tests above pass; existing suites green
-- [x] HW: card boots (S2, ACE), dev card reachable, MAC unchanged; internal install + other storage untouched: skipped
+- [x] HW: card boots (S2, ACE), dev image reachable, MAC unchanged; internal install + other storage untouched: skipped

@@ -263,8 +263,8 @@ for slot in A B; do
     && ok "grub-$lc.cfg loads parts.env from the slot's own efi partition" \
     || bad "grub-$lc.cfg does not load (\$root)/EFI/steamos/parts.env"
   grep -q 'if \[ -f (\$root)/EFI/steamos/parts.env \]; then' "$cfg" \
-    && ok "grub-$lc.cfg guards the load with -f, so a card without one is silent" \
-    || bad "grub-$lc.cfg loads parts.env unguarded -- every pre-existing card would print an error"
+    && ok "grub-$lc.cfg guards the load with -f, so an image without one is silent" \
+    || bad "grub-$lc.cfg loads parts.env unguarded -- every pre-existing image would print an error"
   # Per-slot keys: slot A must take its indices from A's keys, and never from B's. The map is one
   # file shared by both slots, so picking the wrong key is a config that mounts the other slot's
   # /var -- the same failure the per-slot cmdline assertions above guard, one layer earlier.
@@ -346,7 +346,7 @@ for slot in A B; do
   grep -q '^load_env -f (\$esp)/EFI/steamos/grubenv saved_entry rf_board_ok$' "$cfg" \
     && ok "grub-$lc.cfg loads the confirmed board" || bad "grub-$lc.cfg never loads rf_board_ok"
   grep -q '^  set timeout=-1$' "$cfg" && ok "grub-$lc.cfg waits when no board is known" \
-                                      || bad "grub-$lc.cfg does not wait on a fresh card"
+                                      || bad "grub-$lc.cfg does not wait on a fresh image"
 
   # Tries are the ESP GRUB's to count now (boot/gen-esp-cfg.sh). A stage-2 config that still
   # bumped the old boot conf would write a file only older roots read.

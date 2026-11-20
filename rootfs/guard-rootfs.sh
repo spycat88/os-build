@@ -438,7 +438,7 @@ if [ ! -s "$STAGE/usr/bin/btrfstune" ]; then
 fi
 # Whose bundles the image installs: /etc/rauc/keyring.pem. A RELEASE image trusts the project CA
 # (ota/rauc/retroforge-ca.pem) and nothing else, or a device in the field would install bundles signed
-# by another key. A DEV card also trusts its build box's own dev OTA CA (STAGE dev-ota-key, minted by
+# by another key. A DEV image also trusts its build box's own dev OTA CA (STAGE dev-ota-key, minted by
 # ota/gen-dev-signing.sh), after the project CA, so it can take dev builds as updates.
 keyring="$STAGE/etc/rauc/keyring.pem"
 project_ca="$ROOT/ota/rauc/retroforge-ca.pem"
@@ -447,11 +447,11 @@ if [ -s "$keyring" ] && [ -s "$project_ca" ]; then
   if [ "$img_mode" = dev ]; then
     if ! head -c "$(wc -c <"$project_ca")" "$keyring" | cmp -s - "$project_ca"; then
       rauc_ok=0
-      bad "/etc/rauc/keyring.pem does not start with the project CA — this dev card would refuse every signed release bundle"
+      bad "/etc/rauc/keyring.pem does not start with the project CA — this dev image would refuse every signed release bundle"
     fi
   elif ! cmp -s "$keyring" "$project_ca"; then
     rauc_ok=0
-    bad "/etc/rauc/keyring.pem is not the project CA alone — a ${img_mode:-release} image would install bundles signed by another key (a dev OTA CA belongs on dev cards only)"
+    bad "/etc/rauc/keyring.pem is not the project CA alone — a ${img_mode:-release} image would install bundles signed by another key (a dev OTA CA belongs on dev images only)"
   fi
 fi
 unset keyring project_ca img_mode
@@ -463,14 +463,14 @@ unset keyring project_ca img_mode
 # device, out of the root whose boot chain they belong to.
 #
 # grubenv is the shared ESP's env block: RAUC's slot state and the user's board choice. The installer
-# starts from this pristine copy so an install and a card carry the same object (boot/grub.sh emits
+# starts from this pristine copy so an install and an image carry the same object (boot/grub.sh emits
 # it and asserts it is pristine). The 1024 is re-checked here because it is the length nothing
 # downstream complains about: grub_envblk_open only requires the signature to FIT, so a short block
-# reads back perfectly and is simply not the object a card carries.
+# reads back perfectly and is simply not the object an image carries.
 if [ ! -s "$STAGE/usr/lib/retroforge/boot/grubenv" ]; then
   bad "/usr/lib/retroforge/boot/grubenv is missing — an internal install cannot seed the ESP's env block"
 elif [ "$(wc -c <"$STAGE/usr/lib/retroforge/boot/grubenv")" != 1024 ]; then
-  bad "/usr/lib/retroforge/boot/grubenv is $(wc -c <"$STAGE/usr/lib/retroforge/boot/grubenv") bytes, not 1024 — it would read back fine and still not match what a card carries"
+  bad "/usr/lib/retroforge/boot/grubenv is $(wc -c <"$STAGE/usr/lib/retroforge/boot/grubenv") bytes, not 1024 — it would read back fine and still not match what an image carries"
 else
   echo "    ok  installer artifacts: grubenv (1024 B, pristine)"
 fi
@@ -516,9 +516,9 @@ fi
 
 # genpart.sh + partition-table.txt, shipped VERBATIM. Existence is the cheap half; the half that
 # matters is that they are byte-identical to the repo copies, because a drift here is silent and
-# expensive. image/make-sdcard.sh builds a card from the repo table, and the installer lays an
+# expensive. image/make-sdcard.sh builds an image from the repo table, and the installer lays an
 # internal disk out from the shipped one -- if they disagree, an install produces partitions sized
-# differently from the card every release was tested on. The first symptom is a rootfs image that
+# differently from the image every release was tested on. The first symptom is a rootfs image that
 # will not fit its slot, discovered AFTER the OEM's userdata has been destroyed. There is no undo.
 #
 # The exec bit is checked for the same reason post-install.sh's is: a shipped script losing it in a
@@ -529,7 +529,7 @@ for f in genpart.sh partition-table.txt lib-gpt.sh; do
   if [ ! -s "$shipped" ]; then
     bad "/usr/lib/retroforge/install/$f is missing — the installer cannot lay out a GPT"
   elif ! cmp -s "$shipped" "$ROOT/image/$f"; then
-    bad "/usr/lib/retroforge/install/$f differs from image/$f — an install would partition a disk to a different layout than the card this release was tested on"
+    bad "/usr/lib/retroforge/install/$f differs from image/$f — an install would partition a disk to a different layout than the image this release was tested on"
   else
     echo "    ok  installer artifacts: $f byte-identical to image/$f"
   fi
@@ -917,7 +917,7 @@ done
 # very tree that gets copied. .gitignore covers the repo and does nothing for that copy; the
 # assembler prunes it, and this is the check that the prune actually ran.
 #
-# Not cosmetic, and not hypothetical: v0.2.x dev cards shipped .pyc compiled by the BUILD HOST's
+# Not cosmetic, and not hypothetical: v0.2.x dev images shipped .pyc compiled by the BUILD HOST's
 # CPython (3.14) into an image whose interpreter is 3.13, so the device could never load a byte
 # of it — dead weight that also silently defeats the startup caching it looks like it provides.
 # Found on hardware 2026-08-10, not by any check.

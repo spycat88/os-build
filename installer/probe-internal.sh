@@ -2,12 +2,12 @@
 # Phase 0 hardware reconnaissance for the internal (UFS/eMMC) install — STRICTLY READ-ONLY.
 #
 # Answers the questions .claude/plans/internal-install.plan.md Phase 0 blocks on, and emits a
-# markdown capture on stdout. Run it on a DEV card over SSH and keep the output:
+# markdown capture on stdout. Run it on a DEV image over SSH and keep the output:
 #
 #   ssh root@<device> 'bash -s' < installer/probe-internal.sh > docs/internal-storage.md
 #
-# Dev card, because only a DEV build bakes the root authorized_keys (assemble-rootfs.sh section
-# 4c) and reading a partition table needs root. A release card admits nobody as root, by design.
+# Dev image, because only a DEV build bakes the root authorized_keys (assemble-rootfs.sh section
+# 4c) and reading a partition table needs root. A release image admits nobody as root, by design.
 #
 # WHY THIS EXISTS AS A SEPARATE SCRIPT, run before any installer code: the carve deletes and
 # recreates Android's userdata, and its whole safety argument is that it touches that one
@@ -26,8 +26,8 @@
 #     size from GPT metadata and stop there.
 #   - No tool invoked below can write. sfdisk appears only as --dump and --list-free.
 #
-# TOOLING: this runs on a dev card AS IT IS TODAY — no rebuild, no added packages. sgdisk would
-# need a card new enough to carry gptfdisk, and needing a reflash before you can inspect a device is
+# TOOLING: this runs on a dev image AS IT IS TODAY — no rebuild, no added packages. sgdisk would
+# need an image new enough to carry gptfdisk, and needing a reflash before you can inspect a device is
 # a bad loop for a recon script. sfdisk --dump is the exact, restorable capture format anyway. If
 # gptfdisk does land in dev builds this script picks sgdisk up opportunistically for its GUID
 # view; it never requires it. Building on an absent tool is the `cmp` bug that sat dead in

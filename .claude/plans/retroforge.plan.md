@@ -2,7 +2,7 @@
 
 **Complexity**: Large
 **Status** (2026-10-05): Phases 0-3 done -- HW-validated on all three SoCs: SM8550 (AYANEO Pocket
-ACE), SM8250 (MANGMI Pocket Max), SM8650 (KONKR Pocket FIT, dev card 2026-10-04). Phase 4 (RetroForge
+ACE), SM8250 (MANGMI Pocket Max), SM8650 (KONKR Pocket FIT, dev image 2026-10-04). Phase 4 (RetroForge
 OGUI plugin) mostly built: catalog + retroforge-emu, Settings > Emulators store, per-system ROM tabs,
 fast cores per emulator / per game, automatic ROM rescan; open items at the end
 of its section.
@@ -114,7 +114,7 @@ Done:
   gone; `channels` / `set-channel <name>` added. `retroforge-select-branch` + its test removed.
 - Per-game layer removed: `retroforge_perf.py`, `tests/test-perf.sh`, powerd's perf tick and
   scheduler override (powerd keeps a 3s scheduler-reconcile tick).
-- Phase 1 card kept as `out/images/sdcard.p1.img`.
+- Phase 1 image kept as `out/images/sdcard.p1.img`.
 - `brightnessctl` 0.5.1 (overlay PKGBUILD — not in the holo snapshot; logind backend, not setuid)
   so OGUI's brightness slider exists. Relocked (+1 row). HW ✅ (slider moves the panel).
 - Session runs `opengamepadui --skip-update-pack`: OGUI's self-updater fetches the x86_64
@@ -159,7 +159,7 @@ Remaining OS-side (found in OGUI source):
   compositing only occasionally. A game's launch menu / game scanout moves to Phase 3.
 - ✅ Steam wording cleaned (2026-10-03) across the overlay; what remains names a measurement
   taken under the Steam client or the boot chain (steamcl, steamos-bootconf), on purpose.
-- ✅ `kernel/kernel.config` CONFIG_PROC_CHILDREN comment fixed (2026-10-03; next card build
+- ✅ `kernel/kernel.config` CONFIG_PROC_CHILDREN comment fixed (2026-10-03; next image build
   rebuilds the kernel).
 - retroforge-pairingd stays always-on (no shell switch).
 
@@ -326,7 +326,7 @@ OGUI per-game performance profiles checked 2026-10-04 (Pocket FIT): the quick-ba
 per game (`~/.local/share/opengamepadui/data/performance/profiles/<device>_<docked|undocked>_<sha256
 of card name>.tres`), applied when the game starts, the default restored when it stops. Bug found:
 OGUI ships no default profile for any device; a missing default is created from the settings
-applied at that moment, so on a fresh card a game's core count stayed applied after it exited.
+applied at that moment, so on a fresh image a game's core count stayed applied after it exited.
 OGUI patch 0005 (branch fix/perf-default-profile on upstream main, cherry-picked to
 retroforge-perf-menu) saves the startup settings as the docked + undocked defaults when missing; HW ✅
 (defaults saved at start with 8 cores; CTR set to 4 -> back to 8 on exit). Upstream PR waits for the
@@ -495,7 +495,7 @@ plus the ROM library that launches them)
 **Delivery of the plugin itself**
 - Built in-repo (`apps/ogui-retroforge-plugin/` -> zip), shipped in the image at a read-only path and
   copied into `~player/.local/share/opengamepadui/plugins/` by the session when missing or older
-  than the image's copy (compare `plugin.version`), so a fresh card works offline. Later
+  than the image's copy (compare `plugin.version`), so a freshly flashed image works offline. Later
   versions come from the RetroForge store; the session never downgrades a store-updated copy.
   SUPERSEDED 2026-10-18 (ota-ui plan): no plugin store exists, the image is the only source, so the
   session installs the image's copy whenever the version DIFFERS (beta -> stable channel switch).
@@ -678,7 +678,7 @@ plus the ROM library that launches them)
   test-catalog), licence + author's stated terms, emulator.json, minimal seed (pad as SDL sees it
   -- check the device name in the emulator's own log, no exit confirmation, folders in the shared
   layout ~/{roms,bios,saves,states}/<system>, Select+Start menu/stop, Guide unbound), launch.conf
-  rows, plugin SYSTEMS entry (+ version bump), test-launch checks, HW test on a dev card: launch,
+  rows, plugin SYSTEMS entry (+ version bump), test-launch checks, HW test on a dev image: launch,
   controls, OGUI Exit, the emulator's own exit, Open. Test games go in ~/Downloads/<system> on the
   host (user provides them; never ship BIOS or games).
 - **Roster written 2026-10-06, NOT HW-tested (plugin 0.1.12; tested all at once by the user).**
@@ -913,7 +913,7 @@ picks x11. `pm_finish` runs `pkill -9 gptokeyb` and `systemctl restart oga_event
   mount), one gptokeyb-heavy SDL2 port, one westonpack port; OGUI Exit and the port's own exit.
 - **F. Later, optional**: upstream a `PlatformRetroForge` to PortMaster-GUI.
 
-**Status 2026-10-11.** A-E shipped (ed3f4e1, 0840597, eabcc26, 9e2544a). HW Pocket ACE, dev card
+**Status 2026-10-11.** A-E shipped (ed3f4e1, 0840597, eabcc26, 9e2544a). HW Pocket ACE, dev image
 plus bind-mounted patches: PortMaster GUI (download, open, splash, installs), A Key(s) Path (Godot 3),
 Apotris (SDL2), Cave Crawler 2 (Godot 4 + Weston), Shattered Pixel Dungeon (Java + Weston,
 gptokeyb2 mouse), Warzone 2100 (Weston, own libs); OGUI Exit and in-game quit both clean. What the
@@ -930,7 +930,7 @@ HW run changed against the plan above:
 - OGUI's Exit SIGTERMs squashfuse with the game: started with TERM/INT ignored (399c9d5).
 - gptokeyb2's libinterpose reports the wrong fd under sdl2-compat (exclusive grab missed):
   apps/retroforge-gptk-interpose preloaded first, libinterpose kept (054fca4, 7f0d556).
-Still to do: a clean dev card from main (the image-side changes, openal/libtheora and the
+Still to do: a clean dev image from main (the image-side changes, openal/libtheora and the
 interposer stage, were HW-tested only through /tmp copies); F.
 
 Licence: PortMaster-GUI and PortMaster-New are MIT; gptokeyb/gptokeyb2 GPL-2.0 (downloaded with
@@ -990,7 +990,7 @@ gamescopes). Thor Lite first, then Thor and Pocket DS.
 - Update server via `ota/setup-server.sh`; replace the `updates.retroforge.invalid` placeholder in
   `retroforge-update`, `installer/release-info`, `installer/netcfg`.
 - CI release secrets `RAUC_CERT_PEM` / `RAUC_KEY_PEM` from `~/retroforge-pki`.
-- Card / bundle / installer release workflows, runbook.
+- Image / bundle / installer release workflows, runbook.
 - Optionally move firmware to a RetroForge-owned repo.
 
 ### Phase 6 — Final polish (last, not blocking; decided 2026-10-04)
@@ -1036,5 +1036,5 @@ gamescopes). Thor Lite first, then Thor and Pocket DS.
 make test                                   # all offline suites
 make test-signing PKIDIR=~/retroforge-pki       # signing chain, in container
 make test-disk                              # installer disk suites, in container
-make sdcard && make verify-card             # first real build
+make sdcard && make verify-image             # first real build
 ```

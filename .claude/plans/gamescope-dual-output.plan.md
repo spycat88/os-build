@@ -2,7 +2,7 @@
 
 **Complexity**: Large
 **Branch**: `feat/gamescope-dual-output` (off `main` at 479d84d)
-**Status** (2026-10-12): steps 0-6 done and HW-verified on the Thor Lite dev card: two outputs,
+**Status** (2026-10-12): steps 0-6 done and HW-verified on the Thor Lite dev image: two outputs,
 window routing, both panels on direct scanout (kernel 0397 + gamescope 0044), bottom touchscreen
 routed, melonDS seeded for two screens on dual-screen boards with its second-window menu hidden,
 one OGUI Exit ends it (exit_resend: SIGTERM, then SIGKILL of the emulator alone). Open: touch
@@ -65,13 +65,13 @@ second gamescope's Xwayland as primary). One gamescope that drives both CRTCs re
 ## Steps
 
 Each step ends with a build of the overlay package and, where marked, a HW check. Thor Lite dev
-card (root@192.168.1.125) for dual-screen, ACE / FIT / Pocket Max for single-panel regression.
+image (root@192.168.1.125) for dual-screen, ACE / FIT / Pocket Max for single-panel regression.
 Rootfs is read-only on cards: test a new gamescope by `mount --bind` over `/usr/bin/gamescope`.
 Line numbers below are in the patched 3.16.31 tree (`work/overlay-build/aarch64/gamescope/src/gamescope/src`).
 
 ### 0. Spikes on hardware (before any gamescope code)
 
-**Results 2026-10-12 on the Thor Lite (dev card 03e3661, root@192.168.1.155):**
+**Results 2026-10-12 on the Thor Lite (dev image 03e3661, root@192.168.1.155):**
 - 0.1 PASSED. Python/ctypes libdrm spike (no compiler on the card), session stopped: DSI-1
   (conn 36, CRTC 94, primary plane 46, 1080x1920, preferred mode **120 Hz**) and DSI-2 (conn 39,
   CRTC 95, plane 52, 1080x1240 @ 60 Hz) modeset together, then 10 s with one
