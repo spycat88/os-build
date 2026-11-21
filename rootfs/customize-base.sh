@@ -234,7 +234,9 @@ PKGS=(wpa_supplicant wireless-regdb openssh vulkan-icd-loader vulkan-freedreno v
 # routing is per-board UCM; not being able to inspect it is a permanent tax.
 # ffmpeg: dropped from the release root for space (2026-10-03), kept here because the iris/venus
 # hardware video decode bring-up is validated with `ffmpeg -c:v h264_v4l2m2m` (kernel/SOURCE.pin).
-DEV_PKGS=(evtest usbutils xorg-xprop xorg-xwininfo alsa-utils ffmpeg)
+# nano: a terminal editor for SSH / console sessions, so a config file can be edited on the
+# device. 2.9 MB installed; ncurses, file and glibc are already in the release closure.
+DEV_PKGS=(evtest usbutils xorg-xprop xorg-xwininfo alsa-utils ffmpeg nano)
 
 # Precompiled external packages: every packages/<name>/prebuilt.pin (url + sha256 + strip)
 # is fetched on the host and extracted into the base. PREBUILT_DIR stages the verified
