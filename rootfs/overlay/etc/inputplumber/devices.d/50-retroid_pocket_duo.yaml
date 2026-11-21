@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ShadowBlip/InputPlumber/main/rootfs/usr/share/inputplumber/schema/composite_device_v1.json
+#
+# Retroid Pocket Duo (SM7750 Eliza, armada's sm7750-retroidpocket-duo.dts). The pad is the
+# `gamepad,rsinput` MCU (kernel/patches/0792-0794), "Retroid Pocket Duo Gamepad" on
+# rsinput-gamepad/input0, with analog triggers (no `digital-triggers`), so upstream's rsinput1 map
+# covers it as it does the Odin 2.
+#
+# Ported 2026-11-21 from armada's 50-retroid_pocket_duo.yaml, reshaped to our conventions
+# (50-mangmi_pocket_max.yaml has the argument): match on devicetree `model` rather than
+# `compatible`, maximum_sources 0. The DTS declares no vibrator, so the MCU is the only source.
+version: 1
+kind: CompositeDevice
+name: Retroid Pocket Duo
+
+maximum_sources: 0
+
+options:
+    auto_manage: true
+
+matches:
+    - udev:
+          sys_path: /sys/firmware/devicetree/base
+          attributes:
+              - name: model
+                value: Retroid Pocket Duo
+
+source_devices:
+    - group: gamepad
+      capability_map_id: rsinput1
+      evdev:
+          name: Retroid Pocket Duo Gamepad
+          phys_path: rsinput-gamepad/input0
+          handler: event*
+
+target_devices:
+    - xbox-elite
