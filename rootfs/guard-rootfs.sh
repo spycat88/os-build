@@ -565,6 +565,19 @@ done
   || bad "pygame is not in site-packages — the installer UI cannot draw (packages/pygame-ce/prebuilt.pin)"
 [ -n "$missing_tools" ] || echo "    ok  installer artifacts: ${INSTALLER_TOOLS// /, }"
 
+# Extra CA anchors (rootfs/lib-assemble-ca.sh): every anchor shipped in trust-source must also be in
+# the extracted bundle curl/OpenSSL/Python read, or only NSS would trust it. Compared as base64
+# bodies so no openssl is needed here.
+ca_bundle="$STAGE/etc/ca-certificates/extracted/tls-ca-bundle.pem"
+ca_missing=""
+for ca_crt in "$STAGE"/etc/ca-certificates/trust-source/anchors/*.crt; do
+  [ -e "$ca_crt" ] || continue
+  tr -d '\n' <"$ca_bundle" 2>/dev/null | grep -qF "$(sed '/-----/d' "$ca_crt" | tr -d '\n')" \
+    || ca_missing="$ca_missing ${ca_crt##*/}"
+done
+[ -z "$ca_missing" ] && echo "    ok  CA anchors are in the extracted TLS bundle" \
+  || bad "CA anchor(s)$ca_missing are not in /etc/ca-certificates/extracted/tls-ca-bundle.pem — curl/OpenSSL will not trust them (rootfs/lib-assemble-ca.sh)"
+
 # The primitives the hook and the installer share. Asserted here as well as on the RAUC list above,
 # because the two readers fail differently: without it an OTA dies on post-install.sh's first line,
 # while an install has no way to write parts.env and leaves stage 2 guessing the SD card's 1..8.

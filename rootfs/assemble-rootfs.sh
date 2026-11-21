@@ -241,6 +241,9 @@ fi
 # The stages below live in rootfs/lib-assemble-*.sh (issue #43). Each is sourced at the exact point
 # it used to run inline, so the assembly order is unchanged; the helpers read this script's globals
 # ($stage, $ROOT, $OUT) rather than taking arguments.
+# ca-anchors runs on EVERY build, right after overlay-payload laid the anchors down.
+. "$ROOT/rootfs/lib-assemble-ca.sh"
+
 . "$ROOT/rootfs/lib-assemble-boot.sh"
 
 . "$ROOT/rootfs/lib-assemble-storage.sh"

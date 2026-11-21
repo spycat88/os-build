@@ -52,6 +52,12 @@ stock polkit still prompts for.
 `usr/bin/retroforge-paste` (and its `pastebinit` symlink) uploads stdin or files to dpaste.com with
 the image's curl and prints the URL, for sharing logs from a shell: `journalctl -b | pastebinit`.
 
+**Extra CA anchors**
+`etc/ca-certificates/trust-source/anchors/*.crt` are trust anchors added on top of the Mozilla store
+(today ISRG Root YR, Let's Encrypt's Gen Y root, which dpaste.com and other Gen Y sites chain to).
+NSS reads them here at runtime; `rootfs/lib-assemble-ca.sh` also appends them to the extracted
+bundle curl/OpenSSL/Python read, and `guard-rootfs.sh` checks that it did.
+
 **Audio — ALSA UCM2 machine profiles**
 `usr/share/alsa/ucm2/Qualcomm/sm8{250,550,650}/<CARD>/` profiles, card-name-matched via relative
 symlinks under `conf.d/sm8{250,550,650}/` (preserved by `cp -a`). They `Include` codec snippets that
