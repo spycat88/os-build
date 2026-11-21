@@ -63,6 +63,8 @@ PANELS = {
     "ch13726a,thor": "dcs",                 # 0535
     "vtdr6130,rp6": "dcs",                  # 0555
     "il97680a,rpnova": "dcs",               # 0560
+    "vtdr6130,rpduo": "dcs",                # 0557
+    "retroidpocket,rpduo-panel-bottom": "dcs",  # 0561 (panel-ilitek-il97680a-cmd)
     "retroid,pocket-classic-panel": "dcs",  # upstream chipwealth-ch13726a + 0536
     "retroid,pocket-classic-g1392-panel": "dcs",  # upstream chipwealth-ch13726a + 0536
     "ayaneo,pocket-ace-panel": "borrows",   # 0505
