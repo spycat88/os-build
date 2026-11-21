@@ -14,10 +14,10 @@ can't rotate either, so rotated stencil blits are left to u_blitter.
  3 files changed, 46 insertions(+), 8 deletions(-)
 
 diff --git a/src/gallium/drivers/freedreno/a6xx/fd6_blitter.cc b/src/gallium/drivers/freedreno/a6xx/fd6_blitter.cc
-index 726fc4cd6dc..86b82884984 100644
+index 2dceb1d..7413c05 100644
 --- a/src/gallium/drivers/freedreno/a6xx/fd6_blitter.cc
 +++ b/src/gallium/drivers/freedreno/a6xx/fd6_blitter.cc
-@@ -217,6 +217,23 @@ can_do_blit(const struct fd_dev_info *dev_info, const struct pipe_blit_info *inf
+@@ -223,6 +223,23 @@ can_do_blit(const struct fd_dev_info *dev_info, const struct pipe_blit_info *inf
  
     fail_if(info->window_rectangle_include);
  
@@ -41,7 +41,7 @@ index 726fc4cd6dc..86b82884984 100644
     /* The blitter can't handle the needed swizzle gymnastics to convert
      * to/from L/A formats:
      */
-@@ -718,6 +735,12 @@ emit_blit_texture_setup(fd_cs &cs, const struct pipe_blit_info *info)
+@@ -784,6 +801,12 @@ emit_blit_texture_setup(fd_cs &cs, const struct pipe_blit_info *info)
  
     enum a6xx_rotation rotate = rotates[mirror_y][mirror_x];
  
@@ -54,7 +54,7 @@ index 726fc4cd6dc..86b82884984 100644
     fd_ncrb<CHIP> ncrb(cs, 13);
  
     ncrb.add(GRAS_A2D_SRC_XMIN(CHIP, MIN2(sx1, sx2)));
-@@ -1497,6 +1520,9 @@ handle_compressed_blit(struct fd_context *ctx,
+@@ -1608,6 +1631,9 @@ handle_compressed_blit(struct fd_context *ctx,
     if (info->src.format != info->dst.format)
        return fd_blitter_blit(ctx, info);
  
@@ -65,7 +65,7 @@ index 726fc4cd6dc..86b82884984 100644
        blit.src.format = blit.dst.format = PIPE_FORMAT_R16G16B16A16_UINT;
     } else {
 diff --git a/src/gallium/drivers/freedreno/freedreno_blitter.c b/src/gallium/drivers/freedreno/freedreno_blitter.c
-index cf66d338fc4..1a927d091cf 100644
+index cf66d33..1a927d0 100644
 --- a/src/gallium/drivers/freedreno/freedreno_blitter.c
 +++ b/src/gallium/drivers/freedreno/freedreno_blitter.c
 @@ -236,9 +236,11 @@ fd_blitter_blit(struct fd_context *ctx, const struct pipe_blit_info *info)
@@ -117,15 +117,15 @@ index cf66d338fc4..1a927d091cf 100644
        info.mask &= ~PIPE_MASK_S;
        if (!info.mask)
 diff --git a/src/gallium/drivers/freedreno/freedreno_screen.c b/src/gallium/drivers/freedreno/freedreno_screen.c
-index e33674e662c..ffd492f87a8 100644
+index 9eb7bd8..924c91c 100644
 --- a/src/gallium/drivers/freedreno/freedreno_screen.c
 +++ b/src/gallium/drivers/freedreno/freedreno_screen.c
-@@ -465,6 +465,8 @@ fd_init_screen_caps(struct fd_screen *screen)
+@@ -470,6 +470,8 @@ fd_init_screen_caps(struct fd_screen *screen)
  
     caps->surface_sample_count = is_a6xx(screen);
  
 +   caps->blit_rotation = is_a6xx(screen);
 +
-    caps->depth_clip_disable = is_a3xx(screen) || is_a4xx(screen) || is_a6xx(screen);
+    caps->depth_clip_disable = !is_a2xx(screen);
  
     caps->post_depth_coverage =

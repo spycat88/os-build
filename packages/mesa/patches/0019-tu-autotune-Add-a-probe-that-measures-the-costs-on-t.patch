@@ -19,10 +19,9 @@ export=<path> writes them to a file. This is how new table entries are made.
  src/freedreno/vulkan/tu_cs.h              |    7 +
  src/freedreno/vulkan/tu_shader.cc         |    3 +
  11 files changed, 1905 insertions(+), 21 deletions(-)
- create mode 100644 src/freedreno/vulkan/tu_autotune_probe.cc
 
 diff --git a/src/freedreno/vulkan/meson.build b/src/freedreno/vulkan/meson.build
-index 3df3c01422b..65ad018d530 100644
+index 3df3c01..65ad018 100644
 --- a/src/freedreno/vulkan/meson.build
 +++ b/src/freedreno/vulkan/meson.build
 @@ -36,6 +36,7 @@ libtu_files = files(
@@ -34,7 +33,7 @@ index 3df3c01422b..65ad018d530 100644
    'tu_buffer_view.cc',
    'tu_clear_blit.cc',
 diff --git a/src/freedreno/vulkan/tu_autotune.cc b/src/freedreno/vulkan/tu_autotune.cc
-index 3e8eaa8980b..45f26623a10 100644
+index 2b8babf..b685e6f 100644
 --- a/src/freedreno/vulkan/tu_autotune.cc
 +++ b/src/freedreno/vulkan/tu_autotune.cc
 @@ -42,11 +42,14 @@
@@ -57,7 +56,7 @@ index 3e8eaa8980b..45f26623a10 100644
  
  #if TU_AUTOTUNE_DEBUG_LOG_PROFILED
  #define at_log_profiled_h(fmt, hash, ...) mesa_logi("autotune-prof %016" PRIx64 ": " fmt, hash, ##__VA_ARGS__)
-@@ -1186,6 +1189,9 @@ struct tu_autotune::rp_history {
+@@ -1187,6 +1190,9 @@ struct tu_autotune::rp_history {
                                     const struct tu_render_pass_state *rp_state,
                                     uint32_t stream_dwords,
                                     uint32_t state_dwords,
@@ -67,7 +66,7 @@ index 3e8eaa8980b..45f26623a10 100644
                                     const struct tu_autotune_calib *calib,
                                     float margin,
                                     double pred[2])
-@@ -1245,6 +1251,8 @@ struct tu_autotune::rp_history {
+@@ -1246,6 +1252,8 @@ struct tu_autotune::rp_history {
              bin_count = MAX2(vsc.tile_count.width * vsc.tile_count.height, 1u);
              hw_binning = vsc.binning_possible && vsc.binning_useful;
           }
@@ -76,7 +75,7 @@ index 3e8eaa8980b..45f26623a10 100644
           bool select_sysmem;
           double sysmem_us = 0.0, gmem_us = 0.0, vis_bins = 0.0;
           bool vis_known = false;
-@@ -1252,7 +1260,7 @@ struct tu_autotune::rp_history {
+@@ -1253,7 +1261,7 @@ struct tu_autotune::rp_history {
              /* Estimate both modes in us. Bins per draw come from earlier GMEM runs, else assume all of them. */
              const double draws = rp_state->drawcall_count;
              const double ib1 = stream_dwords;
@@ -85,7 +84,7 @@ index 3e8eaa8980b..45f26623a10 100644
              const double ib2_per_draw = draws > 0.0 ? ib2 / draws : 0.0;
              const double all_bins = (double) bin_count * draws;
              if (hw_binning && calib->bytes_per_vis > 0.0f && !mean_vsc_draw_bytes.empty()) {
-@@ -1295,7 +1303,7 @@ struct tu_autotune::rp_history {
+@@ -1296,7 +1304,7 @@ struct tu_autotune::rp_history {
              gmem_us = (g_att + d_color_gmem * calib->w_draw + d_depth_gmem * w_depth_gmem) /
                           calib->bw_bytes_per_us +
                        (hw_binning ? draws * calib->t_draw_binning_us : 0.0) +
@@ -94,7 +93,7 @@ index 3e8eaa8980b..45f26623a10 100644
                        skip_bins * (calib->t_draw_us + ib2_per_draw * calib->t_state_skip_us) +
                        vis_bins * render_draw_us + (double) bin_count * calib->t_bin_us + shade_gmem;
              select_sysmem = gmem_us >= sysmem_us * (1.0 - margin);
-@@ -1326,14 +1334,14 @@ struct tu_autotune::rp_history {
+@@ -1327,7 +1335,7 @@ struct tu_autotune::rp_history {
              "   mean_samples=%" PRIu64 ", draw_bandwidth_per_sample=%.2f, total_draw_call_bandwidth=%" PRIu64
              ", render_areas[0]=%" PRIu32 "x%" PRIu32 ", sysmem_bandwidth_per_pixel=%" PRIu32
              ", gmem_bandwidth_per_pixel=%" PRIu32 ", sysmem_bandwidth=%" PRIu64 ", gmem_bandwidth=%" PRIu64
@@ -103,15 +102,16 @@ index 3e8eaa8980b..45f26623a10 100644
              ", vis_bins=%.0f%s, vsc_draw=%" PRIu32 ", vsc_prim=%" PRIu32 ", depth_draw_bandwidth=%" PRIu64
              ", gmem_depth_bandwidth=%" PRIu64 ", samples_sys=%" PRIu64 ", samples_gmem=%" PRIu64
              ", fs_instrs=%" PRIu32 ", fs_tex=%" PRIu32 ", sysmem_us=%.1f, gmem_us=%.1f",
-             history.hash, rp_state->drawcall_count, render_mode_str(mode), mean_samples,
-             (float) rp_state->drawcall_bandwidth_per_sample_sum / rp_state->drawcall_count, total_draw_call_bandwidth,
+@@ -1335,7 +1343,7 @@ struct tu_autotune::rp_history {
+             static_cast<float>(rp_state->drawcall_bandwidth_per_sample_sum) / rp_state->drawcall_count,
+             total_draw_call_bandwidth,
              extent.width, extent.height, pass->sysmem_bandwidth_per_pixel, pass->gmem_bandwidth_per_pixel,
 -            sysmem_bandwidth, gmem_bandwidth, bin_count, stream_dwords, state_dwords, vis_bins,
 +            sysmem_bandwidth, gmem_bandwidth, bin_count, stream_dwords, state_dwords, payload_dwords, vis_bins,
              vis_known ? "" : "(prior)", mean_vsc_draw_bytes.get(), mean_vsc_prim_bytes.get(), depth_draw_call_bandwidth,
              gmem_depth_bandwidth, samples_mode_sys, samples_mode_gmem, rp_state->drawcall_fs_instrs_sum,
              rp_state->drawcall_fs_tex_sum, sysmem_us, gmem_us);
-@@ -2194,7 +2202,10 @@ tu_autotune::get_optimal_mode(struct tu_cmd_buffer *cmd_buffer, rp_ctx_t *rp_ctx
+@@ -2216,7 +2224,10 @@ tu_autotune::get_optimal_mode(struct tu_cmd_buffer *cmd_buffer, rp_ctx_t *rp_ctx
        double pred[2] = { 0.0, 0.0 };
        render_mode mode = history.bandwidth.get_optimal_mode(history, cmd_state, pass, framebuffer, rp_state,
                                                              tu_cs_total_dwords(draw_cs), draw_cs->draw_state_dwords,
@@ -124,7 +124,7 @@ index 3e8eaa8980b..45f26623a10 100644
        rp_entry &entry = **rp_ctx;
        entry.pred_us[0] = pred[0];
 diff --git a/src/freedreno/vulkan/tu_autotune.h b/src/freedreno/vulkan/tu_autotune.h
-index 05643c28d1a..3f85b2ed42e 100644
+index 05643c2..3f85b2e 100644
 --- a/src/freedreno/vulkan/tu_autotune.h
 +++ b/src/freedreno/vulkan/tu_autotune.h
 @@ -345,6 +345,11 @@ struct tu_autotune {
@@ -140,7 +140,7 @@ index 05643c28d1a..3f85b2ed42e 100644
     uint32_t get_tile_size_divisor(struct tu_cmd_buffer *cmd_buffer);
  
 diff --git a/src/freedreno/vulkan/tu_autotune_calib.cc b/src/freedreno/vulkan/tu_autotune_calib.cc
-index 5e868de770d..63bf91d0700 100644
+index 5e868de..63bf91d 100644
 --- a/src/freedreno/vulkan/tu_autotune_calib.cc
 +++ b/src/freedreno/vulkan/tu_autotune_calib.cc
 @@ -94,6 +94,7 @@ calib_from_row(const struct tu_physical_device *pdev, const calib_table_entry &e
@@ -198,7 +198,7 @@ index 5e868de770d..63bf91d0700 100644
 +   tu_autotune_calib_from_table(device);
  }
 diff --git a/src/freedreno/vulkan/tu_autotune_calib.h b/src/freedreno/vulkan/tu_autotune_calib.h
-index 32b15bcd2d2..2db83e7fb6c 100644
+index 32b15bc..2db83e7 100644
 --- a/src/freedreno/vulkan/tu_autotune_calib.h
 +++ b/src/freedreno/vulkan/tu_autotune_calib.h
 @@ -10,10 +10,19 @@
@@ -276,7 +276,7 @@ index 32b15bcd2d2..2db83e7fb6c 100644
  #endif /* TU_AUTOTUNE_CALIB_H */
 diff --git a/src/freedreno/vulkan/tu_autotune_probe.cc b/src/freedreno/vulkan/tu_autotune_probe.cc
 new file mode 100644
-index 00000000000..e159ab6a65d
+index 0000000..e159ab6
 --- /dev/null
 +++ b/src/freedreno/vulkan/tu_autotune_probe.cc
 @@ -0,0 +1,1746 @@
@@ -2027,10 +2027,10 @@ index 00000000000..e159ab6a65d
 +   return true;
 +}
 diff --git a/src/freedreno/vulkan/tu_cmd_buffer.cc b/src/freedreno/vulkan/tu_cmd_buffer.cc
-index 6805344e1f7..53e9a7ab760 100644
+index a9def01..e498d52 100644
 --- a/src/freedreno/vulkan/tu_cmd_buffer.cc
 +++ b/src/freedreno/vulkan/tu_cmd_buffer.cc
-@@ -1163,6 +1163,7 @@ tu_cs_emit_draw_state(struct tu_cs *cs, uint32_t id, struct tu_draw_state state)
+@@ -1213,6 +1213,7 @@ tu_cs_emit_draw_state(struct tu_cs *cs, uint32_t id, struct tu_draw_state state)
     uint32_t enable_mask;
  
     cs->draw_state_dwords += state.size;
@@ -2038,21 +2038,21 @@ index 6805344e1f7..53e9a7ab760 100644
     switch (id) {
     case TU_DRAW_STATE_VS:
     case TU_DRAW_STATE_FS:
-@@ -1372,7 +1373,12 @@ use_sysmem_rendering(struct tu_cmd_buffer *cmd,
+@@ -1422,7 +1423,12 @@ use_sysmem_rendering(struct tu_cmd_buffer *cmd,
                       tu_autotune::rp_ctx_t *rp_ctx,
                       tu_autotune::rp_key_opt rp_key)
  {
 -   if (TU_DEBUG(SYSMEM)) {
 +   if (cmd->calib_force == TU_CALIB_FORCE_SYSMEM) {
-+      cmd->state.rp.gmem_disable_reason = "Autotune calibration forced sysmem";
++      cmd->state.rp.force_render_mode_reason = "Autotune calibration forced sysmem";
 +      return true;
 +   }
 +
 +   if (TU_DEBUG(SYSMEM) && cmd->calib_force == TU_CALIB_FORCE_NONE) {
-       cmd->state.rp.gmem_disable_reason = "TU_DEBUG(SYSMEM)";
+       cmd->state.rp.force_render_mode_reason = "TU_DEBUG(SYSMEM)";
        return true;
     }
-@@ -1428,6 +1434,9 @@ use_sysmem_rendering(struct tu_cmd_buffer *cmd,
+@@ -1478,6 +1484,9 @@ use_sysmem_rendering(struct tu_cmd_buffer *cmd,
        return true;
     }
  
@@ -2060,9 +2060,9 @@ index 6805344e1f7..53e9a7ab760 100644
 +      return false;
 +
     if (TU_DEBUG(GMEM)) {
-       cmd->state.rp.gmem_disable_reason = "TU_DEBUG(GMEM)";
+       cmd->state.rp.force_render_mode_reason = "TU_DEBUG(GMEM)";
        return false;
-@@ -2773,6 +2782,9 @@ tu6_emit_binning_pass(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
+@@ -2833,6 +2842,9 @@ tu6_emit_binning_pass(struct tu_cmd_buffer *cmd, struct tu_cs *cs,
  
     emit_vsc_overflow_test(cmd, cs);
  
@@ -2072,7 +2072,7 @@ index 6805344e1f7..53e9a7ab760 100644
     tu_cs_emit_pkt7(cs, CP_SET_VISIBILITY_OVERRIDE, 1);
     tu_cs_emit(cs, 0x0);
  
-@@ -4075,7 +4087,9 @@ tu_cmd_render(struct tu_cmd_buffer *cmd_buffer,
+@@ -4200,7 +4212,9 @@ tu_cmd_render(struct tu_cmd_buffer *cmd_buffer,
     tu_autotune::rp_key_opt rp_key = cmd_buffer->device->autotune->emit_preempt_latency_tracking_rp_hash(cmd_buffer);
  
     tu_autotune::rp_ctx_t rp_ctx = NULL;
@@ -2083,7 +2083,7 @@ index 6805344e1f7..53e9a7ab760 100644
        tu_cmd_render_sysmem<CHIP>(cmd_buffer, rp_ctx);
     else
        tu_cmd_render_tiles<CHIP>(cmd_buffer, rp_ctx, fdm_offsets);
-@@ -7627,6 +7641,9 @@ tu6_emit_inline_ubo(struct tu_cs *cs,
+@@ -7825,6 +7839,9 @@ tu6_emit_inline_ubo(struct tu_cs *cs,
  
        uint64_t va = descriptors->set_iova[ubo->base] & ~0x3f;
  
@@ -2093,7 +2093,7 @@ index 6805344e1f7..53e9a7ab760 100644
        tu_cs_emit_pkt7(cs, tu6_stage2opcode(type), ubo->push_address ? 7 : 3);
        tu_cs_emit(cs, CP_LOAD_STATE6_0_DST_OFF(ubo->const_offset_vec4) |
              CP_LOAD_STATE6_0_STATE_TYPE(ST6_CONSTANTS) |
-@@ -8726,6 +8743,16 @@ tu6_draw_common(struct tu_cmd_buffer *cmd,
+@@ -8929,6 +8946,16 @@ tu6_draw_common(struct tu_cmd_buffer *cmd,
        }
     }
  
@@ -2110,7 +2110,7 @@ index 6805344e1f7..53e9a7ab760 100644
     tu_cs_sanity_check(cs);
  
     /* There are too many graphics dirty bits to list here, so just list the
-@@ -8882,6 +8909,7 @@ tu6_emit_vs_params(struct tu_cmd_buffer *cmd,
+@@ -9088,6 +9115,7 @@ tu6_emit_vs_params(struct tu_cmd_buffer *cmd,
      * TODO/A7XX: Rework vs params to use UBO lowering.
      */
     if (offset) {
@@ -2118,7 +2118,7 @@ index 6805344e1f7..53e9a7ab760 100644
        tu_cs_emit_pkt7(&cs, CP_LOAD_STATE6_GEOM, 3);
        tu_cs_emit(&cs, CP_LOAD_STATE6_0_DST_OFF(offset) |
              CP_LOAD_STATE6_0_STATE_TYPE(ST6_CONSTANTS) |
-@@ -8897,7 +8925,11 @@ tu6_emit_vs_params(struct tu_cmd_buffer *cmd,
+@@ -9106,7 +9134,11 @@ tu6_emit_vs_params(struct tu_cmd_buffer *cmd,
     cmd->state.last_vs_params.empty = false;
  
     struct tu_cs_entry entry = tu_cs_end_sub_stream(&cmd->sub_cs, &cs);
@@ -2132,10 +2132,10 @@ index 6805344e1f7..53e9a7ab760 100644
     cmd->state.dirty |= TU_CMD_DIRTY_VS_PARAMS;
  }
 diff --git a/src/freedreno/vulkan/tu_cmd_buffer.h b/src/freedreno/vulkan/tu_cmd_buffer.h
-index c5354bf7e87..f6b545cba1e 100644
+index cbd7beb..0f79bcc 100644
 --- a/src/freedreno/vulkan/tu_cmd_buffer.h
 +++ b/src/freedreno/vulkan/tu_cmd_buffer.h
-@@ -659,6 +659,13 @@ struct tu_cb_control_point {
+@@ -705,6 +705,13 @@ struct tu_cb_control_point {
     uint32_t original_value;
  };
  
@@ -2149,7 +2149,7 @@ index c5354bf7e87..f6b545cba1e 100644
  struct tu_cmd_buffer
  {
     struct vk_command_buffer vk;
-@@ -682,6 +689,12 @@ struct tu_cmd_buffer
+@@ -728,6 +735,12 @@ struct tu_cmd_buffer
  
     VkCommandBufferUsageFlags usage_flags;
  
@@ -2163,10 +2163,10 @@ index c5354bf7e87..f6b545cba1e 100644
  
     struct tu_cmd_state state;
 diff --git a/src/freedreno/vulkan/tu_cs.cc b/src/freedreno/vulkan/tu_cs.cc
-index 84bc66a2833..42d06fc8818 100644
+index 346d07f..6081b87 100644
 --- a/src/freedreno/vulkan/tu_cs.cc
 +++ b/src/freedreno/vulkan/tu_cs.cc
-@@ -536,6 +536,8 @@ void
+@@ -538,6 +538,8 @@ void
  tu_cs_reset(struct tu_cs *cs)
  {
     cs->draw_state_dwords = 0;
@@ -2176,7 +2176,7 @@ index 84bc66a2833..42d06fc8818 100644
  
     if (cs->mode == TU_CS_MODE_EXTERNAL) {
 diff --git a/src/freedreno/vulkan/tu_cs.h b/src/freedreno/vulkan/tu_cs.h
-index ce40c4f57ef..87f86a1fb52 100644
+index e49cc3a..63fa851 100644
 --- a/src/freedreno/vulkan/tu_cs.h
 +++ b/src/freedreno/vulkan/tu_cs.h
 @@ -66,6 +66,8 @@ struct tu_cs_memory {
@@ -2188,7 +2188,7 @@ index ce40c4f57ef..87f86a1fb52 100644
     uint64_t iova;
     uint16_t size;
     bool writeable;
-@@ -103,6 +105,8 @@ struct tu_cs
+@@ -124,6 +126,8 @@ struct tu_cs
  
     /* dwords the CP fetches beyond this stream, for autotune */
     uint32_t draw_state_dwords;
@@ -2197,7 +2197,7 @@ index ce40c4f57ef..87f86a1fb52 100644
  
     struct tu_bo_array read_only, read_write;
  
-@@ -184,6 +188,7 @@ tu_cs_end_draw_state(struct tu_cs *cs, struct tu_cs *sub_cs)
+@@ -294,6 +298,7 @@ tu_cs_end_draw_state(struct tu_cs *cs, struct tu_cs *sub_cs)
     if (!entry.bo)
        return (struct tu_draw_state) {};
     return (struct tu_draw_state) {
@@ -2205,7 +2205,7 @@ index ce40c4f57ef..87f86a1fb52 100644
        .iova = entry.bo->iova + entry.offset,
        .size = entry.size / sizeof(uint32_t),
        .writeable = sub_cs->writeable,
-@@ -282,6 +287,8 @@ static inline void
+@@ -392,6 +397,8 @@ static inline void
  tu_cs_discard_entries(struct tu_cs *cs)
  {
     cs->draw_state_dwords = 0;
@@ -2215,10 +2215,10 @@ index ce40c4f57ef..87f86a1fb52 100644
     cs->entry_count = 0;
  }
 diff --git a/src/freedreno/vulkan/tu_shader.cc b/src/freedreno/vulkan/tu_shader.cc
-index 63d00177c65..c3a4edcc6ab 100644
+index 52e431e..b06d0f9 100644
 --- a/src/freedreno/vulkan/tu_shader.cc
 +++ b/src/freedreno/vulkan/tu_shader.cc
-@@ -2043,6 +2043,9 @@ tu6_emit_xs_constants(
+@@ -2328,6 +2328,9 @@ tu6_emit_xs_constants(
        uint32_t shader_preload_size =
           MIN2(xs->instrlen, cs->device->physical_device->info->props.instr_cache_size);
  

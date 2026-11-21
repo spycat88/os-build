@@ -407,8 +407,8 @@ turn it, which on an A610 is most of the frame budget.
     plane under FSR.
   - `0027` adds `--composite-blit` / `GAMESCOPE_COMPOSITE_BLIT=1`: a frame of exactly one
     unscaled, unoffset sRGB layer at output size with no CTM is copied to the output by the
-    transfer engine, rotated with `VK_QCOM_rotated_copy_commands` (Mesa `0002`) when the output
-    is rotated. Anything else takes the composite shader. Each decline reason is logged once.
+    transfer engine, rotated with `VK_QCOM_rotated_copy_commands` (in upstream Mesa since 26.3.0,
+    was Mesa `0002`) when the output is rotated. Anything else takes the composite shader. Each decline reason is logged once.
   - `0028` is the DRM backend. With `--composite-blit`, layers the plane cannot rotate are blitted
     into panel-oriented copies (`pBlitRotatedTex`) and scanned out unrotated in their old
     placement, so the plane still scales them: overlays first (the base keeps a rotating pipe),

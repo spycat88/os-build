@@ -20,10 +20,10 @@ rects don't match the rotated buffer.
  4 files changed, 124 insertions(+), 18 deletions(-)
 
 diff --git a/src/egl/drivers/dri2/egl_dri2.h b/src/egl/drivers/dri2/egl_dri2.h
-index aa5692ab1ae..404d064e34d 100644
+index 31916f8..2ef9342 100644
 --- a/src/egl/drivers/dri2/egl_dri2.h
 +++ b/src/egl/drivers/dri2/egl_dri2.h
-@@ -322,6 +322,7 @@ struct dri2_egl_surface {
+@@ -314,6 +314,7 @@ struct dri2_egl_surface {
  
  #ifdef HAVE_WAYLAND_PLATFORM
     struct wl_egl_window *wl_win;
@@ -31,7 +31,7 @@ index aa5692ab1ae..404d064e34d 100644
     int dx;
     int dy;
     struct wl_event_queue *wl_queue;
-@@ -351,6 +352,8 @@ struct dri2_egl_surface {
+@@ -343,6 +344,8 @@ struct dri2_egl_surface {
        struct dri_image *dri_image;
        /* for is_different_gpu case. NULL else */
        struct dri_image *linear_copy;
@@ -41,7 +41,7 @@ index aa5692ab1ae..404d064e34d 100644
        void *data;
        int data_size;
 diff --git a/src/egl/drivers/dri2/platform_wayland.c b/src/egl/drivers/dri2/platform_wayland.c
-index c5558acb9ff..17022973652 100644
+index 488273c..f2af1a1 100644
 --- a/src/egl/drivers/dri2/platform_wayland.c
 +++ b/src/egl/drivers/dri2/platform_wayland.c
 @@ -698,6 +698,7 @@ dri2_wl_create_window_surface(_EGLDisplay *disp, _EGLConfig *conf,
@@ -106,13 +106,13 @@ index c5558acb9ff..17022973652 100644
        num_modifiers = 0;
     }
  
--   dri2_surf->back->dri_image = dri_create_image_with_modifiers(
+-   dri2_surf->back->dri_image = dri_create_image(
 -      dri2_dpy->dri_screen_render_gpu, dri2_surf->base.Width,
--      dri2_surf->base.Height, pipe_format, use_flags,
--      modifiers, num_modifiers, NULL);
-+   *out = dri_create_image_with_modifiers(dri2_dpy->dri_screen_render_gpu,
-+                                          width, height, pipe_format, use_flags,
-+                                          modifiers, num_modifiers, NULL);
+-      dri2_surf->base.Height, pipe_format, modifiers, num_modifiers,
+-      use_flags, NULL);
++   *out = dri_create_image(dri2_dpy->dri_screen_render_gpu, width, height,
++                           pipe_format, modifiers, num_modifiers, use_flags,
++                           NULL);
  
     if (surf_modifiers_count > 0) {
        u_vector_finish(&modifiers_subset);
@@ -232,7 +232,7 @@ index c5558acb9ff..17022973652 100644
     loader_wayland_buffer_set_flow(&dri2_surf->back->wayland_buffer, flow);
     dri2_surf->back->locked = true;
  
-@@ -1545,9 +1608,12 @@ update_buffers(struct dri2_egl_surface *dri2_surf,
+@@ -1527,9 +1590,12 @@ update_buffers(struct dri2_egl_surface *dri2_surf,
           if (dri2_dpy->fd_render_gpu != dri2_dpy->fd_display_gpu)
              dri2_destroy_image(
                 dri2_surf->color_buffers[i].linear_copy);
@@ -245,7 +245,7 @@ index c5558acb9ff..17022973652 100644
           dri2_surf->color_buffers[i].age = 0;
        }
     }
-@@ -1874,12 +1940,17 @@ dri2_wl_swap_buffers_with_damage(_EGLDisplay *disp, _EGLSurface *draw,
+@@ -1864,12 +1930,17 @@ dri2_wl_swap_buffers(_EGLDisplay *disp, _EGLSurface *draw,
     dri2_surf->current = dri2_surf->back;
     dri2_surf->back = NULL;
  
@@ -263,7 +263,7 @@ index c5558acb9ff..17022973652 100644
        else
           image = dri2_surf->current->dri_image;
  
-@@ -1897,6 +1968,17 @@ dri2_wl_swap_buffers_with_damage(_EGLDisplay *disp, _EGLSurface *draw,
+@@ -1887,6 +1958,17 @@ dri2_wl_swap_buffers(_EGLDisplay *disp, _EGLSurface *draw,
        loader_wayland_buffer_set_flow(&dri2_surf->current->wayland_buffer, &flow);
     }
  
@@ -281,7 +281,7 @@ index c5558acb9ff..17022973652 100644
     wl_surface_attach(dri2_surf->wayland_surface.wrapper,
                       dri2_surf->current->wayland_buffer.buffer,
                       dri2_surf->dx,
-@@ -1911,7 +1993,8 @@ dri2_wl_swap_buffers_with_damage(_EGLDisplay *disp, _EGLSurface *draw,
+@@ -1901,7 +1983,8 @@ dri2_wl_swap_buffers(_EGLDisplay *disp, _EGLSurface *draw,
     /* If the compositor doesn't support damage_buffer, we deliberately
      * ignore the damage region and post maximum damage, due to
      * https://bugs.freedesktop.org/78190 */
@@ -291,7 +291,7 @@ index c5558acb9ff..17022973652 100644
        wl_surface_damage(dri2_surf->wayland_surface.wrapper, 0, 0, INT32_MAX,
                          INT32_MAX);
  
-@@ -1925,6 +2008,21 @@ dri2_wl_swap_buffers_with_damage(_EGLDisplay *disp, _EGLSurface *draw,
+@@ -1915,6 +1998,21 @@ dri2_wl_swap_buffers(_EGLDisplay *disp, _EGLSurface *draw,
           dri2_surf->base.Height, 0, 0, dri2_surf->base.Width,
           dri2_surf->base.Height, 0, 0);
        dri_flush_drawable(dri_drawable);
@@ -300,7 +300,7 @@ index c5558acb9ff..17022973652 100644
 +      _EGLContext *ctx = _eglGetCurrentContext();
 +      struct dri2_egl_context *dri2_ctx = dri2_egl_context(ctx);
 +      struct dri_drawable *dri_drawable =
-+         dri2_dpy->vtbl->get_dri_drawable(draw);
++         dri2_surface_get_dri_drawable(draw);
 +      int rotated_width, rotated_height;
 +
 +      prerotated_size(dri2_surf, &rotated_width, &rotated_height);
@@ -314,10 +314,10 @@ index c5558acb9ff..17022973652 100644
  
     loader_wayland_presentation_feedback(&dri2_surf->wayland_presentation,
 diff --git a/src/gallium/frontends/dri/dri_util.c b/src/gallium/frontends/dri/dri_util.c
-index 584ab9a717a..9a997adf553 100644
+index d64aca2..d8a297c 100644
 --- a/src/gallium/frontends/dri/dri_util.c
 +++ b/src/gallium/frontends/dri/dri_util.c
-@@ -66,6 +66,7 @@ driOptionDescription __dri2ConfigOptions[] = {
+@@ -67,6 +67,7 @@ driOptionDescription __dri2ConfigOptions[] = {
        DRI_CONF_SECTION_PERFORMANCE
           DRI_CONF_VBLANK_MODE(DRI_CONF_VBLANK_DEF_INTERVAL_1)
           DRI_CONF_BLOCK_ON_DEPLETED_BUFFERS(false)
@@ -326,10 +326,10 @@ index 584ab9a717a..9a997adf553 100644
  };
  
 diff --git a/src/util/driconf.h b/src/util/driconf.h
-index 5ff608eaff7..6243bf0eb54 100644
+index dc3a0cd..4dfda87 100644
 --- a/src/util/driconf.h
 +++ b/src/util/driconf.h
-@@ -414,6 +414,10 @@
+@@ -433,6 +433,10 @@
     DRI_CONF_OPT_B(block_on_depleted_buffers, def, \
                    "Block clients using buffer backpressure until new buffer is available to reduce latency")
  

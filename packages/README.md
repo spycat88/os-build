@@ -257,7 +257,7 @@ Current overlay:
   with our remaining patches under `packages/gamescope/patches/`. The composite-rotation patch for
   the portrait Pocket S2 panel is UPSTREAM as of 3.16.28 and no longer carried. (Was a fetched holo
   PKGBUILD at 3.16.17; moved local for the bump.)
-- `mesa/` — **local PKGBUILD** building mesa `26.2.0` from the upstream tarball. It tracks the
+- `mesa/` — **local PKGBUILD** building mesa `26.3.0` from the upstream tarball. It tracks the
   Arch/holo recipe (same `arch-meson` invocation + meson options) as closely as possible; the only
   deviations are `gallium-drivers`/`vulkan-drivers` narrowed to **freedreno** (GL) + **freedreno**
   Vulkan (Turnip), plus `gallium-rusticl=false` (no OpenCL → no Rust crate chain) and

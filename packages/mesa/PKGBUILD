@@ -31,7 +31,7 @@ pkgname=(
   vulkan-mesa-device-select
   vulkan-mesa-layers
 )
-pkgver=26.2.6
+pkgver=26.3.0
 _pkgver=${pkgver/[a-z]/-&}
 pkgrel=1
 epoch=1
@@ -119,8 +119,18 @@ source=(
 # its own only proves the tarball matches whatever key came with it. A fingerprint that does NOT
 # match is not automatically an attack — mesa can rotate release managers, and hence signing keys,
 # at a branch bump — but it is a stop-and-establish-trust-out-of-band, not a hash to paste in.
+#
+# 26.3.0 (2026-11-21) is the first release not signed by that key: it is signed by
+#
+#   Dylan Baker, 71C4 B756 20BC 7570 8B4B DB25 4C95 FAAB 3EB0 73EC
+#
+# (the 26.3 release manager). Trust was established out of band: the key is listed in
+# docs/release-maintainers-keys.asc on mesa main at gitlab.freedesktop.org, a different host from
+# archive.mesa3d.org, and the signature verifies against it. The copy of the key there is past its
+# 2020 expiry date, so gpg reports the good signature as [expired]. The hash below also matches the
+# tarball in Fedora's lookaside (./mirror.pin) and Fedora's mesa-26.3.0-1.fc46 SRPM.
 sha256sums=(
-  'b9436b3e1a8be76fbd4823dc884f90596ab7c6ac5e1867a305e66ffccfb31a92'
+  '91d729aa68bb89e4ec857841300bbe922bcb3e52b1f97566ca83930d3b28343a'
 )
 
 prepare() {
