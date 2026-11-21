@@ -158,3 +158,30 @@ board builds the same code as before.
   the hang, so any cheaper variant needs the same HL2 A/B (`dmesg | grep -c hangcheck`).
 
 **HW check owed here:** not run on our Odin 3. A GL title on it, `dmesg | grep -c hangcheck` after.
+
+## Adreno 722 (0023-0028), added 2026-11-21
+
+For the Retroid Pocket Duo (SM7750 "Eliza", Adreno 722, chip id `0x43020100`, which 26.3 lists).
+Taken from armada (`armada-os/armada` `b91b786`, `packages/mesa/patches/0005`-`0009` and `0013`),
+bodies unchanged; line numbers regenerated so the series applies to 26.3.1 with no offset. Never
+posted upstream. Only `0028` reaches beyond the A722 (every A7xx gen1: A710, A720, A722, A725,
+A730), and no other board here has one of those, so every other board builds the same code.
+
+- **0023-freedreno-a722-blob-regs.patch** — A722 `raw_magic_regs` from blob command-stream traces
+  (Vauzi-17's A722 entry, `SP_UNKNOWN_AB01` from sherft2607's Duo Turnip) instead of the A730
+  placeholder. Armada measured about 4% more FPS, no GPU faults.
+- **0024-freedreno-a722-skip-bv-bin-preamble.patch** — the A722 has no BV pipe. Turnip registered a
+  reduced BV bin-restore preamble that replaced the BR one, so a gamescope preemption between GMEM
+  bins resumed with the compositor's `RB_BUFFER_CNTL`: CCU write faults at iova 0 and stale tiles.
+- **0025-freedreno-a722-no-lpac.patch** — the A722 has no LPAC (KGSL `gen7_17_0` is in the
+  `gen7_14_0` family).
+- **0026-freedreno-a722-disable-uav-ubwc.patch** — UBWC on internal storage images renders flashing
+  black blocks (Megabonk). Images with an explicit DRM modifier keep UBWC, so gamescope's composite
+  can still be rotated by the DPU.
+- **0027-freedreno-a722-tile-align-32.patch** — 32-row tile alignment, as the A720 and the blob
+  traces.
+- **0028-freedreno-a7xx-gen1-no-early-preamble.patch** — early preambles make HUD sprites flicker
+  on A7xx gen1 (`IR3_SHADER_DEBUG=noearlypreamble` fixed it).
+
+**HW test owed:** none of this has run on a Duo here. Needs the kernel side too (A722 GPU nodes,
+Eliza GPUCC, `1115`/`1116`).
