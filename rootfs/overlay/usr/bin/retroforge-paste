@@ -16,10 +16,18 @@
 # Talks to the dpaste v2 API (https://dpaste.com/api/v2/) with curl, which the image already ships
 # (guard-rootfs.sh keeps it). DPASTE_URL overrides the endpoint; DPASTE_TOKEN, when set, is sent as
 # a Bearer token so pastes land on that dpaste account.
+#
+# dpaste.com serves a Let's Encrypt Gen Y chain (leaf -> YR1 -> ISRG Root YR) without the YR-by-X1
+# cross-sign, and Root YR is not in the Mozilla store the image ships, so plain curl fails with
+# "unable to get local issuer certificate". We hand curl the system bundle plus that cross-sign
+# (usr/share/retroforge/certs/isrg-root-yr-by-x1.pem, from letsencrypt.org/certificates). It is an
+# intermediate, not a new root: the chain still has to end at ISRG Root X1, which the store trusts.
 set -euo pipefail
 
 API="${DPASTE_URL:-https://dpaste.com/api/v2/}"
 TITLE="" SYNTAX="text" EXPIRY=7 RAW=0
+SYSTEM_CA=/etc/ssl/certs/ca-certificates.crt
+CROSS_CA=/usr/share/retroforge/certs/isrg-root-yr-by-x1.pem
 
 usage() { sed -n '2,15s/^# \{0,1\}//p' "$0"; }
 die() { echo "retroforge-paste: $*" >&2; exit 1; }
@@ -40,8 +48,8 @@ shift $((OPTIND - 1))
 [[ "$EXPIRY" =~ ^[0-9]+$ ]] && (( EXPIRY >= 1 && EXPIRY <= 365 )) || die "-e wants 1-365 days, got '$EXPIRY'"
 command -v curl >/dev/null || die "curl not found"
 
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
+tmp="$(mktemp)" cafile="$(mktemp)"
+trap 'rm -f "$tmp" "$cafile"' EXIT
 
 if (( $# == 0 )); then
   [[ -t 0 ]] && echo "retroforge-paste: reading stdin, end with Ctrl-D" >&2
@@ -61,6 +69,10 @@ fi
 
 args=(-sS --fail-with-body --max-time 60 -A "retroforge-paste/1.0"
       -F "content=<$tmp" --form-string "syntax=$SYNTAX" --form-string "expiry_days=$EXPIRY")
+if [[ -r "$SYSTEM_CA" && -r "$CROSS_CA" ]]; then
+  cat "$SYSTEM_CA" "$CROSS_CA" > "$cafile"
+  args+=(--cacert "$cafile")
+fi
 [[ -n "$TITLE" ]] && args+=(--form-string "title=$TITLE")
 [[ -n "${DPASTE_TOKEN:-}" ]] && args+=(-H "Authorization: Bearer $DPASTE_TOKEN")
 
