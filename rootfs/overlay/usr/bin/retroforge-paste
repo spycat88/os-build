@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# retroforge-paste — pastebinit for RetroForge: upload text to dpaste.com and print the URL.
+#
+#   retroforge-paste [options] [FILE...]
+#   some-command 2>&1 | retroforge-paste
+#
+# With no FILE (or FILE is -) it reads stdin. Several FILEs are joined into one paste, each under a
+# "==> name <==" header like head(1). `pastebinit` is a symlink to this script.
+#
+#   -t TITLE   paste title (default: the file name, if one file was given)
+#   -s SYNTAX  dpaste lexer, e.g. bash, python, json, diff, ini (default: text)
+#   -e DAYS    expire after DAYS days, 1-365 (default: 7)
+#   -r         print the raw-text URL (<url>.txt) instead of the page URL
+#   -h         this help
+#
+# Talks to the dpaste v2 API (https://dpaste.com/api/v2/) with curl, which the image already ships
+# (guard-rootfs.sh keeps it). DPASTE_URL overrides the endpoint; DPASTE_TOKEN, when set, is sent as
+# a Bearer token so pastes land on that dpaste account.
+set -euo pipefail
+
+API="${DPASTE_URL:-https://dpaste.com/api/v2/}"
+TITLE="" SYNTAX="text" EXPIRY=7 RAW=0
+
+usage() { sed -n '2,15s/^# \{0,1\}//p' "$0"; }
+die() { echo "retroforge-paste: $*" >&2; exit 1; }
+
+while getopts ":t:s:e:rh" opt; do
+  case "$opt" in
+    t) TITLE="$OPTARG" ;;
+    s) SYNTAX="$OPTARG" ;;
+    e) EXPIRY="$OPTARG" ;;
+    r) RAW=1 ;;
+    h) usage; exit 0 ;;
+    :) die "-$OPTARG needs a value" ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+[[ "$EXPIRY" =~ ^[0-9]+$ ]] && (( EXPIRY >= 1 && EXPIRY <= 365 )) || die "-e wants 1-365 days, got '$EXPIRY'"
+command -v curl >/dev/null || die "curl not found"
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+if (( $# == 0 )); then
+  [[ -t 0 ]] && echo "retroforge-paste: reading stdin, end with Ctrl-D" >&2
+  cat > "$tmp"
+elif (( $# == 1 )); then
+  cat -- "$1" > "$tmp" || die "cannot read $1"
+  [[ -z "$TITLE" && "$1" != "-" ]] && TITLE="$(basename -- "$1")"
+else
+  for f in "$@"; do
+    printf '==> %s <==\n' "$f"
+    cat -- "$f" || die "cannot read $f"
+    printf '\n'
+  done > "$tmp"
+fi
+
+[[ -s "$tmp" ]] || die "nothing to paste"
+
+args=(-sS --fail-with-body --max-time 60 -A "retroforge-paste/1.0"
+      -F "content=<$tmp" --form-string "syntax=$SYNTAX" --form-string "expiry_days=$EXPIRY")
+[[ -n "$TITLE" ]] && args+=(--form-string "title=$TITLE")
+[[ -n "${DPASTE_TOKEN:-}" ]] && args+=(-H "Authorization: Bearer $DPASTE_TOKEN")
+
+if ! resp="$(curl "${args[@]}" "$API")"; then
+  [[ -n "${resp:-}" ]] && echo "$resp" >&2
+  die "upload failed"
+fi
+
+url="$(printf '%s' "$resp" | tr -d '[:space:]')"
+[[ "$url" == http* ]] || die "unexpected reply from dpaste: $resp"
+(( RAW )) && url="$url.txt"
+echo "$url"

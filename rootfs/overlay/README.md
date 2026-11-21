@@ -48,6 +48,10 @@ drops udev's want for the masked socket.
 `usr/lib/retroforge/storage/format-device.sh`. `50-retroforge-timezone.rules` is the one polkit grant
 stock polkit still prompts for.
 
+**Debugging helpers**
+`usr/bin/retroforge-paste` (and its `pastebinit` symlink) uploads stdin or files to dpaste.com with
+the image's curl and prints the URL, for sharing logs from a shell: `journalctl -b | pastebinit`.
+
 **Audio — ALSA UCM2 machine profiles**
 `usr/share/alsa/ucm2/Qualcomm/sm8{250,550,650}/<CARD>/` profiles, card-name-matched via relative
 symlinks under `conf.d/sm8{250,550,650}/` (preserved by `cp -a`). They `Include` codec snippets that
