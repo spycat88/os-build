@@ -28,7 +28,7 @@ new file mode 100644
 index 0000000..f462856
 --- /dev/null
 +++ b/grub-core/commands/efi/retroforge_radiomac.c
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,287 @@
 +/*
 + *  retroforge_radiomac.mod  --  give the Wi-Fi and Bluetooth radios a stable,
 + *  per-unit address in the device tree handed to Linux.
@@ -147,6 +147,7 @@ index 0000000..f462856
 +  "pci17cb,110e",		/* WCN7860, SM8750 */
 +  "pci17cb,1101",		/* QCA6390, SM8250 */
 +  "qcom,wcn3990-wifi",		/* WCN3990 (ath10k snoc), SM6115 / SM4450 */
++  "qcom,wcn7750-wifi",		/* WCN7750 (ath12k ahb), SM7750 */
 +  NULL
 +};
 +
@@ -155,6 +156,7 @@ index 0000000..f462856
 +  "qcom,wcn7860-bt",
 +  "qcom,qca6390-bt",
 +  "qcom,wcn3950-bt",		/* SM6115 / SM4450 */
++  "qcom,wcn7750-bt",		/* SM7750 */
 +  NULL
 +};
 +
