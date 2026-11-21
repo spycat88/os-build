@@ -620,6 +620,24 @@ link="$(tvar B)/lib/overlays/etc/upper/systemd/system/multi-user.target.wants/re
 rm -rf "$SB/var/lib/overlays/etc/upper/systemd"
 done_
 
+t "a-stale-extracted-ca-store-does-not-survive-the-copy"
+# An on-device update-ca-trust writes the extracted CA store into the upper, where it would shadow
+# every later root's store -- and every anchor a new image adds (ISRG Root YR). User anchors stay.
+U="$SB/var/lib/overlays/etc/upper"
+mkdir -p "$U/ca-certificates/extracted/cadir" "$U/ssl/certs" "$U/ca-certificates/trust-source/anchors"
+printf 'stale\n' >"$U/ca-certificates/extracted/tls-ca-bundle.pem"
+ln -s ../../ca-certificates/extracted/cadir/x.pem "$U/ssl/certs/4042bcee.0"
+printf 'mine\n' >"$U/ca-certificates/trust-source/anchors/home-lab.crt"
+run
+expect_rc 0
+[ -e "$(tvar B)/lib/overlays/etc/upper/ca-certificates/extracted" ] \
+  && bad "the stale extracted CA store survived the update" || ok "the extracted CA store is gone"
+[ -e "$(tvar B)/lib/overlays/etc/upper/ssl/certs" ] \
+  && bad "the stale /etc/ssl/certs links survived the update" || ok "the /etc/ssl/certs links are gone"
+expect_file "$(tvar B)/lib/overlays/etc/upper/ca-certificates/trust-source/anchors/home-lab.crt" 'mine'
+rm -rf "$U/ca-certificates" "$U/ssl"
+done_
+
 t "the-overlay-dirs-exist-even-if-the-copy-did-not-bring-them"
 # The one case that would be unrecoverable: the initramfs mounts /etc from these, so a slot without
 # them does not come up at all.

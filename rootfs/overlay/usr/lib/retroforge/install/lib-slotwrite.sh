@@ -270,6 +270,16 @@ seed_var() {  # <dev> <slot> <mnt> <source>
   # any more, so nothing recreates it.
   rm -f "$mnt/lib/overlays/etc/upper/systemd/system/multi-user.target.wants/retroforge-pairingd.service"
 
+  # THE THIRD: the CA store update-ca-trust extracts. It is DERIVED data -- the new root ships its
+  # own, built from its own ca-certificates plus rootfs/lib-assemble-ca.sh's extra anchors -- but
+  # once anyone runs update-ca-trust on a device, the output lands in the upper and shadows every
+  # later root's copy for good: the device keeps trusting the store of the day it was run, and an
+  # anchor a new image adds never reaches curl/OpenSSL (hit with ISRG Root YR, 2026-11). Dropping
+  # the upper's copy lets the new root's show through. /etc/ssl/certs is the same output (hash links
+  # into extracted/cadir). Anchors a user added under trust-source/ are left alone; they reach the
+  # extracted store again the next time update-ca-trust runs.
+  rm -rf "$mnt/lib/overlays/etc/upper/ca-certificates/extracted" "$mnt/lib/overlays/etc/upper/ssl/certs"
+
   # Put the caller's handler back exactly as it was -- `trap - EXIT` only when there was nothing.
   umount "$mnt"
   if [ -n "$prev_cmd" ]; then trap "$prev_cmd" EXIT; else trap - EXIT; fi
