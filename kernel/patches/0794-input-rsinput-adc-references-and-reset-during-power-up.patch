@@ -1,0 +1,147 @@
+From: Armada <armada@armada.dev>
+Subject: [PATCH] input: rsinput: configure ADC references and hold reset during power-up
+
+Allow boards to specify the raw stick centre, trigger release reference and
+trigger range, alongside the existing axis-range property. Preserve the
+current defaults when these properties are absent.
+
+Acquire control GPIOs low before enabling the MCU supply. Enable the supply
+in the existing initialization sequence so probe and resume both hold reset
+during power-up. Keep the existing 100 ms supply settling time and allow
+20 ms after UART enable before releasing an optional reset line. Propagate
+GPIO acquisition errors before power-up and unwind power if initialization
+fails. Existing suspend/remove handling and MCU commands remain shared.
+
+Ported from armada (armada-os/armada b91b786) 1302. Our rsinput never cut the MCU supply in suspend,
+so the vdd_off flag this patch builds on is added here with the
+trigger_release field; the rest is unchanged. Boards without the new DT
+properties keep their defaults; every board now acquires the control
+GPIOs low and enables the supply in rsinput_init_commands(), after
+reset is asserted.
+---
+ drivers/input/joystick/rsinput.c | 55 ++++++++++++++++++++++++++++++----------
+ 1 file changed, 42 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/input/joystick/rsinput.c b/drivers/input/joystick/rsinput.c
+index 2a2903642..e6d779d72 100644
+--- a/drivers/input/joystick/rsinput.c
++++ b/drivers/input/joystick/rsinput.c
+@@ -134,6 +134,8 @@ struct rsinput_driver {
+     struct serdev_device *serdev;
+     struct input_dev *input;
+     struct regulator *vdd;
++    bool vdd_off;
++    u32 trigger_release;
+     struct gpio_desc *boot_gpio;
+     struct gpio_desc *enable_gpio;
+     struct gpio_desc *reset_gpio;
+@@ -201,13 +203,22 @@ static int rsinput_init_commands(struct rsinput_driver *drv) {
+     if (drv->reset_gpio)
+         gpiod_set_value_cansleep(drv->reset_gpio, 0);
+ 
++    if (drv->vdd_off) {
++        error = regulator_enable(drv->vdd);
++        if (error)
++            return error;
++        drv->vdd_off = false;
++    }
++
+     msleep(100);
+ 
+     if (drv->enable_gpio)
+         gpiod_set_value_cansleep(drv->enable_gpio, 1);
+ 
+-    if (drv->reset_gpio)
++    if (drv->reset_gpio) {
++        msleep(20);
+         gpiod_set_value_cansleep(drv->reset_gpio, 1);
++    }
+ 
+     msleep(100);
+     uint8_t version_request[] = {DATA_COMMOD_VERSION};
+@@ -294,11 +305,11 @@ static void handle_cmd_status(struct rsinput_driver *drv, const uint8_t *data, s
+     }
+ 
+     int16_t raw_trig_l = (data[FRAME_POS_DATA_3] | (data[FRAME_POS_DATA_4] << 8));
+-    int16_t z = RSINPUT_TRIGGER_RELEASE - raw_trig_l;
++    int16_t z = drv->trigger_release - raw_trig_l;
+     z = ( z < trigger_left_deadzone ) ? 0 : z - trigger_left_antideadzone;
+ 
+     int16_t raw_trig_r = (data[FRAME_POS_DATA_5] | (data[FRAME_POS_DATA_6] << 8));
+-    int16_t rz = RSINPUT_TRIGGER_RELEASE - raw_trig_r;
++    int16_t rz = drv->trigger_release - raw_trig_r;
+     rz = ( rz < trigger_right_deadzone ) ? 0 : rz - trigger_right_antideadzone;
+ 
+     int16_t raw_x = -(int16_t)(data[FRAME_POS_DATA_7] | (data[FRAME_POS_DATA_8] << 8));
+@@ -521,36 +532,48 @@ static int rsinput_probe(struct serdev_device *serdev) {
+         }
+     }
+ 
++    {
++        u32 value;
++
++        if (!device_property_read_u32(&serdev->dev, "axis-center", &value)) {
++            axis_leftx_center = axis_lefty_center = value;
++            axis_rightx_center = axis_righty_center = value;
++        }
++
++        if (!device_property_read_u32(&serdev->dev, "trigger-range", &value))
++            trigger_left_max = trigger_right_max = value;
++    }
++
++    drv->trigger_release = RSINPUT_TRIGGER_RELEASE;
++    device_property_read_u32(&serdev->dev, "trigger-release", &drv->trigger_release);
++
+     drv->vdd = devm_regulator_get(&serdev->dev, "vdd");
+     if (IS_ERR(drv->vdd)) {
+         error = PTR_ERR(drv->vdd);
+         return error;
+     }
+ 
+-    error = regulator_enable(drv->vdd);
+-        if (error < 0) {
+-        return error;
+-    }
++    drv->vdd_off = true;
+ 
+     drv->boot_gpio =
+-        devm_gpiod_get_optional(&serdev->dev, "boot", GPIOD_OUT_HIGH);
++        devm_gpiod_get_optional(&serdev->dev, "boot", GPIOD_OUT_LOW);
+     if (IS_ERR(drv->boot_gpio)) {
+         error = PTR_ERR(drv->boot_gpio);
+-        dev_warn(&serdev->dev, "Unable to get boot gpio: %d\n", error);
++        return dev_err_probe(&serdev->dev, error, "Unable to get boot gpio\n");
+     }
+ 
+     drv->enable_gpio =
+-        devm_gpiod_get_optional(&serdev->dev, "enable", GPIOD_OUT_HIGH);
++        devm_gpiod_get_optional(&serdev->dev, "enable", GPIOD_OUT_LOW);
+     if (IS_ERR(drv->enable_gpio)) {
+         error = PTR_ERR(drv->enable_gpio);
+-        dev_warn(&serdev->dev, "Unable to get enable gpio: %d\n", error);
++        return dev_err_probe(&serdev->dev, error, "Unable to get enable gpio\n");
+     }
+ 
+     drv->reset_gpio =
+-        devm_gpiod_get_optional(&serdev->dev, "reset", GPIOD_OUT_HIGH);
++        devm_gpiod_get_optional(&serdev->dev, "reset", GPIOD_OUT_LOW);
+     if (IS_ERR(drv->reset_gpio)) {
+         error = PTR_ERR(drv->reset_gpio);
+-        dev_warn(&serdev->dev, "Unable to get reset gpio: %d\n", error);
++        return dev_err_probe(&serdev->dev, error, "Unable to get reset gpio\n");
+     }
+ 
+     drv->serdev = serdev;
+@@ -639,6 +662,12 @@ static int rsinput_probe(struct serdev_device *serdev) {
+     error = rsinput_init_commands(drv);
+     if (error < 0) {
+         serdev_device_close(serdev);
++        if (drv->enable_gpio)
++            gpiod_set_value_cansleep(drv->enable_gpio, 0);
++        if (drv->reset_gpio)
++            gpiod_set_value_cansleep(drv->reset_gpio, 0);
++        if (!drv->vdd_off)
++            regulator_disable(drv->vdd);
+         return error;
+     }
+ 

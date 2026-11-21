@@ -1,0 +1,51 @@
+From: Armada contributors <noreply@armada-os.org>
+Subject: [PATCH] ASoC: es8326: add the vddio supply
+
+Adapted from armada (armada-os/armada b91b786) 1176, itself from
+RetroidPocket/linux f8dfc9104b7c, plus the es8326 part of armada 1177
+(binding, from RetroidPocket/linux e192bf797bdb).
+
+armada enables "vdd" and "vddio" together with
+devm_regulator_bulk_get_enable(). Our `0842` already takes an optional
+"vdd", cut across suspend; this adds "vddio" next to it, optional and on
+for as long as the device is bound. The Retroid Pocket Duo wires vdd to a
+3.3 V and vddio to a 1.8 V GPIO-switched rail. Boards without a vddio
+supply are unaffected.
+---
+ Documentation/devicetree/bindings/sound/everest,es8326.yaml | 6 ++++++
+ sound/soc/codecs/es8326.c                                   | 5 +++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/sound/everest,es8326.yaml b/Documentation/devicetree/bindings/sound/everest,es8326.yaml
+index b5594a9d5..c7719a122 100644
+--- a/Documentation/devicetree/bindings/sound/everest,es8326.yaml
++++ b/Documentation/devicetree/bindings/sound/everest,es8326.yaml
+@@ -31,6 +31,12 @@ properties:
+   "#sound-dai-cells":
+     const: 0
+ 
++  vdd-supply:
++    description: Analog and digital core supply (AVDD/DVDD)
++
++  vddio-supply:
++    description: I/O supply
++
+   everest,jack-pol:
+     $ref: /schemas/types.yaml#/definitions/uint8
+     description: |
+diff --git a/sound/soc/codecs/es8326.c b/sound/soc/codecs/es8326.c
+index 07678746b..2082c1765 100644
+--- a/sound/soc/codecs/es8326.c
++++ b/sound/soc/codecs/es8326.c
+@@ -1348,6 +1348,11 @@ static int es8326_i2c_probe(struct i2c_client *i2c)
+ 	if (!es8326)
+ 		return -ENOMEM;
+ 
++	/* I/O rail: on for as long as the device is bound, kept across suspend */
++	ret = devm_regulator_get_enable_optional(&i2c->dev, "vddio");
++	if (ret && ret != -ENODEV)
++		return dev_err_probe(&i2c->dev, ret, "failed to enable vddio supply\n");
++
+ 	es8326->vdd = devm_regulator_get_optional(&i2c->dev, "vdd");
+ 	if (IS_ERR(es8326->vdd)) {
+ 		if (PTR_ERR(es8326->vdd) != -ENODEV)

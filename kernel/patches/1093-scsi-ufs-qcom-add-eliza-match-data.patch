@@ -1,0 +1,39 @@
+From: Teguh Sobirin <teguh@sobir.in>
+Subject: [PATCH] scsi: ufs: ufs-qcom: add Eliza match data and legacy doorbell mode
+
+armada (armada-os/armada b91b786) 1162 + 1163, squashed:
+
+- ufs-qcom: Eliza match data (RetroidPocket/linux 1213eb175774). Reuses
+  the SM8550 data: no PHY retention, legacy-doorbell quirk.
+- dt-bindings: let the Eliza board omit the MCQ resources, as armada
+  does for the Duo. 7.3's sm8650-ufshc binding lists Eliza with Maili and
+  Nord as needing two reg entries; only the Eliza line is dropped.
+---
+ Documentation/devicetree/bindings/ufs/qcom,sm8650-ufshc.yaml | 1 -
+ drivers/ufs/host/ufs-qcom.c                                  | 1 +
+ 2 files changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/ufs/qcom,sm8650-ufshc.yaml b/Documentation/devicetree/bindings/ufs/qcom,sm8650-ufshc.yaml
+index d03295806..440dcf98d 100644
+--- a/Documentation/devicetree/bindings/ufs/qcom,sm8650-ufshc.yaml
++++ b/Documentation/devicetree/bindings/ufs/qcom,sm8650-ufshc.yaml
+@@ -79,7 +79,6 @@ allOf:
+         compatible:
+           contains:
+             enum:
+-              - qcom,eliza-ufshc
+               - qcom,maili-ufshc
+               - qcom,nord-ufshc
+     then:
+diff --git a/drivers/ufs/host/ufs-qcom.c b/drivers/ufs/host/ufs-qcom.c
+index 0ab6b9d67..d21c86e6d 100644
+--- a/drivers/ufs/host/ufs-qcom.c
++++ b/drivers/ufs/host/ufs-qcom.c
+@@ -3094,6 +3094,7 @@ static const struct of_device_id ufs_qcom_of_match[] __maybe_unused = {
+ 	{ .compatible = "qcom,ufshc" },
+ 	{ .compatible = "qcom,sm8550-ufshc", .data = &ufs_qcom_sm8550_drvdata },
+ 	{ .compatible = "qcom,sm8650-ufshc", .data = &ufs_qcom_sm8550_drvdata },
++	{ .compatible = "qcom,eliza-ufshc", .data = &ufs_qcom_sm8550_drvdata },
+ 	{ .compatible = "qcom,sm8750-ufshc", .data = &ufs_qcom_sm8550_drvdata },
+ 	{ .compatible = "qcom,sa8255p-ufshc", .data = &ufs_qcom_sa8255p_drvdata },
+ 	{},

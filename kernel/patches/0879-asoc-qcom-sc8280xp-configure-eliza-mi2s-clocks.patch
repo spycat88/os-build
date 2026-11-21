@@ -1,0 +1,66 @@
+From: Armada contributors <noreply@armada-os.org>
+Subject: [PATCH] ASoC: qcom: sc8280xp: configure the Eliza MI2S ports
+
+The Retroid Pocket Duo (Eliza) has two AW88166 speaker amps on primary
+MI2S and an ES8326 headset codec on quaternary MI2S. Both need the MI2S
+port's MCLK and BCLK, I2S consumer format on the codecs, and the codec
+sysclk; the ES8326 also detects the jack itself.
+
+armada (armada-os/armada b91b786) does this with its own hw_params in
+1175 (from RetroidPocket/linux 592a27a5a037) and hands the jack to the
+codec by adding the quaternary MI2S ids to qcom_snd_wcd_jack_setup()
+(1174). Here the same is expressed in this tree's per-DAI data
+(as for the MANGMI Air X): mclk/bclk/codec sysclk on PRIMARY_MI2S_RX,
+QUATERNARY_MI2S_RX and QUATERNARY_MI2S_TX, codec format BC_FC | NB_NF |
+I2S, and the generic codec jack helper (`0861`) on QUATERNARY_MI2S_RX.
+Codec DMA ports keep the WCD jack, as mainline's eliza card had it.
+
+MCLK is rate * 256 and BCLK rate * channels * width, as armada's. Not
+run on hardware.
+---
+ sound/soc/qcom/sc8280xp.c | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/sound/soc/qcom/sc8280xp.c b/sound/soc/qcom/sc8280xp.c
+index d71aa7b30..53e85df94 100644
+--- a/sound/soc/qcom/sc8280xp.c
++++ b/sound/soc/qcom/sc8280xp.c
+@@ -567,11 +567,38 @@ static const struct qcom_snd_soc_common mangmi_air_x_priv_data = {
+ 	),
+ };
+ 
++/*
++ * Eliza. The Retroid Pocket Duo has two AW88166 speaker amps on primary
++ * MI2S and an ES8326 on quaternary MI2S that detects the headset jack
++ * itself; both are clocked by the MI2S port. Codec DMA ports keep the
++ * WCD jack.
++ */
+ static const struct qcom_snd_soc_common eliza_priv_data = {
+ 	.driver_name = "eliza",
+ 	.dapm_widgets = sc8280xp_dapm_widgets,
+ 	.num_dapm_widgets = ARRAY_SIZE(sc8280xp_dapm_widgets),
+ 	.wcd_jack = true,
++	.codec_dai_fmt = SND_SOC_DAIFMT_BC_FC |
++			 SND_SOC_DAIFMT_NB_NF |
++			 SND_SOC_DAIFMT_I2S,
++	SC8280XP_DAI_DATA({
++			.id = PRIMARY_MI2S_RX,
++			.codec_sysclk_set = true,
++			.mi2s_mclk_enable = true,
++			.mi2s_bclk_enable = true,
++		}, {
++			.id = QUATERNARY_MI2S_RX,
++			.codec_sysclk_set = true,
++			.mi2s_mclk_enable = true,
++			.mi2s_bclk_enable = true,
++			.jack_setup = SC8280XP_JACK_SETUP_CODEC,
++		}, {
++			.id = QUATERNARY_MI2S_TX,
++			.codec_sysclk_set = true,
++			.mi2s_mclk_enable = true,
++			.mi2s_bclk_enable = true,
++		}
++	),
+ };
+ 
+ static const struct qcom_snd_soc_common hawi_priv_data = {
