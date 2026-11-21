@@ -1,0 +1,48 @@
+From: Armada <noreply@armada>
+Subject: [PATCH] drm/msm/dpu: enable inline rotation and LUTDMA on Eliza
+
+armada (armada-os/armada b91b786) 1167 + 1168, squashed, bodies
+unchanged:
+
+- enable true inline rotation on Eliza: the VIG pipes get the shared
+  rot_v2 scaler block, as `0342` does for SM8750.
+- enable LUTDMA on Eliza, matching downstream kera
+  (display-devicetree kera-sde-common.dtsi). Needs `0360`.
+
+The register set is mapped by `1191`.
+---
+ drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_12_4_eliza.h | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_12_4_eliza.h b/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_12_4_eliza.h
+index b93d32888..4b7bd6716 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_12_4_eliza.h
++++ b/drivers/gpu/drm/msm/disp/dpu1/catalog/dpu_12_4_eliza.h
+@@ -46,15 +46,15 @@ static const struct dpu_sspp_cfg eliza_sspp[] = {
+ 	{
+ 		.name = "sspp_0", .id = SSPP_VIG0,
+ 		.base = 0x4000, .len = 0x344,
+-		.features = VIG_SDM845_MASK_SDMA,
+-		.sblk = &dpu_vig_sblk_qseed3_3_4,
++		.features = VIG_ROT_V201_MASK_SDMA,
++		.sblk = &dpu_vig_sblk_qseed3_3_4_rot_v2,
+ 		.xin_id = 0,
+ 		.type = SSPP_TYPE_VIG,
+ 	}, {
+ 		.name = "sspp_1", .id = SSPP_VIG1,
+ 		.base = 0x6000, .len = 0x344,
+-		.features = VIG_SDM845_MASK_SDMA,
+-		.sblk = &dpu_vig_sblk_qseed3_3_4,
++		.features = VIG_ROT_V201_MASK_SDMA,
++		.sblk = &dpu_vig_sblk_qseed3_3_4_rot_v2,
+ 		.xin_id = 4,
+ 		.type = SSPP_TYPE_VIG,
+ 	}, {
+@@ -344,6 +344,7 @@ const struct dpu_mdss_cfg dpu_eliza_cfg = {
+ 	.mixer = eliza_lm,
+ 	.dspp_count = ARRAY_SIZE(eliza_dspp),
+ 	.dspp = eliza_dspp,
++	.reg_dma = &sm8650_reg_dma,
+ 	.pingpong_count = ARRAY_SIZE(eliza_pp),
+ 	.pingpong = eliza_pp,
+ 	.dsc_count = ARRAY_SIZE(eliza_dsc),

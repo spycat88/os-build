@@ -1,0 +1,95 @@
+From: Armada <armada@armada.dev>
+Subject: [PATCH] serial: qcom-geni: allow a shorter RX DMA transfer per port
+
+Non-console GENI UARTs receive in SE DMA mode with a fixed 2048-byte
+transfer. The transfer completes when the buffer fills, or with RX_EOT
+once the line has been idle for STALE_TIMEOUT (16) character times.
+
+A peer that streams continuously never leaves that idle gap. The
+Retroid Pocket Duo gamepad MCU sends a 23-byte status frame roughly
+every 2.7 ms at 115200 baud, leaving about 0.7 ms idle against a 1.4 ms
+stale timeout, so its bytes only reach the tty layer once 2048 have
+accumulated: a burst about every 245 ms. That shows up as variable,
+bursty input latency.
+
+Add an optional "qcom,rx-dma-len" property (bytes, 4..2048, multiple of
+4) that shortens each RX DMA transfer for such ports. The buffer is still
+allocated at DMA_RX_BUF_SIZE, so only the programmed transfer length
+changes. Ports without the property behave exactly as before.
+
+Ported from armada (armada-os/armada b91b786) 1303. Our `1090` maps the RX buffer once at probe and
+re-arms it with geni_se_rx_init_dma(), so the transfer length goes to
+those two calls; the map, sync and unmap stay at DMA_RX_BUF_SIZE.
+---
+ drivers/tty/serial/qcom_geni_serial.c | 30 ++++++++++++++++++++++++++++--
+ 1 file changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/tty/serial/qcom_geni_serial.c b/drivers/tty/serial/qcom_geni_serial.c
+index 120a68597..ac124d552 100644
+--- a/drivers/tty/serial/qcom_geni_serial.c
++++ b/drivers/tty/serial/qcom_geni_serial.c
+@@ -107,6 +107,7 @@
+ #define BYTES_PER_FIFO_WORD		4U
+ 
+ #define DMA_RX_BUF_SIZE		2048
++#define DMA_RX_LEN_MIN		4
+ 
+ static DEFINE_IDA(port_ida);
+ 
+@@ -143,6 +144,7 @@ struct qcom_geni_serial_port {
+ 	unsigned long poll_timeout_us;
+ 	unsigned long clk_rate;
+ 	void *rx_buf;
++	u32 rx_dma_len;
+ 	u32 loopback;
+ 	bool brk;
+ 
+@@ -1031,7 +1033,7 @@ static void qcom_geni_serial_start_rx_dma(struct uart_port *uport)
+ 
+ 	dma_sync_single_for_device(uport->dev->parent, port->rx_dma_addr,
+ 				   DMA_RX_BUF_SIZE, DMA_FROM_DEVICE);
+-	geni_se_rx_init_dma(&port->se, port->rx_dma_addr, DMA_RX_BUF_SIZE);
++	geni_se_rx_init_dma(&port->se, port->rx_dma_addr, port->rx_dma_len);
+ }
+ 
+ static void qcom_geni_serial_handle_rx_dma(struct uart_port *uport, bool drop)
+@@ -1071,7 +1073,7 @@ static void qcom_geni_serial_handle_rx_dma(struct uart_port *uport, bool drop)
+ 
+ 	dma_sync_single_for_device(uport->dev->parent, port->rx_dma_addr,
+ 				   DMA_RX_BUF_SIZE, DMA_FROM_DEVICE);
+-	geni_se_rx_init_dma(&port->se, port->rx_dma_addr, DMA_RX_BUF_SIZE);
++	geni_se_rx_init_dma(&port->se, port->rx_dma_addr, port->rx_dma_len);
+ }
+ 
+ static void qcom_geni_serial_start_rx(struct uart_port *uport)
+@@ -1992,6 +1994,30 @@ static int qcom_geni_serial_probe(struct platform_device *pdev)
+ 	if (of_property_read_bool(pdev->dev.of_node, "cts-rts-swap"))
+ 		port->cts_rts_swap = true;
+ 
++	/*
++	 * In SE DMA mode an RX transfer completes only when the buffer fills
++	 * or the line has been idle for STALE_TIMEOUT characters. A peer that
++	 * streams continuously never leaves that idle gap, so every byte waits
++	 * for a full buffer. Let such ports ask for a shorter transfer so data
++	 * reaches the tty layer promptly. The buffer allocation is unchanged.
++	 */
++	port->rx_dma_len = DMA_RX_BUF_SIZE;
++	if (!data->console &&
++	    !of_property_read_u32(pdev->dev.of_node, "qcom,rx-dma-len",
++				  &port->rx_dma_len)) {
++		if (port->rx_dma_len < DMA_RX_LEN_MIN ||
++		    port->rx_dma_len > DMA_RX_BUF_SIZE ||
++		    !IS_ALIGNED(port->rx_dma_len, 4)) {
++			dev_warn(&pdev->dev,
++				 "invalid qcom,rx-dma-len %u, using %u\n",
++				 port->rx_dma_len, DMA_RX_BUF_SIZE);
++			port->rx_dma_len = DMA_RX_BUF_SIZE;
++		} else {
++			dev_dbg(&pdev->dev, "RX DMA transfer length %u bytes\n",
++				port->rx_dma_len);
++		}
++	}
++
+ 	port->private_data.drv = drv;
+ 	uport->private_data = &port->private_data;
+ 	init_irq_work(&port->tx_kick, qcom_geni_serial_restart_tx);

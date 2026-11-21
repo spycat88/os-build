@@ -1,0 +1,61 @@
+From: Armada <armada@armada.dev>
+Subject: [PATCH] remoteproc: qcom: add Eliza WPSS using existing PAS support
+
+Reuse sc7280_wpss_resource, as Milos does. Qualcomm's downstream Kera
+WPSS descriptor uses the same PAS ID (6), crash-reason SMEM (626),
+minidump ID (4), load-state/SSR/sysmon name (wpss), and SSCTL ID (0x19).
+The Duo Android tree votes CX and MX and uses the RPMh XO clock.
+
+Reuse the Milos WPSS and SMP2P descriptions with the Duo Android capture's
+register address (0x97000000) and watchdog SPI (200). SMP2P SMEM IDs
+617/616, remote PID 13, IPCC client 24 and signal IDs match Milos.
+The existing Eliza WPSS reserved memory also matches Android.
+
+Keep the SoC node disabled by default. The shared PAS descriptor retains
+auto_boot=false, leaving firmware startup to a consumer or an explicit
+userspace request. No WLAN transport or data path is added.
+
+Reference: OnePlusOSS/android_kernel_oneplus_sm8750,
+  oneplus/sm8750_b_16.0.0_oneplus_13, drivers/remoteproc/qcom_q6v5_pas.c,
+  kera_wpss_resource; verified against the Duo's Android FDT and boot log.
+
+Ported from armada (armada-os/armada b91b786) 1114: the driver and binding half. The match entry sits
+after mainline's new eliza-cdsp entry; the binding hunk after its
+eliza-adsp. The DTS half is `1189`.
+---
+ Documentation/devicetree/bindings/remoteproc/qcom,milos-pas.yaml | 2 ++
+ drivers/remoteproc/qcom_q6v5_pas.c                               | 1 +
+ 2 files changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/remoteproc/qcom,milos-pas.yaml b/Documentation/devicetree/bindings/remoteproc/qcom,milos-pas.yaml
+index b24e6f6ea..d844f5b9c 100644
+--- a/Documentation/devicetree/bindings/remoteproc/qcom,milos-pas.yaml
++++ b/Documentation/devicetree/bindings/remoteproc/qcom,milos-pas.yaml
+@@ -16,6 +16,7 @@ description:
+ properties:
+   compatible:
+     enum:
++      - qcom,eliza-wpss-pas
+       - qcom,milos-adsp-pas
+       - qcom,milos-cdsp-pas
+       - qcom,milos-mpss-pas
+@@ -123,6 +124,7 @@ allOf:
+       properties:
+         compatible:
+           enum:
++            - qcom,eliza-wpss-pas
+             - qcom,milos-cdsp-pas
+             - qcom,milos-wpss-pas
+     then:
+diff --git a/drivers/remoteproc/qcom_q6v5_pas.c b/drivers/remoteproc/qcom_q6v5_pas.c
+index 9f2367564..51cef2dca 100644
+--- a/drivers/remoteproc/qcom_q6v5_pas.c
++++ b/drivers/remoteproc/qcom_q6v5_pas.c
+@@ -2110,6 +2110,7 @@ static const struct qcom_pas_data eliza_cdsp_resource = {
+ static const struct of_device_id qcom_pas_of_match[] = {
+ 	{ .compatible = "qcom,eliza-adsp-pas", .data = &sm8550_adsp_resource },
+ 	{ .compatible = "qcom,eliza-cdsp-pas", .data = &eliza_cdsp_resource },
++	{ .compatible = "qcom,eliza-wpss-pas", .data = &sc7280_wpss_resource },
+ 	{ .compatible = "qcom,glymur-soccp-pas", .data = &glymur_soccp_resource },
+ 	{ .compatible = "qcom,kaanapali-soccp-pas", .data = &kaanapali_soccp_resource },
+ 	{ .compatible = "qcom,milos-adsp-pas", .data = &sm8550_adsp_resource },

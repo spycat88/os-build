@@ -1,0 +1,99 @@
+From: Armada <armada@armada.dev>
+Subject: [PATCH] arm64: dts: qcom: eliza: add the WPSS remoteproc
+
+The DTS half of armada (armada-os/armada b91b786) 1114: the WPSS PAS
+node and its SMP2P, from the Milos descriptions with the Duo Android
+capture's register address (0x97000000) and watchdog SPI (200).
+Disabled by default. The driver half is `0989`.
+---
+ arch/arm64/boot/dts/qcom/eliza.dtsi | 70 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 70 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/eliza.dtsi b/arch/arm64/boot/dts/qcom/eliza.dtsi
+index 597791cb4..7fbd410fa 100644
+--- a/arch/arm64/boot/dts/qcom/eliza.dtsi
++++ b/arch/arm64/boot/dts/qcom/eliza.dtsi
+@@ -638,6 +638,30 @@ smp2p_adsp_in: slave-kernel {
+ 		};
+ 	};
+ 
++	smp2p-wpss {
++		compatible = "qcom,smp2p";
++		qcom,smem = <617>, <616>;
++		interrupts-extended = <&ipcc IPCC_CLIENT_WPSS
++					     IPCC_MPROC_SIGNAL_SMP2P
++					     IRQ_TYPE_EDGE_RISING>;
++		mboxes = <&ipcc IPCC_CLIENT_WPSS
++				IPCC_MPROC_SIGNAL_SMP2P>;
++
++		qcom,local-pid = <0>;
++		qcom,remote-pid = <13>;
++
++		smp2p_wpss_out: master-kernel {
++			qcom,entry-name = "master-kernel";
++			#qcom,smem-state-cells = <1>;
++		};
++
++		smp2p_wpss_in: slave-kernel {
++			qcom,entry-name = "slave-kernel";
++			interrupt-controller;
++			#interrupt-cells = <2>;
++		};
++	};
++
+ 	soc: soc@0 {
+ 		compatible = "simple-bus";
+ 
+@@ -2394,6 +2418,52 @@ usb_dp_qmpphy_dp_in: endpoint {
+ 			};
+ 		};
+ 
++		remoteproc_wpss: remoteproc@97000000 {
++			compatible = "qcom,eliza-wpss-pas";
++			reg = <0x0 0x97000000 0x0 0x10000>;
++
++			interrupts-extended = <&intc GIC_SPI 200 IRQ_TYPE_EDGE_RISING>,
++					      <&smp2p_wpss_in 0 IRQ_TYPE_EDGE_RISING>,
++					      <&smp2p_wpss_in 1 IRQ_TYPE_EDGE_RISING>,
++					      <&smp2p_wpss_in 2 IRQ_TYPE_EDGE_RISING>,
++					      <&smp2p_wpss_in 3 IRQ_TYPE_EDGE_RISING>,
++					      <&smp2p_wpss_in 7 IRQ_TYPE_EDGE_RISING>;
++			interrupt-names = "wdog",
++					  "fatal",
++					  "ready",
++					  "handover",
++					  "stop-ack",
++					  "shutdown-ack";
++
++			clocks = <&rpmhcc RPMH_CXO_CLK>;
++			clock-names = "xo";
++
++			power-domains = <&rpmhpd RPMHPD_CX>,
++					<&rpmhpd RPMHPD_MX>;
++			power-domain-names = "cx",
++					     "mx";
++
++			memory-region = <&wpss_mem>;
++
++			qcom,qmp = <&aoss_qmp>;
++
++			qcom,smem-states = <&smp2p_wpss_out 0>;
++			qcom,smem-state-names = "stop";
++
++			status = "disabled";
++
++			glink-edge {
++				interrupts-extended = <&ipcc IPCC_CLIENT_WPSS
++							     IPCC_MPROC_SIGNAL_GLINK_QMP
++							     IRQ_TYPE_EDGE_RISING>;
++				mboxes = <&ipcc IPCC_CLIENT_WPSS
++						IPCC_MPROC_SIGNAL_GLINK_QMP>;
++
++				label = "wpss";
++				qcom,remote-pid = <13>;
++			};
++		};
++
+ 		usb: usb@a600000 {
+ 			compatible = "qcom,eliza-dwc3", "qcom,snps-dwc3";
+ 			reg = <0x0 0x0a600000 0x0 0xfc100>;
