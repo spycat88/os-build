@@ -844,6 +844,68 @@ expect_env B_TRY 0
 expect_hasnt 're-armed for a trial boot'
 done_
 
+echo "== the bundle: a local file is deleted after a successful install, and only then =="
+
+# The mount the hook recovers the file from, modelled the way RAUC leaves it for a verity bundle: the
+# bundle mount point is a dm device (253:0) whose one slave is the loop device over the file. A
+# streamed bundle has an nbd slave instead, which has no loop/backing_file.
+mount_bundle() {  # <file> [loop|nbd]
+  local file="$1" lower="${2:-loop}"
+  mkdir -p "$SB/sys/dev/block/253:0/slaves" "$SB/bundles" "$SB/rauc-bundle"
+  printf '1 2 0:20 / / rw - btrfs /dev/root rw\n' >"$SB/mountinfo"
+  printf '90 1 253:0 / %s ro - squashfs /dev/dm-0 ro\n' "$SB/rauc-bundle" >>"$SB/mountinfo"
+  if [ "$lower" = loop ]; then
+    mkdir -p "$SB/sys/dev/block/253:0/slaves/loop0/loop"
+    printf '%s\n' "$file" >"$SB/sys/dev/block/253:0/slaves/loop0/loop/backing_file"
+  else
+    mkdir -p "$SB/sys/dev/block/253:0/slaves/nbd0"
+  fi
+}
+run_bundle() {
+  run RAUC_BUNDLE_MOUNT_POINT="$SB/rauc-bundle" MOUNTINFO="$SB/mountinfo" SYSDEVBLOCK="$SB/sys/dev/block" "$@"
+}
+
+t "a-local-bundle-is-deleted-after-the-re-arm"
+mkdir -p "$SB/bundles"; printf 'bundle\n' >"$SB/bundles/retroforge-x.raucb"
+mount_bundle "$SB/bundles/retroforge-x.raucb"
+run_bundle
+expect_rc 0
+[ -e "$SB/bundles/retroforge-x.raucb" ] && bad "the bundle is still there" || ok "the bundle was deleted"
+expect_said_order 're-armed for a trial boot' 'deleted the installed bundle'
+done_
+
+t "a-failed-install-keeps-the-bundle"
+mkdir -p "$SB/bundles"; printf 'bundle\n' >"$SB/bundles/retroforge-x.raucb"
+mount_bundle "$SB/bundles/retroforge-x.raucb"
+: >"$SB/fail-rearm"
+run_bundle
+expect_rc 1
+[ -f "$SB/bundles/retroforge-x.raucb" ] && ok "the bundle was kept" || bad "the bundle was deleted by a failed install"
+expect_hasnt 'deleted the installed bundle'
+done_
+
+t "a-streamed-bundle-has-nothing-to-delete"
+mount_bundle "" nbd
+run_bundle
+expect_rc 0
+expect_has 'nothing to delete'
+done_
+
+t "a-file-that-is-not-a-raucb-is-kept"
+mkdir -p "$SB/bundles"; printf 'x\n' >"$SB/bundles/something.img"
+mount_bundle "$SB/bundles/something.img"
+run_bundle
+expect_rc 0
+[ -f "$SB/bundles/something.img" ] && ok "the file was kept" || bad "a non-.raucb file was deleted"
+done_
+
+t "a-delete-that-fails-does-not-fail-the-install"
+mount_bundle "$SB/bundles/gone-already.raucb"
+run_bundle
+expect_rc 0
+expect_has 'could not delete the installed bundle'
+done_
+
 # --- summary ------------------------------------------------------------------------------------
 
 echo

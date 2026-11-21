@@ -18,6 +18,8 @@
 #                    the shared ESP gets parts.env, OpenABL's \dtbs\qcom and this build's ESP GRUB
 #                    (content-identical when unchanged), the ESP GRUB last.
 #   4. re-arm     -- the grubenv names the target first, OK and with all three tries.
+#   5. bundle     -- a bundle installed from a local file (`rauc install /home/x.raucb`) is
+#                    deleted. Last, so a hook that died anywhere above leaves it in place for a retry.
 #
 # WHY THE BOOT FILES COME OUT OF THE NEW ROOT AND NOT THE BUNDLE: grub-esp.efi and grub-<slot>.cfg
 # are boot software owned by the same build that ships /boot/vmlinuz.efi and /lib/modules/<ver> inside the
@@ -70,6 +72,10 @@ BOOTINFO=${BOOTINFO:-/run/retroforge/boot}
 # die() -- there is no other way in, and an assertion nothing can exercise is what put a dead `cmp`
 # in this file for three releases.
 SHA256=${SHA256:-sha256sum}
+# Where step 5 finds the file the bundle was mounted from: the mount table (for the mount point's
+# device number) and sysfs (for that device's loop backing file).
+MOUNTINFO=${MOUNTINFO:-/proc/self/mountinfo}
+SYSDEVBLOCK=${SYSDEVBLOCK:-/sys/dev/block}
 
 # The shared half of this hook. Everything a RAUC bundle does not carry has to be written twice --
 # once here and once by the internal installer, onto a disk with no retroforge on it -- and two copies
@@ -212,3 +218,47 @@ umount "$MNT"; trap - EXIT
 sync
 
 log "slot $target re-armed for a trial boot; reboot to try it"
+
+# --- 5. delete the bundle -----------------------------------------------------------------------
+# RAUC does not tell a handler which file it is installing -- only where the bundle is mounted
+# (RAUC_BUNDLE_MOUNT_POINT) -- so the file is recovered from the mount: a local bundle is a loop
+# device over the file (bundle.c mount_bundle -> r_setup_loop), with dm-verity on top for our
+# `format=verity`, so the loop is either the mount's own device or a slave of it. A STREAMED
+# bundle (retroforge-update's https:// URL) sits on an nbd device instead, has no backing file, and
+# is never on disk, so there is nothing to delete.
+#
+# Only after step 4: this hook is the last thing RAUC runs before it reports success
+# (install.c do_install_bundle), so a failed install -- RAUC's or ours -- keeps the bundle. Removing
+# the file while RAUC still has it mounted is safe; the loop device holds the open inode until RAUC
+# unmounts it. A delete that fails is logged and NOT fatal: the slot is armed and bootable now, and
+# reporting the install as failed over a leftover file would be a lie.
+bundle_file() {
+  local mp=${RAUC_BUNDLE_MOUNT_POINT:-} majmin='' dev s _a _b mm _r mpoint _rest
+  [ -n "$mp" ] || return 0
+  while read -r _a _b mm _r mpoint _rest; do
+    if [ "$mpoint" = "$mp" ]; then majmin=$mm; break; fi
+  done <"$MOUNTINFO"
+  [ -n "$majmin" ] || return 0
+  dev=$SYSDEVBLOCK/$majmin
+  if [ ! -e "$dev/loop/backing_file" ]; then
+    for s in "$dev"/slaves/*; do
+      if [ -e "$s/loop/backing_file" ]; then dev=$s; break; fi
+    done
+  fi
+  [ -r "$dev/loop/backing_file" ] || return 0
+  cat "$dev/loop/backing_file"
+}
+
+bundle=$(bundle_file 2>/dev/null || true)
+case "$bundle" in
+  '')
+    log "bundle was streamed (or its file could not be found); nothing to delete" ;;
+  /*.raucb)
+    if [ -f "$bundle" ] && rm -f -- "$bundle"; then
+      log "deleted the installed bundle $bundle"
+    else
+      log "WARNING: could not delete the installed bundle $bundle"
+    fi ;;
+  *)
+    log "keeping $bundle: not a .raucb file" ;;
+esac
