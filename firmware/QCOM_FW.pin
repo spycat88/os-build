@@ -60,3 +60,13 @@ commit: a3cd879118ee8bf792155b76f2ddc29adc6bb4b3
 #       Cost while missing: the sensor DSP never boots, i.e. no accelerometer, so no
 #       auto-rotation. Nothing else depends on it; QCOM_Q6V5_PAS is =m and the failed
 #       request is a log line, not a boot failure.
+
+# --- SM7750 (Retroid Pocket Duo): NOT YET IN THE PINNED COMMIT --------------------------------
+# kernel/dts/qcom/sm7750-retroidpocket-duo.dts asks for two things the card has to ship, because
+# msm-firmware-loader does not serve them (rootfs/assemble-rootfs.sh fw_from_device):
+#   qcom/eliza/ELIZA-RetroidPocket-I2S-tplg.bin   the AudioReach topology (armada's
+#       audio_topology/eliza/ELIZA-RetroidPocket-I2S.m4, Retroid's with S32_LE speakers)
+#   ath12k/WCN7750/hw1.0/{m3,aux_ucode,board,regdb}.bin, qdss.cfg   the WCN7750 Wi-Fi
+# Until qcom-firmwares carries them and this pin moves, the Duo boots with no sound card topology
+# and no Wi-Fi. Its qcom/sm7750/retroidpocket/duo/ DSP, WPSS, zap and amp blobs and the gen71700
+# GPU microcode come from its own partitions like every other board's.

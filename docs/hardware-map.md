@@ -59,6 +59,7 @@ journal line above is how a wrong name will show.
 | SM8250 | `battery` / `pm8150b-charger` | `cpu7-top-thermal` / `gpu-top-thermal` | `skin-msm-thermal` | `pwmfan`, no tach | `3d00000.gpu` |
 | SM6115 | `battery` / `bq256xx-charger` | `cpu67-thermal` / `gpu-thermal` (+ `battery-thermal`) | — | `pwmfan`, no tach | `5900000.gpu` |
 | SM4450 | `qcom-battmgr-bat` / `qcom-battmgr-usb` | `cpu6-0-thermal` / `gpu-thermal` | — | `pwmfan`, tach | `3d00000.gpu` |
+| SM7750 | `qcom-battmgr-bat` / `qcom-battmgr-usb` | `cpu7-top-thermal` / `gpuss0-thermal` | — | `pwmfan`, tach | `3d00000.gpu` |
 
 - **Battery, charger.** SM8550/SM8650 report through pmic_glink's battmgr; its USB supply has
   `online` but no `status`. (ROCKNIX's scripts read `power_supply/battery` there only because a
@@ -97,6 +98,7 @@ journal line above is how a wrong name will show.
 | MANGMI Air Y (SM6115) | `backlight` (pwm) | `ring` = `rgb:l*` (10 pixels) |
 | Retroid Pocket Classic, Rev Q, Classic 6 Rev Q (SM4450) | `ae94000.dsi.0` | — |
 | Anbernic RG 55G1 (SM4450) | `backlight` (pwm, inverted) | `power` = `*:indicator` (red/green/amber on/off gpio-leds); `ring-left`/`ring-right` = `rgb:l*` / `rgb:r*` (8 segments each) |
+| Retroid Pocket Duo (SM7750) | `ae94000.dsi.0` (top) | — (red/green charging and blue status LEDs, no power LED) |
 
 `power` is the PM8550 LPG's multicolor `power-led`. A panel that drives its own brightness over
 DCS registers its backlight under its DSI device, `<host>.dsi.0`, so the name follows the DSI
