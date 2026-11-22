@@ -1,0 +1,72 @@
+From: spycat88 <spycat88@users.noreply.github.com>
+Subject: [PATCH] drm/msm/dsi/phy: leave the 7nm PLL alone while the PHY is
+ suspended
+
+The SM8750 and Eliza display clock controllers give the DSI byte and pixel
+RCGs CLK_OPS_PARENT_ENABLE. When the PHY registers its clocks at probe,
+the clock core adopts those RCGs as orphans and, because of the flag,
+prepares and enables the PHY PLL around the reparent. The PHY is not
+powered yet, so the PLL never locks and prepare fails; the core does not
+check, and then disables and unprepares a parent it never enabled. On the
+Retroid Pocket Duo every boot logged, for both PLL outputs:
+
+  DSI PLL(0) lock failed, status=0x00000000
+  PLL(0) lock failed
+  dsi0_phy_pll_out_dsiclk already disabled
+  WARNING: drivers/clk/clk.c:1257 at clk_core_disable+0x298/0x2e0
+  ...
+   __clk_set_parent_after+0xb0/0x118
+   clk_core_reparent_orphans_nolock+0x88/0xd0
+   ...
+   dsi_phy_driver_probe+0x2f4/0x348
+  dsi0_phy_pll_out_dsiclk already unprepared
+
+Report success without touching the hardware while the PHY is runtime
+suspended, and skip the matching unprepare. msm_dsi_phy_enable() resumes
+the PHY before the DSI host prepares its link clocks, so every real use
+still runs the full sequence; a prepare that would have reached a
+suspended PHY could not lock it anyway.
+---
+ drivers/gpu/drm/msm/dsi/phy/dsi_phy_7nm.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+--- a/drivers/gpu/drm/msm/dsi/phy/dsi_phy_7nm.c
++++ b/drivers/gpu/drm/msm/dsi/phy/dsi_phy_7nm.c
+@@ -8,6 +8,7 @@
+ #include <linux/clk.h>
+ #include <linux/clk-provider.h>
+ #include <linux/iopoll.h>
++#include <linux/pm_runtime.h>
+ 
+ #include "dsi_phy.h"
+ #include "dsi.xml.h"
+@@ -496,6 +497,17 @@
+ 	struct dsi_pll_7nm *pll_7nm = to_pll_7nm(hw);
+ 	int rc;
+ 
++	/*
++	 * A display clock controller whose byte and pixel sources carry
++	 * CLK_OPS_PARENT_ENABLE prepares this PLL when the clock core adopts
++	 * them as orphans, inside devm_of_clk_add_hw_provider() at PHY probe.
++	 * The PHY is not powered then: the PLL cannot lock, and the core goes
++	 * on to disable and unprepare a parent it never enabled. Leave the
++	 * hardware alone until msm_dsi_phy_enable() has resumed the PHY.
++	 */
++	if (pm_runtime_suspended(&pll_7nm->phy->pdev->dev))
++		return 0;
++
+ 	dsi_pll_enable_pll_bias(pll_7nm);
+ 	if (pll_7nm->slave)
+ 		dsi_pll_enable_pll_bias(pll_7nm->slave);
+@@ -549,6 +561,11 @@
+ {
+ 	struct dsi_pll_7nm *pll_7nm = to_pll_7nm(hw);
+ 
++	/* Prepare left a suspended PHY alone; so does this */
++	if (!pll_7nm->phy->pll_on &&
++	    pm_runtime_suspended(&pll_7nm->phy->pdev->dev))
++		return;
++
+ 	/*
+ 	 * To avoid any stray glitches while abruptly powering down the PLL
+ 	 * make sure to gate the clock using the clock enable bit before

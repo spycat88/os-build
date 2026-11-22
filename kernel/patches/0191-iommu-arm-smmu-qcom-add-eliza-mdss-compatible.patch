@@ -1,0 +1,31 @@
+From: spycat88 <spycat88@users.noreply.github.com>
+Subject: [PATCH] iommu/arm-smmu-qcom: Add Eliza MDSS compatible
+
+Add the Eliza (SM7750) MDSS compatible to the clients list, so it gets an
+identity domain at boot, as SM8550, SM8650 and SM8750 do with the
+previous patches.
+
+The bootloader leaves its picture scanning out at kernel entry. Without
+an identity domain the MDSS stream is attached to an empty translating
+domain as soon as the device is added, and its fetches fault until the
+DPU driver stops the timing engine and attaches its own domain. On the
+Retroid Pocket Duo every boot logged, right after the Wi-Fi device was
+added to its iommu group, as many of these as the rate limit lets
+through:
+
+  arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402,
+  iova=0xfc813700, fsynr=0x690021, cbfrsynra=0x800, cb=8
+---
+ drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+--- a/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
++++ b/drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c
+@@ -408,6 +408,7 @@
+ static const struct of_device_id qcom_smmu_client_of_match[] __maybe_unused = {
+ 	{ .compatible = "qcom,adreno" },
+ 	{ .compatible = "qcom,adreno-gmu" },
++	{ .compatible = "qcom,eliza-mdss" },
+ 	{ .compatible = "qcom,glymur-mdss" },
+ 	{ .compatible = "qcom,mdp4" },
+ 	{ .compatible = "qcom,mdss" },
