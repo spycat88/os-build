@@ -135,6 +135,28 @@ else
   echo "  (no device firmware at ${FW#"$ROOT"/} — run firmware/fetch-qcom-fw.sh; continuing)"
 fi
 
+# STAGE firmware-override — blobs a board's own partitions carry in a build our drivers do not work with.
+# msm-firmware-loader links /usr/lib/msm-firmware-loader/override (its patch 0013, laid out as /lib/firmware)
+# over what the partitions provide, so these win on the board that asks for them and no other board's rule
+# changes. Each path is namespaced to its board, from the qcom-fw pin.
+#   Retroid Pocket Duo: its own WPSS boots but never answers ath12k's QMI target-capability request (-110,
+#   HW 2026-11-22). It is a different build from armada's (wpss.b02 444985 vs 641593 bytes), and armada's
+#   is the one its WCN7750 ath12k port runs with. The earlier reboot loop with this override came from the
+#   GPU starting (the SQE that was overridden with it), not from the WPSS.
+fw_override() {
+  case "$1" in
+    qcom/sm7750/retroidpocket/duo/wpss.*) return 0 ;;
+  esac
+  return 1
+}
+if [ -d "$FW" ]; then
+  while IFS= read -r f; do
+    rel="${f#"$FW"/}"
+    fw_override "$rel" || continue
+    install -Dm0644 "$f" "$stage/usr/lib/msm-firmware-loader/override/$rel"
+  done < <(find "$FW" -type f ! -name sha256sums.txt 2>/dev/null)
+fi
+
 # STAGE firmware-open — linux-firmware blobs (Wi-Fi, Iris/venus video) under /lib/firmware, less what
 # the device serves itself. The upstream base ships no /lib/firmware. Staged by
 # firmware/fetch-linux-fw.sh from the pin.
