@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # retroforge SD-card image builder.
 #
-# Lays the FULL SteamOS-style 8-partition GPT from image/partition-table.txt and populates
-# BOTH slots: ESP + rootfs-a/-b + var-a/-b + home, and each slot's efi-a/efi-b partition with
-# that slot's STAGE-2 grub.cfg.
+# Lays the FULL SteamOS-style 8-partition GPT from image/partition-table.txt and populates slot A
+# (ESP + rootfs-a + var-a + home), and each slot's efi-a/efi-b partition with that slot's STAGE-2
+# grub.cfg. rootfs-b/var-b are laid but left empty unless RETROFORGE_SLOT_B=1.
 #
 # The boot chain this card boots:
 #
@@ -14,22 +14,21 @@
 # The ESP carries the ESP GRUB, the grubenv (RAUC's slot state + the saved board), parts.env and
 # OpenABL's Device model DTBs; each efi partition carries its slot's stage-2 grub.cfg.
 #
-# WHY B IS POPULATED ON A DEV CARD AND EMPTY ON A RELEASE CARD. The default follows RETROFORGE_DEV;
-# RETROFORGE_SLOT_B=0|1 overrides it in either direction.
+# WHY B IS EMPTY BY DEFAULT, ON DEV AND RELEASE CARDS ALIKE. RETROFORGE_SLOT_B=1 opts back in.
 #
-# Dev (Phase 4b): the deliverable of the boot-path pass is that a slot switch and a rollback are
-# provable by hand, and you cannot prove a switch to a slot that does not boot — an empty B can only
-# ever exercise the failure path. It is also the state a device is never in again after its first
-# real update, so testing against it tests a fiction.
-#
-# Release: B WOULD BE a byte-identical copy of a root that is ALREADY zstd-compressed inside btrfs,
-# so it would survive the release compression whole. Nothing dedupes it: the flash instruction is
+# B WOULD BE a byte-identical copy of a root that is ALREADY zstd-compressed inside btrfs, so it
+# would survive the release compression whole. Nothing dedupes it: the flash instruction is
 # `gzip -dc` (32 KiB window), and even zstd --long tops out at a 2 GiB window against a ~4 GiB gap
 # between the two copies. That was ~4 of the ~9 GiB a release card compressed to until 2026-08-04
 # (measured for the old R2 publisher) — ~44% of every download — bought to cover a failover window that closes
 # the first time RAUC writes the slot, which it writes in FULL and reads nothing prior out of. A
 # user never hand-tests a slot switch, and a fresh-card A failure is media failure, which will not
 # politely spare B. With B left empty a card compresses to ~5 GiB instead.
+#
+# Dev cards follow the same shape: the second copy only slows the build and the flash loop, and the
+# dev OTA loop (`make bundle` + `rauc install`, see dev.env) fills B with a real update anyway. Set
+# RETROFORGE_SLOT_B=1 when you specifically want a fresh card whose slot switch and rollback are
+# provable by hand before any update has landed (an empty B can only exercise the failure path).
 #
 # Flash time is unchanged either way: the dd writes the whole full-size image including its zeros.
 #
@@ -69,10 +68,9 @@ GRUB_CFG_B="$BOOT/grub-b.cfg"
 GRUB_FONT="$BOOT/fonts/dejavu-mono.pf2" # stage-2 boot font ($prefix/fonts/ in grub.cfg)
 GRUBENV="$BOOT/grubenv"                 # pristine env block (RAUC's slot state + saved_entry)
 
-# Populate the B slot too: on for a dev card, off for a release card. See the header for why.
-# Read the mode rather than defaulting to 1, so that forgetting to forward RETROFORGE_DEV produces a
-# release-shaped card (small, one bootable slot) rather than silently shipping the 4 GiB copy.
-SLOT_B="${RETROFORGE_SLOT_B:-$([ "${RETROFORGE_DEV:-}" = 1 ] && echo 1 || echo 0)}"
+# Populate the B slot too: off unless RETROFORGE_SLOT_B=1, for dev and release cards alike. See the
+# header for why. Only slot A carries a system, so every card is the small, one-bootable-slot shape.
+SLOT_B="${RETROFORGE_SLOT_B:-0}"
 
 MIB=$((1024 * 1024))
 END_SLACK_MIB=2   # tail room for the backup GPT (well over its ~17 KiB)

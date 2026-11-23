@@ -143,16 +143,18 @@ the card on first boot. Each `efi-*` partition carries that slot's stage-2 `grub
 `parts.env`; the ESP carries the ESP GRUB, the grubenv, `parts.env` and OpenABL's Device model list
 (`/dtbs/qcom`).
 
-**Whether slot B is populated follows the build mode**, and `RETROFORGE_SLOT_B=0|1` overrides it:
+**Slot B is left empty on every card, dev and release alike**, and `RETROFORGE_SLOT_B=1` opts back in:
 
-* **Dev card** (`RETROFORGE_DEV=1`): B is populated, carrying a distinct btrfs fsid, because a slot
-  switch cannot be proven against a slot that does not boot. Set `RETROFORGE_SLOT_B=0` for a faster
-  local loop, at the cost of a card whose first slot switch can only exercise the failover path.
-* **Release card**: B is left empty **and the grubenv says `B_OK=0`**. B would be a byte-identical
-  copy of an already-compressed root, surviving release compression whole — a second root's worth of
-  download for a failover window that closes the first time RAUC writes the slot. `B_OK=0` (and the
-  ESP GRUB's check for a kernel) is what keeps it from being tried. The first update writes B in
-  full and RAUC marks it OK.
+* **Default** (`RETROFORGE_DEV=1` or not): B is left empty **and the grubenv says `B_OK=0`**. B
+  would be a byte-identical copy of an already-compressed root, surviving release compression whole
+  — a second root's worth of download for a failover window that closes the first time RAUC writes
+  the slot. On a dev card it only slows the build and flash loop, and the dev OTA loop
+  (`make bundle` + `rauc install`) fills B with a real update anyway. `B_OK=0` (and the ESP GRUB's
+  check for a kernel) is what keeps it from being tried. The first update writes B in full and RAUC
+  marks it OK.
+* **`RETROFORGE_SLOT_B=1`**: B is populated too, carrying a distinct btrfs fsid. Use it when a fresh
+  card has to prove a slot switch or rollback by hand before any update has landed, since a switch
+  cannot be proven against a slot that does not boot.
 
 Run `verify-card` before you commit a card to a device — it asserts the built image rather than
 the source tree, which is the only place the GPT, the ESP contents and the per-slot filesystem

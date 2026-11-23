@@ -70,7 +70,7 @@ for p in "$P_ROOTA" "$P_ROOTB" "$P_VARA" "$P_VARB"; do
 done
 
 if [ -z "${U[$P_ROOTB]:-}" ]; then
-  ok "slot B is empty (release card, or RETROFORGE_SLOT_B=0) — skipping the A/B identity checks"
+  ok "slot B is empty (the default; RETROFORGE_SLOT_B=1 populates it) — skipping the A/B identity checks"
   SLOT_B=0
 else
   SLOT_B=1

@@ -821,11 +821,10 @@ $(VARIMG): $(ROOTFS)
 $(VARIMG_B): $(ROOTFS)
 
 # RETROFORGE_DEV and RETROFORGE_SLOT_B have to be FORWARDED, not just set: this rule ran through plain
-# $(INBUILD), so neither reached the container and `RETROFORGE_SLOT_B=0 make sdcard` silently did
-# nothing at all. It matters more now that the mode picks the default -- make-sdcard.sh populates
-# slot B for a dev card and leaves it empty for a release card, and an unforwarded RETROFORGE_DEV
-# would build every card release-shaped. No mode stamp is needed on top: $(ROOTFS) already depends
-# on $(MODE_STAMP), so flipping the mode rebuilds the rootfs and this rule with it.
+# $(INBUILD), so neither reached the container and `RETROFORGE_SLOT_B=1 make sdcard` silently did
+# nothing at all. make-sdcard.sh leaves slot B empty on every card, dev or release, unless
+# RETROFORGE_SLOT_B=1. No mode stamp is needed on top: $(ROOTFS) already depends on $(MODE_STAMP),
+# so flipping the mode rebuilds the rootfs and this rule with it.
 $(SDCARD): $(ROOTFS) $(VARIMG) $(VARIMG_B) $(GRUB) boot/esp-dtbs.sh $(IMAGE_DIR)/make-sdcard.sh | $(BUILD_STAMP)
 	$(DOCKER) -e RETROFORGE_DEV -e RETROFORGE_SLOT_B $(BUILD_IMG) $(IMAGE_DIR)/make-sdcard.sh
 
