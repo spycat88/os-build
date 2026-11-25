@@ -59,6 +59,11 @@ for s in $(shares); do
   grep -Eq "^d[[:space:]]+%h/$s[[:space:]]" "$LAYOUT" && ok "[$s] folder is created by the layout" || bad "[$s]: the layout does not create ~/$s"
   [ "$(val "$s" 'guest ok')" = yes ] && [ "$(val "$s" 'read only')" = no ] && ok "[$s] guest read-write" || bad "[$s] is not guest read-write"
 done
+[ "$(val global 'smb2 max credits')" = 512 ] && [ "$(val global 'smb2 max write')" = 1MB ] && [ "$(val global 'smb2 max read')" = 1MB ] \
+  && ok "at most 32 MB of I/O in flight per connection (Windows 0x8007003B on long transfers)" \
+  || bad "smb2 max credits/read/write are not 512/1MB/1MB: Windows can time out writes queued behind slow storage"
+[ "$(val global 'durable handles')" = yes ] && ok "durable handles: Windows reconnects a dropped copy instead of failing it" \
+  || bad "durable handles off: a brief Wi-Fi drop fails a Windows copy with 0x8007003B"
 [ "$(val 'ipc$' 'guest ok')" = yes ] && ok "[ipc\$] guest ok: a guest can list the shares (ksmbd-tools adds it without)" \
   || bad "[ipc\$] lacks guest ok = yes: guests cannot list the shares"
 [ "$(readlink "$OV/etc/systemd/user/basic.target.wants/systemd-tmpfiles-setup.service" 2>/dev/null)" = /usr/lib/systemd/user/systemd-tmpfiles-setup.service ] \
