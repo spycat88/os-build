@@ -1,0 +1,74 @@
+From ee495de59cd738892acfd13b4898c205465068e5 Mon Sep 17 00:00:00 2001
+From: Omkar Chandorkar <gotenksIN@aospa.co>
+Date: Sun, 20 Sep 2026 11:01:25 +0530
+Subject: smb: compress: relax trailing flags in chained decompression
+
+In SMB 3.1.1, clients such as Windows 11 send chained compressed
+write requests containing multiple payload segments (for example,
+None + Pattern_V1) when transferring zero-heavy or compressible
+files.
+
+According to MS-SMB2 section 2.2.42.2.1, the first payload header in
+a chained compression transform MUST have SMB2_COMPRESSION_FLAG_CHAINED
+(0x0001) set. Trailing payload headers in the chain correspond to
+subsequent payloads, where the specification defines
+SMB2_COMPRESSION_FLAG_NONE (0x0000).
+
+However, Windows clients do not always explicitly zero the 16-bit
+Flags field on subsequent payload headers during chunk construction
+(as described in MS-SMB2 section 3.1.4.4 step 2), leaving residual
+bits in the Flags field.
+
+smb_decompress_chained() currently enforces:
+    (!first && flags != cpu_to_le16(SMB2_COMPRESSION_FLAG_NONE))
+returning -EINVAL if any trailing payload has non-zero flags. When
+this occurs during large file writes (such as copying VHDX files),
+ksmbd breaks the connection receive loop and abruptly terminates
+the TCP connection with ECONNRESET (-104), causing Windows clients to
+fail with error 0x8007003B (ERROR_UNEXP_NET_ERR).
+
+Fix this by relaxing the flags requirement on trailing payloads in
+smb_decompress_chained(). Conforming chains still strictly require
+SMB2_COMPRESSION_FLAG_CHAINED on the first payload header, but for
+subsequent payloads, only reject headers that attempt to initiate an
+invalid nested chain (SMB2_COMPRESSION_FLAG_CHAINED). All payload
+lengths, decompression algorithms, and total uncompressed output sizes
+continue to be strictly validated against the transform's
+OriginalCompressedSegmentSize.
+
+Assisted-by: OpenCode:gpt-6-astra
+Signed-off-by: Omkar Chandorkar <gotenksIN@aospa.co>
+Signed-off-by: Namjae Jeon <linkinjeon@kernel.org>
+(cherry picked from commit ee495de59cd738892acfd13b4898c205465068e5)
+---
+ fs/smb/common/compress/compress.c | 16 +++++++++++-----
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/fs/smb/common/compress/compress.c b/fs/smb/common/compress/compress.c
+index a4123c8f1c0ab..4e5164b6dc333 100644
+--- a/fs/smb/common/compress/compress.c
++++ b/fs/smb/common/compress/compress.c
+@@ -130,12 +130,18 @@ static int smb_decompress_chained(__le16 alg, bool allow_chained,
+ 		len = le32_to_cpu(payload->Length);
+ 
+ 		/*
+-		 * CHAINED marks only the first payload. Requiring NONE on every
+-		 * later payload rejects ambiguous or independently chained data.
++		 * Conforming chains must set CHAINED on the first payload.
++		 * Windows 11 clients leave uninitialized residual bits in
++		 * Flags on subsequent payload headers. Only reject trailing
++		 * payloads that attempt to initiate an invalid nested chain.
+ 		 */
+-		if ((first && flags != cpu_to_le16(SMB2_COMPRESSION_FLAG_CHAINED)) ||
+-		    (!first && flags != cpu_to_le16(SMB2_COMPRESSION_FLAG_NONE)))
+-			return -EINVAL;
++		if (first) {
++			if (flags != cpu_to_le16(SMB2_COMPRESSION_FLAG_CHAINED))
++				return -EINVAL;
++		} else {
++			if (flags == cpu_to_le16(SMB2_COMPRESSION_FLAG_CHAINED))
++				return -EINVAL;
++		}
+ 
+ 		src += SMB2_COMPRESSION_PAYLOAD_BASE_LEN;
+ 		remaining -= SMB2_COMPRESSION_PAYLOAD_BASE_LEN;
