@@ -676,13 +676,13 @@ if [ -s "$BD_RULE" ] && ! grep -q '/usr/lib/retroforge/on-boot-disk' "$BD_RULE";
   bootdisk_ok=0
   bad "69-retroforge-bootdisk.rules does not name /usr/lib/retroforge/on-boot-disk — its PROGRAM points somewhere else"
 fi
-for row in RETROFORGE-ESP:/esp retroforge-home:/home; do
+for row in RetroForge:/esp retroforge-home:/home; do
   if ! grep -q "^/dev/retroforge/${row%%:*}[[:space:]]" "$STAGE/etc/fstab" 2>/dev/null; then
     bootdisk_ok=0
     bad "/etc/fstab does not mount ${row##*:} from /dev/retroforge/${row%%:*} — that mount follows whichever disk udev enumerated first"
   fi
 done
-if grep -qE '^(PARTLABEL|LABEL)=(RETROFORGE-ESP|retroforge-home)[[:space:]]' "$STAGE/etc/fstab" 2>/dev/null; then
+if grep -qE '^(PARTLABEL|LABEL)=(RetroForge|retroforge-home)[[:space:]]' "$STAGE/etc/fstab" 2>/dev/null; then
   bootdisk_ok=0
   bad "/etc/fstab still carries a bare PARTLABEL=/LABEL= row for the ESP or home — the scoped link and the label row would race for the same mountpoint"
 fi

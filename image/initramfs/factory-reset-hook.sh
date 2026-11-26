@@ -5,7 +5,7 @@
 # read-only root is mounted and BEFORE /var is: the reset reformats /var, and the /etc overlay that
 # lives on it must not be up yet. init's log/warn are used; nothing else of init's is.
 #
-# The hook only DECIDES and HANDS OVER. It looks for the request (RETROFORGE-ESP:/retroforge/
+# The hook only DECIDES and HANDS OVER. It looks for the request (RetroForge:/retroforge/
 # factory-reset) on the ESP of the disk that holds the booted /var, and when there is one it runs the
 # OS's own /usr/lib/retroforge/factory-reset chrooted into the read-only root: that script has the
 # tools the initramfs does not (mkfs.ext4, tar, zstd) and the libraries every other writer of slots
@@ -22,7 +22,7 @@
 # Test seams (tests/test-factory-reset-hook.sh): RF_SYS (/sys), RF_RUN (/run), RF_DEV (/dev); mount,
 # umount and chroot on PATH.
 
-# The RETROFORGE-ESP partition on the disk holding <partition device>, printed; fails if none.
+# The RetroForge partition on the disk holding <partition device>, printed; fails if none.
 reset_esp_of() {  # <partition device>
   local sys=${RF_SYS:-/sys} p k v pname devname diskdir
   # Physical: `cd link/..` would resolve the .. by name, back into class/block.
@@ -33,7 +33,7 @@ reset_esp_of() {  # <partition device>
     while IFS='=' read -r k v; do
       case $k in PARTNAME) pname=$v ;; DEVNAME) devname=$v ;; esac
     done <"$p/uevent"
-    if [ "$pname" = RETROFORGE-ESP ] && [ -n "$devname" ]; then
+    if [ "$pname" = RetroForge ] && [ -n "$devname" ]; then
       printf '%s/%s' "${RF_DEV:-/dev}" "$devname"
       return 0
     fi
@@ -50,7 +50,7 @@ factory_reset_hook() {  # <var device> <sysroot>
   local vardev=$1 sysroot=$2 run=${RF_RUN:-/run} esp chk req=0 rc d
   local -a bound=()
   if ! esp=$(reset_esp_of "$vardev"); then
-    warn "factory reset: no RETROFORGE-ESP on the disk holding $vardev -- not checked"
+    warn "factory reset: no RetroForge on the disk holding $vardev -- not checked"
     return 0
   fi
   chk=$run/retroforge/reset-esp

@@ -37,7 +37,7 @@ sandbox() {
   local disk i n
   for disk in mmcblk0 mmcblk1; do
     i=0
-    for n in RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+    for n in RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
              retroforge-var-A retroforge-var-B retroforge-home; do
       i=$((i + 1))
       local p="$SB/sys/devices/mmc/block/$disk/${disk}p$i"
@@ -144,7 +144,7 @@ run_hook /dev/mmcblk0p6
 rm -f "$SB/fail-bind-sys"; : >"$SB/log/calls"; : >"$SB/log/kmsg"
 rm "$SB/sys/devices/mmc/block/mmcblk0/mmcblk0p1/partition"
 run_hook /dev/mmcblk0p6
-[ "$RC" = 0 ] && [ ! -s "$SB/log/calls" ] && grep -q '<3>.*no RETROFORGE-ESP on the disk holding /dev/mmcblk0p6' "$SB/log/kmsg" \
+[ "$RC" = 0 ] && [ ! -s "$SB/log/calls" ] && grep -q '<3>.*no RetroForge on the disk holding /dev/mmcblk0p6' "$SB/log/kmsg" \
   && ok "no ESP on the boot disk: nothing mounted (never the second card's), boot on" || bad "rc=$RC calls: $(calls)"
 : >"$SB/log/calls"; : >"$SB/log/kmsg"
 run_hook /dev/nosuchdev

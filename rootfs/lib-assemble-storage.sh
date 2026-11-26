@@ -31,11 +31,11 @@ mkdir -p "$stage/etc"
 # counts tries in the booted disk's grubenv, and RAUC's mark-good clears them through this mount — on
 # the wrong ESP the count climbs every boot until the ESP GRUB fails over a healthy slot, and the
 # other install's slot state is stamped over. Both grubenvs look alike, so nothing downstream can notice.
-if ! grep -q '/dev/retroforge/RETROFORGE-ESP' "$stage/etc/fstab" 2>/dev/null; then
+if ! grep -q '/dev/retroforge/RetroForge' "$stage/etc/fstab" 2>/dev/null; then
   printf '%s\n' \
     '# retroforge shared ESP — the ESP GRUB + its grubenv (RAUC slot state). Mounted here at /esp; GPT bit 63' \
     '# keeps gpt-auto away so the initramfs can mount the slot efi partition at /efi instead.' \
-    '/dev/retroforge/RETROFORGE-ESP  /esp  vfat  defaults,nofail,noatime  0 2' \
+    '/dev/retroforge/RetroForge  /esp  vfat  defaults,nofail,noatime  0 2' \
     >>"$stage/etc/fstab"
 fi
 if ! grep -q '/dev/retroforge/retroforge-home' "$stage/etc/fstab" 2>/dev/null; then

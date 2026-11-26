@@ -117,7 +117,7 @@
 # tests/test-partition-table.sh asserts all of this against the table alone, at both sector sizes.
 #
 # name      size  typecode  fs        label            attrs
-esp         128M  ef00      vfat      RETROFORGE-ESP     63
+esp         128M  ef00      vfat      RetroForge         63
 efi-a       128M  0700      vfat      retroforge-efi-A   -
 efi-b       128M  0700      vfat      retroforge-efi-B   -
 rootfs-a    2G    8300      btrfs     retroforge-root-A  -

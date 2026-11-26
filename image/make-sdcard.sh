@@ -205,8 +205,8 @@ fatdir() {  # <img> <msdos path, no leading '::'>
 # NOTHING RESOLVES THE ESP BY THIS LABEL. ABL finds it by type GUID (ef00), the OS mounts it by
 # PARTLABEL from /etc/fstab, and the stage-2 grub.cfg addresses it by partition index (falling back
 # to a search for /EFI/steamos/grubenv, i.e. by content). The label is a human convenience on
-# a mounted card, and it is deliberately NOT the GPT name: a FAT label caps at 11 characters and
-# RETROFORGE-ESP is fourteen. An earlier version of this script had grub.cfg searching for a FAT label
+# a mounted card, and it is deliberately NOT the GPT name: the GPT name is RetroForge, the FAT
+# label is the upper-case RETROFORGE. An earlier version of this script had grub.cfg searching for a FAT label
 # this line had stopped writing, and nothing failed -- the saved board choice just never persisted.
 esp="$(mktemp)"
 truncate -s "${ESP_SIZE_MIB}M" "$esp"
@@ -268,7 +268,7 @@ write_part() {  # <partnum> <file> <label>
   dd if="$2" of="$IMG" bs=512 seek="$start" conv=notrunc status=none
   echo "  p$1  $3"
 }
-write_part "$P_ESP"   "$esp"    "RETROFORGE-ESP (ESP GRUB + grubenv + parts.env + dtbs)"
+write_part "$P_ESP"   "$esp"    "RetroForge (ESP GRUB + grubenv + parts.env + dtbs)"
 write_part "$P_EFIA"  "$efi_a"  "retroforge-efi-A (stage-2 grub.cfg A)"
 write_part "$P_EFIB"  "$efi_b"  "retroforge-efi-B (stage-2 grub.cfg B)"
 write_part "$P_ROOTA" "$ROOTFS"   "retroforge-root-A (btrfs, ro)"

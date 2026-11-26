@@ -71,7 +71,7 @@ fi
 # The GPT names of our eight, in layout order. Deletion is BY NAME and only by name: an index is
 # never trusted from a caller or from arithmetic, because the difference between deleting p9 and
 # deleting p8 is the difference between our ESP and somebody's `abl`.
-OUR_NAMES=(RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+OUR_NAMES=(RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
            retroforge-var-A retroforge-var-B retroforge-home)
 
 ANDROID_FLOOR_GIB="${ANDROID_FLOOR_GIB:-1}"

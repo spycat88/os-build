@@ -10,7 +10,7 @@
 # the OS, not the initramfs, for its tools (mkfs.ext4, tar, zstd) and for the two libraries every
 # other writer of slots and homes already shares (lib-slotwrite.sh, lib-homestage.sh).
 #
-# THE REQUEST is RETROFORGE-ESP:/retroforge/factory-reset, written by the reset UI after the player's
+# THE REQUEST is RetroForge:/retroforge/factory-reset, written by the reset UI after the player's
 # consent (installer/uiflow.py, reset mode):
 #
 #     level=soft|hard
@@ -32,7 +32,7 @@
 #               old state back on a rollback.
 # The Wi-Fi/Bluetooth addresses are GRUB's (retroforge_radiomac), not /var's: they come back the same.
 #
-# ONLY THIS DISK. The partitions are the ones named RETROFORGE-ESP, retroforge-home, retroforge-var-A
+# ONLY THIS DISK. The partitions are the ones named RetroForge, retroforge-home, retroforge-var-A
 # and -B ON THE DISK THAT HOLDS --var-dev, found through sysfs (PARTNAME in each partition's uevent):
 # the initramfs has no udev, and /dev/disk/by-partlabel would pick any disk -- a second card carries
 # the same names (69-retroforge-bootdisk.rules has the same rule for the running system).
@@ -97,7 +97,7 @@ find_parts() {
     [ -n "$pname" ] && [ -n "$devname" ] && PART[$pname]="$DEVDIR/$devname"
   done
   local need
-  for need in RETROFORGE-ESP retroforge-home retroforge-var-A retroforge-var-B; do
+  for need in RetroForge retroforge-home retroforge-var-A retroforge-var-B; do
     [ -n "${PART[$need]:-}" ] || die "no $need on the disk holding $VAR_DEV"
   done
 }
@@ -147,7 +147,7 @@ reset_home() {  # soft|hard
 main() {
   find_parts
   mkdir -p "$RUNDIR/esp" "$RUNDIR/home" "$RUNDIR/var" || die "cannot create $RUNDIR"
-  mount "${PART[RETROFORGE-ESP]}" "$RUNDIR/esp" || die "cannot mount the ESP (${PART[RETROFORGE-ESP]})"
+  mount "${PART[RetroForge]}" "$RUNDIR/esp" || die "cannot mount the ESP (${PART[RetroForge]})"
   # The ESP comes off on every way out from here, so the initramfs's own mount of nothing stays clean.
   trap 'umount "$RUNDIR/esp" 2>/dev/null' EXIT
 

@@ -41,7 +41,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export RETROFORGE_SELECT_FIXTURE=1
 . "$ROOT/tests/lib-gptfixture.sh"
 
-OUR_NAMES=(RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+OUR_NAMES=(RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
            retroforge-var-A retroforge-var-B retroforge-home)
 BOARDS=("AYANEO Pocket S2" "AYANEO Pocket ACE" "AYN Odin 2" "KONKR Pocket FIT" "MANGMI Pocket Max")
 
@@ -89,7 +89,7 @@ for board in "${BOARDS[@]}"; do
     && ok "$board: userdata still starts where it did" \
     || bad "$board: userdata moved to $(udfield "$img" 'First sector'), was $ud_start_before"
   # The map is the output contract: eight name=index lines the spine turns into parts.env.
-  [ "$(printf '%s\n' "$out" | grep -cE '^(RETROFORGE-ESP|retroforge-[a-z]+-?[AB]?)=[0-9]+$')" = 8 ] \
+  [ "$(printf '%s\n' "$out" | grep -cE '^(RetroForge|retroforge-[a-z]+-?[AB]?)=[0-9]+$')" = 8 ] \
     && ok "$board: emitted eight name=index lines" \
     || bad "$board: the name=index map is not eight lines"
 done

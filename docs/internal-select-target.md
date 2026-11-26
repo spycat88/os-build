@@ -127,7 +127,7 @@ rc=1
 
 ### `/dev/mmcblk0` — 28.8G
 
-PARTLABELs: `RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B retroforge-var-A retroforge-var-B retroforge-home `
+PARTLABELs: `RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B retroforge-var-A retroforge-var-B retroforge-home `
 
 ```
 $ select-target.sh /dev/mmcblk0
@@ -282,7 +282,7 @@ rc=1
 
 ### `/dev/mmcblk0` — 28.8G
 
-PARTLABELs: `RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B retroforge-var-A retroforge-var-B retroforge-home `
+PARTLABELs: `RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B retroforge-var-A retroforge-var-B retroforge-home `
 
 ```
 $ select-target.sh /dev/mmcblk0
@@ -449,7 +449,7 @@ rc=1
 
 ### `/dev/mmcblk0` — 28.8G
 
-PARTLABELs: `RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B retroforge-var-A retroforge-var-B retroforge-home `
+PARTLABELs: `RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B retroforge-var-A retroforge-var-B retroforge-home `
 
 ```
 $ select-target.sh /dev/mmcblk0

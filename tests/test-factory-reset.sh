@@ -30,7 +30,7 @@ PASS=0; FAIL=0; CASE=""; SB=""; RC=0; OUT=""
 ok()  { PASS=$((PASS+1)); printf '  ok   %s -- %s\n' "$CASE" "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s -- %s\n' "$CASE" "$1"; }
 
-NAMES=(RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B
+NAMES=(RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B
        retroforge-var-A retroforge-var-B retroforge-home)
 
 sandbox() {

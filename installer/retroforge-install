@@ -618,7 +618,7 @@ carve() {
     PART["$name"]="$idx"
   done <<<"$map"
 
-  for name in RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
+  for name in RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A retroforge-root-B \
               retroforge-var-A retroforge-var-B retroforge-home; do
     [ -n "${PART[$name]:-}" ] || die "the carve did not report an index for $name"
   done
@@ -675,7 +675,7 @@ carve() {
 # and it is the only line here that implements it.
 make_filesystems() {
   step "filesystems"
-  mkfs_esp "${DEV[RETROFORGE-ESP]}";           log "esp    ${DEV[RETROFORGE-ESP]}"
+  mkfs_esp "${DEV[RetroForge]}";           log "esp    ${DEV[RetroForge]}"
   mkfs_efi "${DEV[retroforge-efi-A]}" A;       log "efi-a  ${DEV[retroforge-efi-A]}"
   mkfs_efi "${DEV[retroforge-efi-B]}" B;       log "efi-b  ${DEV[retroforge-efi-B]}"
   if [ "$INTENT" = fresh ] || [ "$ERASE_HOME" = 1 ]; then
@@ -817,7 +817,7 @@ write_efi_partitions() {
   local envkv=()
   local kv
   while read -r kv; do envkv+=("$kv"); done < <(
-    for name in RETROFORGE-ESP retroforge-efi-A retroforge-efi-B retroforge-root-A \
+    for name in RetroForge retroforge-efi-A retroforge-efi-B retroforge-root-A \
                 retroforge-root-B retroforge-var-A retroforge-var-B retroforge-home; do
       printf '%s=%s\n' "$name" "${PART[$name]}"
     done | parts_env_from_genpart_map
@@ -865,7 +865,7 @@ carry_board() {  # <editenv> <grubenv>
 arm_esp() {
   step "ESP"
   local esp="$RUNDIR/esp" bootdir="$ROOTMNT/usr/lib/retroforge/boot"
-  mount_at "${DEV[RETROFORGE-ESP]}" "$esp"
+  mount_at "${DEV[RetroForge]}" "$esp"
 
   mkdir -p "$esp/EFI/steamos" || die "cannot create the ESP directories"
   [ -f "$bootdir/grubenv" ] \
