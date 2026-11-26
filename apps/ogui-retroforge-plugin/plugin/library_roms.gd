@@ -1,6 +1,7 @@
 extends Library
 
-## RetroForge ROM library: one launch item per ROM under ~/roms/<system>/, each started by
+## RetroForge ROM library: one launch item per ROM under ~/roms/<system>/, and under
+## <card>/roms/<system>/ of an SD card while one is in (rom_roots.gd), each started by
 ## retroforge-launch in the emulator /etc/retroforge/launch.conf maps the system to.
 
 const LAUNCHER := "/usr/bin/retroforge-launch"
@@ -9,6 +10,7 @@ const LAUNCHER := "/usr/bin/retroforge-launch"
 const RomNames := preload("rom_names.gd")
 const LaunchArgs := preload("launch_args.gd")
 const GameDirs := preload("game_dirs.gd")
+const RomRoots := preload("rom_roots.gd")
 
 ## Systems the image can launch, in tab order (by maker, then by age). Tab label, and the file
 ## extensions that are a game. An .m3u playlist wins over the disc images it lists, so a multi-disc
@@ -67,25 +69,38 @@ func dir_markers() -> Dictionary:
 
 
 func roms_dir() -> String:
-	return OS.get_environment("HOME").path_join("roms")
+	return RomRoots.home_roms()
+
+
+## Where the player's SD cards are mounted (rom_roots.gd).
+func sd_mounts_dir() -> String:
+	return RomRoots.mounts_dir()
 
 
 func get_library_launch_items() -> Array[LibraryLaunchItem]:
 	var started := Time.get_ticks_msec()
 	var roms: Array[Dictionary] = []
 	var system_names := {}
+	var roots := RomRoots.list(roms_dir(), sd_mounts_dir())
 	for system in SYSTEMS:
 		system_names[system] = SYSTEMS[system]["name"]
-		for path in _scan_system(system):
-			roms.append({"system": system, "path": path})
-		for path in GameDirs.scan(roms_dir().path_join(system), SYSTEMS[system].get("dirs", [])):
-			roms.append({"system": system, "path": path, "dir": true})
+	for root in roots:
+		var sd: bool = root["sd"]
+		for system in SYSTEMS:
+			if not RomRoots.reads(root, system):
+				continue
+			var dir_path := str(root["path"]).path_join(system)
+			for path in _scan_system(dir_path, system):
+				roms.append({"system": system, "path": path, "sd": sd})
+			for path in GameDirs.scan(dir_path, SYSTEMS[system].get("dirs", [])):
+				roms.append({"system": system, "path": path, "dir": true, "sd": sd})
 	var names := RomNames.names_for(roms, system_names)
 	var items: Array[LibraryLaunchItem] = []
 	for i in roms.size():
-		items.append(_launch_item(names[i], roms[i]["system"], roms[i]["path"]))
+		items.append(_launch_item(names[i], roms[i]["system"], roms[i]["path"], roms[i]["sd"]))
 	_drop_stale(items)
-	logger.info("Found %d ROM(s) in %d ms" % [items.size(), Time.get_ticks_msec() - started])
+	var on_card := roms.filter(func(r): return r["sd"]).size()
+	logger.info("Found %d ROM(s), %d on SD card (%d card root(s)), in %d ms" % [items.size(), on_card, roots.size() - 1, Time.get_ticks_msec() - started])
 	return items
 
 
@@ -105,9 +120,8 @@ func _drop_stale(items: Array[LibraryLaunchItem]) -> void:
 		library_manager.remove_library_launch_item(library_id, name)
 
 
-## ROM files of one system, one level deep, minus the members of any .m3u playlist.
-func _scan_system(system: String) -> PackedStringArray:
-	var dir_path := roms_dir().path_join(system)
+## ROM files of one system folder, one level deep, minus the members of any .m3u playlist.
+func _scan_system(dir_path: String, system: String) -> PackedStringArray:
 	var dir := DirAccess.open(dir_path)
 	if not dir:
 		return PackedStringArray()
@@ -142,7 +156,7 @@ func _m3u_members(path: String) -> PackedStringArray:
 	return members
 
 
-func _launch_item(name: String, system: String, path: String) -> LibraryLaunchItem:
+func _launch_item(name: String, system: String, path: String, sd: bool) -> LibraryLaunchItem:
 	var item := LibraryLaunchItem.new()
 	item.name = name
 	item.provider_app_id = LaunchArgs.rom_id(system, path)
@@ -151,7 +165,7 @@ func _launch_item(name: String, system: String, path: String) -> LibraryLaunchIt
 	item.tags = PackedStringArray(["retroforge", system])
 	item.categories = PackedStringArray(["game"])
 	item.installed = true
-	item.metadata = {"system": system, "rom": path}
+	item.metadata = {"system": system, "rom": path, "sd": sd}
 	return item
 
 
@@ -225,6 +239,10 @@ class LaunchFailure extends AppLifecycleHook:
 			"bad-stub":
 				# retroforge-launch: a .psn card whose file does not hold a game id any more.
 				msg = "This game's .psn file in roms/ps3 is damaged.\nPut the game's .pkg in roms/ps3/psn and install it again (Settings > Library)."
+			"card-missing":
+				# retroforge-launch: the ROM was on an SD card (rom_roots.gd) that is not in now. The
+				# card goes from the library by itself once the rescan sees the card gone.
+				msg = "This game is on an SD card that is not in the device.\nInsert the card, wait a few seconds, then start the game again."
 			"psn-installing":
 				# retroforge-launch: the PSN installer holds the one-RPCS3 lock right now.
 				msg = "PSN packages are installing.\nWait for the install to finish, then launch the game again."

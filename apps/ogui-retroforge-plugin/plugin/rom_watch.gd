@@ -1,7 +1,7 @@
 extends RefCounted
 
-## Automatic ROM rescan: tells the plugin when ~/roms changed and the change has settled. No OGUI
-## types, so tests/test-plugin.sh runs it in a stock headless Godot.
+## Automatic ROM rescan: tells the plugin when ~/roms or an SD card's roms folder changed and the
+## change has settled. No OGUI types, so tests/test-plugin.sh runs it in a stock headless Godot.
 ##
 ## OGUI only reloads its library at start and from Settings > Library > Refresh Library, so ROMs
 ## copied over SMB stayed invisible. The plugin polls instead (no inotify tools in the image, and
@@ -18,10 +18,17 @@ extends RefCounted
 ## shows up once the file that makes it a game is there and has stopped changing. The rest of the
 ## folder is not walked (thousands of files, every 5 s), so a game whose marker arrives before its
 ## other files may be listed while the copy still runs.
+##
+## SD cards (rom_roots.gd) are part of every snapshot, so a card inserted or pulled out is a change
+## like any other: its ROMs appear or vanish together, two polls agree, and the library reloads
+## (hot swap, 5-10 s after the card mounts or goes). Each line names its root, so the same file
+## moving between the card and ~/roms is a change too.
 
 const GameDirs := preload("game_dirs.gd")
+const RomRoots := preload("rom_roots.gd")
 
 var roms_dir: String
+var mounts_dir: String  # where the player's SD cards are mounted ("" = none)
 var systems: Array
 var dir_markers: Dictionary  # system -> marker files of its game folders (game_dirs.gd)
 
@@ -31,32 +38,36 @@ var _due = null  # snapshot a due poll reported: what our own reload is about to
 
 
 ## No _init: tests/test-plugin.sh forbids it in plugin scripts. Returns self: RomWatch.new().setup(..).
-func setup(roms_path: String, system_ids: Array, game_dir_markers: Dictionary = {}) -> RefCounted:
+func setup(roms_path: String, system_ids: Array, game_dir_markers: Dictionary = {}, sd_mounts: String = "") -> RefCounted:
 	roms_dir = roms_path
+	mounts_dir = sd_mounts
 	systems = system_ids
 	dir_markers = game_dir_markers
 	return self
 
 
-## Every file of each system folder, one level deep, as "system/name size mtime", plus each game
-## folder as "system/name/ size mtime" of its marker file, sorted.
+## Every file of each system folder of every root, one level deep, as "root/system/name size
+## mtime", plus each game folder as "root/system/name/ size mtime" of its marker file, sorted.
 func snapshot() -> PackedStringArray:
 	var lines := PackedStringArray()
-	for system in systems:
-		var dir_path: String = roms_dir.path_join(system)
-		var dir := DirAccess.open(dir_path)
-		if not dir:
-			continue
-		for file in dir.get_files():
-			var path := dir_path.path_join(file)
-			lines.append("%s/%s %d %d" % [system, file, FileAccess.get_size(path), FileAccess.get_modified_time(path)])
-		var markers: Array = dir_markers.get(system, [])
-		if markers.is_empty():
-			continue
-		for sub in dir.get_directories():
-			var found := GameDirs.marker(dir_path.path_join(sub), markers)
-			if found != "":
-				lines.append("%s/%s/ %d %d" % [system, sub, FileAccess.get_size(found), FileAccess.get_modified_time(found)])
+	for root in RomRoots.list(roms_dir, mounts_dir):
+		for system in systems:
+			if not RomRoots.reads(root, system):
+				continue
+			var dir_path: String = str(root["path"]).path_join(system)
+			var dir := DirAccess.open(dir_path)
+			if not dir:
+				continue
+			for file in dir.get_files():
+				var path := dir_path.path_join(file)
+				lines.append("%s %d %d" % [path, FileAccess.get_size(path), FileAccess.get_modified_time(path)])
+			var markers: Array = dir_markers.get(system, [])
+			if markers.is_empty():
+				continue
+			for sub in dir.get_directories():
+				var found := GameDirs.marker(dir_path.path_join(sub), markers)
+				if found != "":
+					lines.append("%s/ %d %d" % [dir_path.path_join(sub), FileAccess.get_size(found), FileAccess.get_modified_time(found)])
 	lines.sort()
 	return lines
 

@@ -384,22 +384,37 @@ code "$AUTO" | grep -q 'storage_is_retroforge_partition "\$DEVICE"' \
   && ok "before it mounts anything" || bad "the check comes after the mount"
 
 # =================================================================================================
-CASE="only-ext4-is-automounted"
-# Upstream's reason, verbatim: "We need symlinks for Steam for now, so only automount ext4 as that's
-# what Steam will format". A vfat or exfat card cannot host a library — no symlinks, no casefolding
-# — and mounting one gives the user a mount they cannot use in the exact place the client is trying
-# to tell them the card needs formatting.
+CASE="rom-card-filesystems-are-automounted"
+# Upstream mounted ext4 only, for the Steam library ("We need symlinks for Steam for now"). A ROM
+# card has no such need, and nearly every one is exFAT: the library reads <card>/roms/<system>/
+# (rom_roots.gd), so ext4, exfat and vfat mount, and anything else is still left alone.
 code "$AUTO" | grep -q 'FSTYPE' \
   && ok "the mounter reads the filesystem type before mounting" \
   || bad "nothing checks the filesystem type — any card mounts"
-code "$AUTO" | grep -q '"\$FSTYPE" != ext4' \
-  && ok "and refuses anything that is not ext4" \
-  || bad "the ext4 restriction is not applied"
+code "$AUTO" | grep -qE '^ *ext4\|exfat\|vfat\) : ;;' \
+  && ok "ext4, exfat and vfat are mounted" \
+  || bad "the filesystem allowlist is not ext4|exfat|vfat"
+code "$AUTO" | grep -qE 'ntfs|btrfs|f2fs' \
+  && bad "the mounter names another filesystem: the allowlist is ext4, exfat and vfat" \
+  || ok "and nothing else"
 # EXIT 0, where upstream exits 2: inserting a foreign card is normal, and a non-zero exit here
 # leaves a failed unit for the rest of the boot.
-sed -n '/only ext4 cards are automounted/,+1p' "$AUTO" | grep -q 'exit 0' \
+sed -n '/only those cards are automounted/,+1p' "$AUTO" | grep -q 'exit 0' \
   && ok "and stands down with exit 0 rather than leaving a failed unit" \
   || bad "a foreign card leaves a failed unit — that is a fault report for a normal action"
+# The fat checker ships (dosfstools is in PKGS); exfatprogs does not, so an exFAT card mounts
+# unchecked and says so rather than calling a fsck.exfat that is not there.
+code "$AUTO" | grep -q 'fsck.fat -a' \
+  && ok "a vfat card is checked with fsck.fat" || bad "a vfat card mounts unchecked"
+code "$AUTO" | grep -q 'fsck.exfat' \
+  && bad "fsck.exfat is called, but exfatprogs is not on the image" || ok "no fsck.exfat (not on the image)"
+# The ROM folders: a card we formatted gets roms/, any card with roms/ gets the missing system folders.
+code "$AUTO" | grep -q 'mkdir "\$card_roms"' \
+  && ok "every card mounted read-write gets a roms folder" || bad "a card gets no roms folder"
+code "$AUTO" | grep -q 'mkdir "\$card_roms/\$sys"' \
+  && ok "and the system folders ~/roms has" || bad "a card gets no system folders"
+code "$AUTO" | grep -q '"\$sys" = ports' \
+  && ok "and no ports folder (ports only run from ~/roms/ports)" || bad "a ports folder is made on the card"
 
 # =================================================================================================
 CASE="one-lock-keeps-the-formatter-and-the-mounter-apart"

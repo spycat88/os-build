@@ -119,7 +119,8 @@
 # or a one-time install cannot run or fails. OGUI runs games through its reaper and never sees this
 # status, so an exit 3 is also written to $RETROFORGE_LAUNCH_STATUS (`not-installed <emulator>`,
 # `mount-failed <emulator>`, `missing-file <emulator> <path under $HOME>`, `install-failed
-# <emulator>`, `bad-stub <emulator>` or `psn-installing <emulator>`), cleared at every start: the
+# <emulator>`, `bad-stub <emulator>`, `psn-installing <emulator>` or `card-missing <system>`: a
+# ROM under SD_MOUNTS, on an SD card that is not in any more), cleared at every start: the
 # RetroForge plugin's EXIT hook reads it and tells the player what to do.
 
 import os
@@ -158,6 +159,9 @@ STATE_DIR = ENV.get("RETROFORGE_STATE_DIR",
                     os.path.join(ENV.get("XDG_STATE_HOME") or os.path.join(HOME, ".local", "state"), "retroforge"))
 STATUS = ENV.get("RETROFORGE_LAUNCH_STATUS",
                  os.path.join(ENV.get("XDG_RUNTIME_DIR") or "/tmp", "retroforge-launch.status"))
+# Where udisks mounts the player's SD cards (the plugin's rom_roots.gd): a ROM missing under it is
+# on a card that was pulled out (card-missing).
+SD_MOUNTS = ENV.get("RETROFORGE_SD_MOUNTS") or os.path.join("/run/media", ENV.get("USER") or os.path.basename(HOME))
 PREEMPTING_SOCS = {"SM8550", "SM8650"}  # A7xx: four preemptible GPU rings
 MEMINFO = ENV.get("RETROFORGE_MEMINFO", "/proc/meminfo")
 VRAM_REPORT_LIMIT_MIB = 4096
@@ -190,6 +194,10 @@ def parse_args(argv):
     if not SYSTEM_ID.fullmatch(system):
         raise Exit(2, f"bad system name '{system}'")
     if not (os.path.isfile(rom) or os.path.isdir(rom)):  # a folder: a PS3 disc dump
+        if os.path.abspath(rom).startswith(SD_MOUNTS + os.sep):
+            # A card from an SD card (the plugin's rom_roots.gd) that was pulled out before the
+            # library's rescan dropped it: tell the player, not just the journal.
+            fail("card-missing", system, f"no such ROM: {rom} (its SD card is not in)")
         raise Exit(2, f"no such ROM: {rom}")
     return system, rom, None
 

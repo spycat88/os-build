@@ -204,6 +204,9 @@ RETROFORGE_LAUNCH_STATUS="$ST" RETROFORGE_EMU_DIR="$T/none" "$LAUNCH" --gui duck
 echo "stale" > "$ST"
 RETROFORGE_LAUNCH_STATUS="$ST" "$LAUNCH" psx "$T/roms/psx/missing.chd" >/dev/null 2>&1
 [ ! -e "$ST" ] && ok "a bad invocation (exit 2) clears the status and writes none" || bad "status left: '$(cat "$ST")'"
+# A card's ROM (the plugin's rom_roots.gd) whose SD card was pulled out: the player is told.
+RETROFORGE_LAUNCH_STATUS="$ST" RETROFORGE_SD_MOUNTS="$T/media" "$LAUNCH" psx "$T/media/GAMES/roms/psx/gone.chd" >/dev/null 2>&1
+[ "$(cat "$ST" 2>/dev/null)" = "card-missing psx" ] && ok "a missing ROM on an SD card: card-missing <system>" || bad "status was '$(cat "$ST" 2>/dev/null)'"
 
 # =================================================================================================
 CASE="config shipped in the image"

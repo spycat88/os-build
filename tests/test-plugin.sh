@@ -384,6 +384,7 @@ const LaunchArgs := preload("$SRC/launch_args.gd")
 const RomWatch := preload("$SRC/rom_watch.gd")
 const Credits := preload("$SRC/credits.gd")
 const GameDirs := preload("$SRC/game_dirs.gd")
+const RomRoots := preload("$SRC/rom_roots.gd")
 const EmuOptions := preload("$SRC/emu_options.gd")
 const EmuState := preload("$SRC/emu_state.gd")
 const ArtPaths := preload("$SRC/art_paths.gd")
@@ -489,6 +490,7 @@ func _init() -> void:
 		[LaunchArgs.game_value("psx", rom, "SCREEN"), FileAccess.file_exists(LaunchArgs.game_conf_path("psx", rom))], ["", false])
 	test_rom_watch()
 	test_game_dirs()
+	test_sd_cards()
 	test_credits()
 	test_emu_options()
 	test_emu_state()
@@ -745,6 +747,49 @@ func test_game_dirs() -> void:
 	watch.mark_loaded()
 	write(ps3 + "/Other/PS3_GAME/PARAM.SFO", "sfo")
 	check("rescan: a folder without its marker is no change", [watch.poll(false), watch.poll(false)], [false, false])
+
+## SD cards on an internal install: <mount>/<card>/roms/<system>/ holds games beside ~/roms, and a
+## card going in or out is a change the rescan sees (hot swap).
+func test_sd_cards() -> void:
+	var home := "$T/sd/home/roms"
+	var mounts := "$T/sd/media"
+	write(home + "/psx/A.chd", "a")
+	check("sd: no mounts folder -> ~/roms only", RomRoots.list(home, mounts), [{"path": home, "sd": false}])
+	check("sd: no mounts at all -> ~/roms only", RomRoots.list(home, ""), [{"path": home, "sd": false}])
+	DirAccess.make_dir_recursive_absolute(mounts + "/OTHER/DCIM")
+	check("sd: a card without a roms folder is left alone", RomRoots.list(home, mounts).size(), 1)
+	write(mounts + "/GAMES/roms/psx/B.chd", "b")
+	write(mounts + "/.hidden/roms/psx/H.chd", "h")
+	check("sd: a card's roms folder is a root after ~/roms; hidden mounts are skipped",
+		RomRoots.list(home, mounts), [{"path": home, "sd": false}, {"path": mounts + "/GAMES/roms", "sd": true}])
+	check("sd: ports are never read from a card",
+		[RomRoots.reads({"path": home, "sd": false}, "ports"), RomRoots.reads({"path": "/c/roms", "sd": true}, "ports"),
+			RomRoots.reads({"path": "/c/roms", "sd": true}, "psx")], [true, false, true])
+	check("sd: the same game on the card and internally: the card's copy says so",
+		RomNames.names_for([{"system": "psx", "path": home + "/psx/T.chd"}, {"system": "psx", "path": "/c/roms/psx/T.chd", "sd": true}], SYSTEMS),
+		PackedStringArray(["T", "T (SD card)"]))
+	check("sd: two of one game on the card alone get the extension, not the card",
+		RomNames.names_for([{"system": "psx", "path": "/c/roms/psx/T.cue", "sd": true}, {"system": "psx", "path": "/c/roms/psx/T.chd", "sd": true}], SYSTEMS),
+		PackedStringArray(["T (CUE)", "T (CHD)"]))
+	check("sd: a game only on the card keeps its name",
+		RomNames.names_for([{"system": "psx", "path": "/c/roms/psx/U.chd", "sd": true}], SYSTEMS), PackedStringArray(["U"]))
+	DirAccess.remove_absolute(mounts + "/GAMES/roms/psx/B.chd")
+	DirAccess.remove_absolute(mounts + "/GAMES/roms/psx")
+	DirAccess.remove_absolute(mounts + "/GAMES/roms")
+	DirAccess.remove_absolute(mounts + "/GAMES")
+	var watch = RomWatch.new().setup(home, ["psx", "ports"], {}, mounts)
+	watch.mark_loaded()
+	check("sd: nothing changes while no card is in", [watch.poll(false), watch.poll(false)], [false, false])
+	write(mounts + "/GAMES/roms/psx/B.chd", "b")
+	check("sd: a card inserted is due once two polls agree", [watch.poll(false), watch.poll(false)], [false, true])
+	watch.mark_loaded()
+	write(mounts + "/GAMES/roms/ports/P.sh", "p")
+	check("sd: a port on the card is no change", [watch.poll(false), watch.poll(false)], [false, false])
+	OS.execute("rm", ["-rf", mounts + "/GAMES"])
+	check("sd: a card pulled out is due too", [watch.poll(false), watch.poll(false)], [false, true])
+	watch.mark_loaded()
+	write(mounts + "/GAMES/roms/psx/A.chd", "a")
+	check("sd: the same file name on the card as in ~/roms is still a change", [watch.poll(false), watch.poll(false)], [false, true])
 
 ## Attribution the emulators' licences ask for (DuckStation: CC BY-NC-ND, link duckstation.org).
 func test_credits() -> void:

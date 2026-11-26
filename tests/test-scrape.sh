@@ -191,9 +191,9 @@ json.dump({"header": {"success": "true", "error": ""}, "response": {
 PY
 }
 
-ROMS="$W/roms"; MEDIA="$W/media"
+ROMS="$W/roms"; MEDIA="$W/media"; CARDS="$W/cards"
 run() {  # run <args...> [< stdin]: sets OUT, ERR, RC
-  OUT="$(HOME="$W/home" RETROFORGE_CURL="$W/bin/curl" RETROFORGE_ROMS_DIR="$ROMS" \
+  OUT="$(HOME="$W/home" RETROFORGE_CURL="$W/bin/curl" RETROFORGE_ROMS_DIR="$ROMS" RETROFORGE_SD_MOUNTS="$CARDS" \
     RETROFORGE_MEDIA_DIR="$MEDIA" RETROFORGE_SCRAPER_SYSTEMS="$SYSTEMS" \
     RETROFORGE_SS_DEVID="${DEVID-dev}" RETROFORGE_SS_DEVPASSWORD="${DEVPW-dev-secret}" \
     RETROFORGE_SCRAPER_DEVID_FILE="$W/no-devid-file" \
@@ -202,7 +202,7 @@ run() {  # run <args...> [< stdin]: sets OUT, ERR, RC
   ERR="$(cat "$W/err")"
 }
 reset() {
-  rm -rf "$ROMS" "$MEDIA" "$W/home" "$SRV/games" "$W"/*.log "$SRV"/status* "$SRV"/badmedia-* "$SRV"/mislabel-* "$SRV"/redirect-* "$SRV"/slow "$SRV"/timeout*
+  rm -rf "$ROMS" "$MEDIA" "$CARDS" "$W/home" "$SRV/games" "$W"/*.log "$SRV"/status* "$SRV"/badmedia-* "$SRV"/mislabel-* "$SRV"/redirect-* "$SRV"/slow "$SRV"/timeout*
   mkdir -p "$ROMS" "$W/home" "$SRV/games"
 }
 rom() {  # rom <system>/<file> <content>
@@ -394,6 +394,27 @@ rm -f "$W/queries.log"; run run --rom "$ROMS/md/f.md" --all
 check "--rom asks for that ROM only" '[ "$(nqueries)" = 1 ] && [ "$(query 1 romnom)" = f.md ]'
 rm -f "$W/queries.log"; run run --system snes
 check "--system with no folder: nothing to do, exit 0" '[ "$RC" = 0 ] && [ "$(nqueries)" = 0 ] && contract'
+
+# =================================================================================================
+CASE="sd card"
+# On an internal install a card's roms/<system>/ holds games too (rom_roots.gd): scraped into the same
+# media folder, ports never read from a card, and a card without a roms folder ignored.
+reset
+rom md/f.md "found"; mkgame "crc-$(crc "$ROMS/md/f.md")" 40 box-2D:us
+mkdir -p "$CARDS/GAMES/roms/md" "$CARDS/GAMES/roms/ports" "$CARDS/OTHER/md"
+printf 'on card' > "$CARDS/GAMES/roms/md/c.md"; mkgame "crc-$(crc "$CARDS/GAMES/roms/md/c.md")" 42 box-2D:us
+printf 'x' > "$CARDS/OTHER/md/o.md"
+printf 'x' > "$CARDS/GAMES/roms/ports/p.sh"
+run run
+check "a card's ROM is scraped beside ~/roms" '[ "$(summary scraped)" = 2 ] && [ -f "$MEDIA/md/c.md-box.png" ]'
+check "a card without a roms folder is not read" '! grep -q "o.md" "$W/queries.log"'
+check "ports on a card are not read" '! grep -q "p.sh" "$W/queries.log"'
+rm -f "$W/queries.log"; run run --rom "$CARDS/GAMES/roms/md/c.md" --all
+check "--rom takes a card's ROM" '[ "$RC" = 0 ] && [ "$(nqueries)" = 1 ] && [ "$(query 1 romnom)" = c.md ]'
+run run --rom "$CARDS/OTHER/md/o.md"
+check "--rom refuses a card file outside its roms folder" '[ "$RC" = 2 ]'
+rm -rf "$CARDS"; rm -f "$W/queries.log"; run run
+check "the card pulled out: its art stays, nothing to ask" '[ "$RC" = 0 ] && [ "$(nqueries)" = 0 ] && [ -f "$MEDIA/md/c.md-box.png" ]'
 
 # =================================================================================================
 CASE="stopping"

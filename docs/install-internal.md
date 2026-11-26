@@ -4,9 +4,9 @@ RetroForge normally runs from the SD card you flashed it to. **Settings > Genera
 storage** puts it on the device's own internal storage instead, alongside Android, so the device boots
 with no card in it.
 
-> **Using the free slot as a ROM library is not wired up yet.** A hot-inserted card is mounted through
-> udisks by the storage scripts under `/usr/lib/retroforge/storage/`, but no shell uses it as a
-> library yet.
+> **The free slot holds ROMs too.** Once RetroForge runs from internal storage, a card in the slot
+> (ext4, exFAT or FAT32) is mounted for the player, and every `roms/<system>/` folder on it joins the
+> library beside `~/roms`: see [SD card ROMs](#sd-card-roms).
 
 The installer is part of the card's own OS. It downloads the latest release from the channel picked in
 **Updates**, from the same host `retroforge-update` uses, so there has to be a bundle published in that
@@ -17,6 +17,7 @@ channel ([ota.md](ota.md)). The card's OS itself is not copied. Connect to Wi-Fi
 - [When it refuses](#when-it-refuses)
 - [When it fails](#when-it-fails)
 - [How it runs](#how-it-runs)
+- [SD card ROMs](#sd-card-roms)
 - [Testing it on a dev card](#testing-it-on-a-dev-card)
 - [What it deliberately does not do](#what-it-deliberately-does-not-do)
 
@@ -123,6 +124,35 @@ then refuses to ask for consent if a process of that uid is alive.
 The components live in `installer/` and ship into `/usr/lib/retroforge/install/`, listed in
 `installer/shipped-files`. `rootfs/guard-rootfs.sh` checks a release root against that list and against
 every tool the install path calls. `tests/test-installer-shipped.sh` checks the lists themselves.
+
+---
+
+## SD card ROMs
+
+On an internal install the card slot is free, and a card in it is a second ROM library.
+
+- **Layout.** Put games in `roms/<system>/` at the root of the card, the same folder names as
+  `~/roms` (`roms/psx`, `roms/gba`, ...). Every card gets `roms/` and the system folders `~/roms`
+  has, where missing, each time it is mounted read-write, so a new card is ready to fill. Ports stay
+  in `~/roms/ports`: a port does not run from a card.
+- **Filesystems.** ext4, exFAT and FAT32 are mounted (`/usr/lib/retroforge/storage/automount.sh`),
+  ext4 and FAT32 checked first. exFAT mounts unchecked: the image has no `fsck.exfat`.
+- **Hot swap.** The library looks at the card every 5 seconds (the plugin's `rom_watch.gd`), so its
+  games appear 5 to 10 seconds after the card goes in and disappear the same way after it comes out.
+  Not while a game runs: the rescan waits for the game to exit. Starting a card's game after the
+  card was pulled tells the player to put it back.
+- **Names.** A game on both the card and internal storage shows twice, the card's copy as
+  "Name (SD card)". Per-game settings and art are keyed by system and file name, so they are shared
+  by the two copies and stay on internal storage when the card is out.
+- **Art and emulators.** `retroforge-scrape` scrapes the card's ROMs into the same art folder, and the
+  emulators start a card's ROM by its path like any other. The emulators' own game lists (Open from
+  Main menu > Emulators) still only show `~/roms`.
+- **Network share.** `[sdcard]` (`smb://retroforge.local/sdcard`) is the card itself: `automount.sh`
+  bind-mounts it at `/run/retroforge/sdcard` and the bind goes when the card is unmounted or pulled
+  out. With no card the share cannot be opened. A client that was connected when a card went in
+  should reconnect.
+
+The card that RetroForge itself runs from is never mounted, so none of this happens on a card boot.
 
 ---
 

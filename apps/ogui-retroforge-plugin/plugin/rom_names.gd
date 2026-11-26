@@ -8,12 +8,15 @@ extends RefCounted
 ## library the second one is silently dropped. So every ROM needs a name no other ROM has.
 
 
-## A name per ROM, in the same order. roms: [{"system": id, "path": file, "dir": bool}] ("dir": a
-## game folder, game_dirs.gd; its whole name is kept and it counts as the "FOLDER" type),
-## system_names: id -> label. A ROM keeps its file name (without extension) unless another ROM has the same one:
-## then the system is added when the other ROM is from another system ("Tetris (PlayStation)"),
-## and the extension when both are from the same system ("Tetris (CUE)"). Compared without case,
-## as OGUI keeps per-game settings under the lower-cased name.
+## A name per ROM, in the same order. roms: [{"system": id, "path": file, "dir": bool, "sd": bool}]
+## ("dir": a game folder, game_dirs.gd; its whole name is kept and it counts as the "FOLDER" type;
+## "sd": on an SD card, rom_roots.gd), system_names: id -> label. A ROM keeps its file name (without
+## extension) unless another ROM has the same one: then the system is added when the other ROM is
+## from another system ("Tetris (PlayStation)"), " (SD card)" to the card's copy when the other one
+## is on internal storage, and the extension when both are from the same system and medium
+## ("Tetris (CUE)"). Compared without case, as OGUI keeps per-game settings under the lower-cased
+## name. Pass internal ROMs first: a name still taken after all that is numbered, and the later one
+## gets the number, so an internal game keeps its name (and its OGUI settings) when a card goes in.
 static func names_for(roms: Array, system_names: Dictionary) -> PackedStringArray:
 	var bases := PackedStringArray()
 	var systems_of := {}  # lower-cased base -> {system: true}
@@ -31,6 +34,13 @@ static func names_for(roms: Array, system_names: Dictionary) -> PackedStringArra
 			var system: String = roms[i]["system"]
 			name += " (%s)" % system_names.get(system, system)
 		names.append(name)
+
+	var media_of := {}  # lower-cased name -> {sd: true}
+	for i in names.size():
+		media_of.get_or_add(names[i].to_lower(), {})[roms[i].get("sd", false)] = true
+	for i in names.size():
+		if roms[i].get("sd", false) and media_of[names[i].to_lower()].size() > 1:
+			names[i] += " (SD card)"
 
 	var count := {}
 	for name in names:

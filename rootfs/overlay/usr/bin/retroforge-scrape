@@ -53,8 +53,13 @@
 # re-sent after an answer would cost quota too). Without a player login ScreenScraper allows 1 thread and
 # 10,000 requests (1,000 not found) a day (seen 2026-10-17); requests go one at a time.
 #
+# SD CARDS. On an internal install a card in the slot can hold ROMs too, in <card>/roms/<system>/
+# (the plugin's rom_roots.gd). They are scraped like ~/roms, into the same MEDIA_DIR and cache: art
+# is keyed by system + file name, so it stays on internal storage and is there again when the card
+# goes back in.
+#
 # TEST SEAMS (tests/test-scrape.sh runs this file): RETROFORGE_CURL, RETROFORGE_ROMS_DIR,
-# RETROFORGE_MEDIA_DIR, RETROFORGE_SCRAPER_SYSTEMS, RETROFORGE_SCRAPER_DEVID_FILE, HOME.
+# RETROFORGE_SD_MOUNTS, RETROFORGE_MEDIA_DIR, RETROFORGE_SCRAPER_SYSTEMS, RETROFORGE_SCRAPER_DEVID_FILE, HOME.
 import errno
 import fcntl
 import hashlib
@@ -75,6 +80,12 @@ EXIT_OK, EXIT_USAGE, EXIT_NET, EXIT_LOCAL, EXIT_QUOTA, EXIT_LOGIN, EXIT_CLOSED, 
 CURL = os.environ.get("RETROFORGE_CURL", "curl")
 HOME = os.path.expanduser("~")
 ROMS_DIR = os.environ.get("RETROFORGE_ROMS_DIR", os.path.join(HOME, "roms"))
+# Where udisks mounts the player's SD cards (usr/lib/retroforge/storage/automount.sh). A card's
+# roms/<system>/ folders hold games too: the plugin's rom_roots.gd, the same rule, kept in step.
+SD_MOUNTS = os.environ.get("RETROFORGE_SD_MOUNTS") or os.path.join(
+    "/run/media", os.environ.get("USER") or os.path.basename(HOME))
+CARD_ROMS = "roms"
+CARD_SKIP = ("ports",)  # rom_roots.gd CARD_SKIP: a port only runs from ~/roms/ports
 MEDIA_DIR = os.environ.get("RETROFORGE_MEDIA_DIR", os.path.join(HOME, ".local/share/retroforge/media"))
 SYSTEMS_FILE = os.environ.get("RETROFORGE_SCRAPER_SYSTEMS", "/usr/share/retroforge/scraper/systems.json")
 DEVID_FILE = os.environ.get("RETROFORGE_SCRAPER_DEVID_FILE", "/usr/share/retroforge/scraper/devid")
@@ -330,10 +341,32 @@ def utf8(name, system):
         return False
 
 
+def rom_roots():
+    """[(root, on a card)]: ROMS_DIR, then the roms folder of each card mounted for the player."""
+    roots = [(ROMS_DIR, False)]
+    try:
+        mounts = sorted(n for n in os.listdir(SD_MOUNTS) if not n.startswith("."))
+    except OSError:
+        mounts = []
+    for name in mounts:
+        path = os.path.join(SD_MOUNTS, name, CARD_ROMS)
+        if os.path.isdir(path):
+            roots.append((path, True))
+    return roots
+
+
 def scan(system, spec):
-    """The ROMs of one system the plugin makes cards of: files one level deep whose extension is
-    the system's, minus .m3u members, plus folders holding one of the system's marker files."""
-    folder = os.path.join(ROMS_DIR, system)
+    """The ROMs of one system the plugin makes cards of, in every root (rom_roots)."""
+    roms = []
+    for root, card in rom_roots():
+        if not (card and system in CARD_SKIP):
+            roms += scan_folder(os.path.join(root, system), system, spec)
+    return roms
+
+
+def scan_folder(folder, system, spec):
+    """The ROMs of one system folder: files one level deep whose extension is the system's, minus
+    .m3u members, plus folders holding one of the system's marker files."""
     try:
         names = sorted(n for n in os.listdir(folder) if not n.startswith(".") and utf8(n, system))
     except OSError:
@@ -351,12 +384,15 @@ def scan(system, spec):
 
 
 def rom_system(path, systems):
-    """(system, absolute path) of a --rom argument, which must be a ROM of ROMS_DIR/<system>/."""
+    """(system, absolute path) of a --rom argument, which must be a ROM of <root>/<system>/ for one
+    of rom_roots."""
     path = os.path.abspath(path)
-    parts = os.path.relpath(path, os.path.abspath(ROMS_DIR)).split(os.sep)
-    if len(parts) != 2 or parts[0] not in systems or path not in scan(parts[0], systems[parts[0]]):
-        raise Fail(EXIT_USAGE, f"not a ROM of a scrapeable system under {ROMS_DIR}: {path}")
-    return parts[0], path
+    for root, card in rom_roots():
+        parts = os.path.relpath(path, os.path.abspath(root)).split(os.sep)
+        if (len(parts) == 2 and parts[0] in systems and not (card and parts[0] in CARD_SKIP)
+                and path in scan_folder(os.path.join(root, parts[0]), parts[0], systems[parts[0]])):
+            return parts[0], path
+    raise Fail(EXIT_USAGE, f"not a ROM of a scrapeable system under {ROMS_DIR} or an SD card's roms folder: {path}")
 
 
 # --- what identifies a ROM ------------------------------------------------------------------------

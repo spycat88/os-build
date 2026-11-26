@@ -17,8 +17,8 @@ const STORE_TABS := {"gog": "GOG", "epic": "Epic Games"}
 ## OGUI's own library of .desktop files (core/systems/library/library_desktop.tscn).
 const DESKTOP_LIBRARY_ID := "desktop"
 const SteamApps := preload("steam_apps.gd")
-## Seconds between two looks at ~/roms (rom_watch.gd): a copied ROM shows up 5-10 s after the
-## copy ends.
+## Seconds between two looks at ~/roms and an SD card's roms folder (rom_watch.gd): a copied ROM
+## shows up 5-10 s after the copy ends, and a card's games 5-10 s after it is mounted or pulled out.
 const RESCAN_INTERVAL := 5.0
 
 var library_manager := load("res://core/global/library_manager.tres") as LibraryManager
@@ -93,7 +93,7 @@ func _ready() -> void:
 	add_boxart(art)
 	library_manager.library_loaded.connect(_on_library_loaded)
 	logger.info("ROM library registered: %s" % library_manager.has_library(LIBRARY_ID))
-	_watch = load(plugin_base.path_join("rom_watch.gd")).new().setup(roms.roms_dir(), roms.SYSTEMS.keys(), roms.dir_markers())
+	_watch = load(plugin_base.path_join("rom_watch.gd")).new().setup(roms.roms_dir(), roms.SYSTEMS.keys(), roms.dir_markers(), roms.sd_mounts_dir())
 	_steam_watch = load(plugin_base.path_join("steam_watch.gd")).new().watch_steam(steam.steam_root())
 	_rescan_timer = Timer.new()
 	_rescan_timer.wait_time = RESCAN_INTERVAL
@@ -330,7 +330,8 @@ func _open_steam() -> void:
 	launch_manager.launch(item)
 
 
-## Automatic rescan: reload our library once ~/roms changed and settled (rom_watch.gd), and the
+## Automatic rescan: reload our library once ~/roms or an SD card's ROMs changed and settled
+## (rom_watch.gd; a card inserted or removed is such a change), and the
 ## Steam games once the client's app manifests did (steam_watch.gd). Never while a game runs (Steam's
 ## own UI counts), nor while our own reload of that library is still going.
 func _on_rescan_timer() -> void:
