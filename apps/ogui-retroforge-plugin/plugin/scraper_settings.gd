@@ -90,7 +90,8 @@ func attach() -> bool:
 	# In the tree FIRST: a component's @onready children only exist once it is ready, and OGUI is a
 	# release export, where calling a method on such a null child segfaults instead of erroring
 	# (dropdown.clear() before add_child crashed OGUI at every start, ACE 2026-10-17).
-	for node in [label, _missing, _all, _auto, _region, _user, _password, _account]:
+	# A separator closes the section, like the stock one under the last Library section.
+	for node in [label, _missing, _all, _auto, _region, _user, _password, _account, HSeparator.new()]:
 		box.add_child(node)
 		box.move_child(node, at)
 		at += 1

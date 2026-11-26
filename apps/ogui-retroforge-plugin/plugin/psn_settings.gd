@@ -55,7 +55,8 @@ func attach() -> bool:
 	_button.pressed.connect(_on_pressed)
 	# In the tree FIRST: a component's @onready children only exist once it is ready (OGUI is a
 	# release export, where touching such a null child segfaults; scraper_settings.gd's rule).
-	for node in [_label, _button]:
+	# A separator closes the section (shown and hidden with it, as the sections above and below).
+	for node in [_label, _button, HSeparator.new()]:
 		box.add_child(node)
 		box.move_child(node, at)
 		at += 1
@@ -97,7 +98,7 @@ func _refresh() -> void:
 	if runner.running:
 		return  # _on_finished refreshes; the row stays visible while it works
 	var count := pending()
-	for node in [_label, _button]:
+	for node in _nodes:
 		if is_instance_valid(node):
 			node.visible = count > 0
 	if is_instance_valid(_button):
