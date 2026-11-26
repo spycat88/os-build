@@ -40,7 +40,8 @@ log() { printf '%s: %s\n' "$PROG" "$*" >&2; }
 
 [ -n "$ACTION" ] && [ -n "$DEVBASE" ] || { log "usage: $PROG add|remove <partition>"; exit 22; }
 
-# The [sdcard] network share (etc/ksmbd/ksmbd.conf) serves this path, and it is the card's own root:
+# The [sdcard] network share (usr/share/retroforge/ksmbd/sdcard.conf, listed only while a card is in:
+# retroforge-sdcard-share.service) serves this path, and it is the card's own root:
 # a bind mount of the udisks mount (below). ksmbd resolves a share's path when a client connects, so
 # with no card there is no folder and the share cannot be opened at all.
 SHARE=/run/retroforge/sdcard
@@ -244,6 +245,8 @@ if [[ "$OPTS" == *,rw ]] && ! mountpoint -q "$SHARE" 2>/dev/null; then
 Description=SD card for the sdcard network share
 BindsTo=$src_unit
 After=$src_unit
+# Lists the share in ksmbd while this bind is up, and hides it again when it goes.
+Wants=retroforge-sdcard-share.service
 
 [Mount]
 What=$mountpoint

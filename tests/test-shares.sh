@@ -52,25 +52,33 @@ CASE="share policy"
 PRIVATE="$OV/usr/lib/tmpfiles.d/retroforge-home-private.conf"
 grep -qE '^z[[:space:]]+/home/player[[:space:]]+0700[[:space:]]+player[[:space:]]+player' "$PRIVATE" 2>/dev/null \
   && ok "the home is made the player's alone (0700) at every boot" || bad "no tmpfiles line makes /home/player 0700"
-[ "$(shares | sort | tr '\n' ' ')" = "bios roms saves sdcard states " ] && ok "exactly five shares: bios roms saves sdcard states" || bad "shares are: $(shares | tr '\n' ' ')"
-# [sdcard]: the card itself, bind-mounted at a fixed path by automount.sh while it is in. Nothing may
-# make that folder at boot: with no card the share must not open (HW 2026-11-26: the mount base was
-# shared, and folders made in it went to /run instead of the card).
-[ "$(val sdcard path)" = /run/retroforge/sdcard ] && ok "[sdcard] serves the card's bind mount, /run/retroforge/sdcard" || bad "[sdcard] path is '$(val sdcard path)'"
-[ "$(val sdcard 'guest ok')" = yes ] && [ "$(val sdcard 'read only')" = no ] && ok "[sdcard] guest read-write" || bad "[sdcard] is not guest read-write"
+[ "$(shares | sort | tr '\n' ' ')" = "bios roms saves states " ] && ok "exactly four shares in /etc: bios roms saves states" || bad "shares are: $(shares | tr '\n' ' ')"
+# [sdcard]: the card itself, bind-mounted at a fixed path by automount.sh while it is in, and LISTED
+# only then: ksmbd runs on /run/retroforge/ksmbd.conf, which sdcard-share writes from /etc plus the
+# card's section (asked 2026-11-26: no card, no share in the list).
+CARDCONF="$OV/usr/share/retroforge/ksmbd/sdcard.conf"
+SHAREBIN="$OV/usr/lib/retroforge/storage/sdcard-share"
+[ "$(CONF="$CARDCONF" val sdcard path)" = /run/retroforge/sdcard ] && ok "[sdcard] serves the card's bind mount, /run/retroforge/sdcard" || bad "[sdcard] path is '$(CONF="$CARDCONF" val sdcard path)'"
+[ "$(CONF="$CARDCONF" val sdcard 'guest ok')" = yes ] && [ "$(CONF="$CARDCONF" val sdcard 'read only')" = no ] && ok "[sdcard] guest read-write" || bad "[sdcard] is not guest read-write"
+DROPIN="$OV/usr/lib/systemd/system/ksmbd.service.d/retroforge.conf"
+grep -qx 'ExecStart=' "$DROPIN" && grep -qx 'ExecStart=/usr/bin/ksmbd.mountd -C /run/retroforge/ksmbd.conf' "$DROPIN" \
+  && ok "ksmbd runs on the generated config" || bad "ksmbd.mountd is not started on /run/retroforge/ksmbd.conf"
+grep -qx 'ExecStartPre=/usr/lib/retroforge/storage/sdcard-share auto' "$DROPIN" \
+  && ok "and writes it before every start" || bad "nothing writes /run/retroforge/ksmbd.conf before ksmbd starts"
+TS="$(mktemp -d)"; mkdir -p "$TS/share"
+gen() { RETROFORGE_KSMBD_BASE="$CONF" RETROFORGE_KSMBD_SDCARD="$CARDCONF" RETROFORGE_KSMBD_CONF="$TS/out.conf" \
+  RETROFORGE_SDCARD_SHARE="$TS/share" bash "$SHAREBIN" "$@" 2>/dev/null; }
+gen off; [ "$(CONF="$TS/out.conf" shares | sort | tr '\n' ' ')" = "bios roms saves states " ] && ok "no card: the four shares, no sdcard" || bad "no card: $(CONF="$TS/out.conf" shares | tr '\n' ' ')"
+gen on; [ "$(CONF="$TS/out.conf" shares | sort | tr '\n' ' ')" = "bios roms saves sdcard states " ] && ok "a card in: sdcard is listed" || bad "card in: $(CONF="$TS/out.conf" shares | tr '\n' ' ')"
+gen auto; [ "$(CONF="$TS/out.conf" shares | grep -c sdcard)" = 0 ] && ok "auto with nothing mounted: hidden" || bad "auto lists sdcard with no card mounted"
+rm -rf "$TS"
+SVC="$OV/usr/lib/systemd/system/retroforge-sdcard-share.service"
+grep -qx 'BindsTo=run-retroforge-sdcard.mount' "$SVC" && grep -q 'sdcard-share on --reload' "$SVC" && grep -q 'sdcard-share off --reload' "$SVC" \
+  && ok "the share is listed with the card's bind and hidden when it goes" || bad "retroforge-sdcard-share.service does not follow the card's bind"
 AUTO="$OV/usr/lib/retroforge/storage/automount.sh"
+grep -q '^Wants=retroforge-sdcard-share.service$' "$AUTO" && ok "the bind pulls the listing in" || bad "nothing starts retroforge-sdcard-share.service"
 grep -q '^SHARE=/run/retroforge/sdcard$' "$AUTO" && ok "automount.sh binds the card at the share's path" || bad "automount.sh does not bind the card at /run/retroforge/sdcard"
-# Bound to the card's device unit, not the udisks mount's: bound to that, systemd unmounted the bind
-# the moment it mounted (HW 2026-11-26).
-grep -q 'src_unit="dev-\$DEVBASE.device ' "$AUTO" && grep -q '^BindsTo=\$src_unit$' "$AUTO" && grep -q '^LazyUnmount=yes$' "$AUTO" \
-  && ok "the bind goes with the card's device and its udisks mount (BindsTo), lazily" || bad "the bind is not bound to the card"
-# retroforge-automount@.service runs its ExecStop (the remove path) right after the add: the remove
-# path may only take the bind down for a card that is really gone (HW 2026-11-26).
-grep -q '^    if \[ ! -b "\$DEVICE" \] && ' "$AUTO" \
-  && ok "the remove path leaves the bind of a card still in alone" || bad "the remove path unmounts the share of a card still in"
-grep -rqs 'retroforge/sdcard' "$OV/usr/lib/tmpfiles.d" && bad "tmpfiles makes the share folder: the share opens with no card" \
-  || ok "nothing makes the share folder at boot"
-for s in $(shares | grep -vx sdcard); do
+for s in $(shares); do
   p="$(val "$s" path)"
   [ "$p" = "/home/player/$s" ] && ok "[$s] serves /home/player/$s" || bad "[$s] path is '$p'"
   grep -Eq "^d[[:space:]]+%h/$s[[:space:]]" "$LAYOUT" && ok "[$s] folder is created by the layout" || bad "[$s]: the layout does not create ~/$s"

@@ -1,0 +1,15 @@
+[Unit]
+# Lists the [sdcard] network share while the SD card is in (usr/lib/retroforge/storage/sdcard-share).
+# Pulled in by the card's bind mount (run-retroforge-sdcard.mount, written by
+# usr/lib/retroforge/storage/automount.sh, Wants= this) and BindsTo= it, so it stops, and hides the
+# share again, when the bind goes: card pulled out or unmounted. After= it, so the share is listed
+# only once the folder is there, and on the way down hidden before the folder goes.
+Description=List the sdcard network share while an SD card is in
+BindsTo=run-retroforge-sdcard.mount
+After=run-retroforge-sdcard.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/retroforge/storage/sdcard-share on --reload
+ExecStop=/usr/lib/retroforge/storage/sdcard-share off --reload

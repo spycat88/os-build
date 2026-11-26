@@ -147,10 +147,11 @@ On an internal install the card slot is free, and a card in it is a second ROM l
 - **Art and emulators.** `retroforge-scrape` scrapes the card's ROMs into the same art folder, and the
   emulators start a card's ROM by its path like any other. The emulators' own game lists (Open from
   Main menu > Emulators) still only show `~/roms`.
-- **Network share.** `[sdcard]` (`smb://retroforge.local/sdcard`) is the card itself: `automount.sh`
-  bind-mounts it at `/run/retroforge/sdcard` and the bind goes when the card is unmounted or pulled
-  out. With no card the share cannot be opened. A client that was connected when a card went in
-  should reconnect.
+- **Network share.** `[sdcard]` (`smb://retroforge.local/sdcard`) is the card itself, and is only
+  listed while a card is in: `automount.sh` bind-mounts the card at `/run/retroforge/sdcard`, and
+  `retroforge-sdcard-share.service` (bound to that mount) adds the share to the config ksmbd runs on,
+  `/run/retroforge/ksmbd.conf`, and reloads ksmbd; it takes it out again when the card is pulled or
+  unmounted. A client that was connected when a card went in should reconnect.
 
 The card that RetroForge itself runs from is never mounted, so none of this happens on a card boot.
 

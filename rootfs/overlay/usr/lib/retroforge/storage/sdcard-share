@@ -1,0 +1,43 @@
+#!/bin/bash
+# List the [sdcard] network share only while an SD card is in.
+#
+#   /usr/lib/retroforge/storage/sdcard-share on|off|auto [--reload]
+#
+# ksmbd lists every share its config names, whether or not the folder exists, so the card's share
+# cannot simply be left in /etc/ksmbd/ksmbd.conf: with no card it showed as a share that would not
+# open (asked 2026-11-26: hide it with no card, show it with one). ksmbd.mountd runs on
+# /run/retroforge/ksmbd.conf instead (ksmbd.service.d/retroforge.conf), written here from
+# /etc/ksmbd/ksmbd.conf, plus usr/share/retroforge/ksmbd/sdcard.conf when the card is in:
+#
+#   on    with the share: retroforge-sdcard-share.service, started with the card's bind mount
+#   off   without it: the same service stopping, as the bind goes (card pulled out or unmounted)
+#   auto  with it when /run/retroforge/sdcard is mounted: ksmbd's own ExecStartPre, at every start
+#
+# --reload: tell a running ksmbd to re-read it. --no-block, because this runs inside a start or stop
+# job of its own, and at boot ksmbd may itself still be starting (try-: nothing to do if it is not).
+# Written through a temporary file and a rename, so ksmbd never reads half a config.
+set -euo pipefail
+
+BASE="${RETROFORGE_KSMBD_BASE:-/etc/ksmbd/ksmbd.conf}"
+CARD="${RETROFORGE_KSMBD_SDCARD:-/usr/share/retroforge/ksmbd/sdcard.conf}"
+OUT="${RETROFORGE_KSMBD_CONF:-/run/retroforge/ksmbd.conf}"
+SHARE="${RETROFORGE_SDCARD_SHARE:-/run/retroforge/sdcard}"
+
+mode="${1:-}"
+case "$mode" in
+    on)   with=1 ;;
+    off)  with=0 ;;
+    auto) if mountpoint -q "$SHARE" 2>/dev/null; then with=1; else with=0; fi ;;
+    *)    echo "usage: ${0##*/} on|off|auto [--reload]" >&2; exit 2 ;;
+esac
+
+mkdir -p "${OUT%/*}"
+tmp="$(mktemp "$OUT.XXXXXX")"
+{ cat "$BASE"; if [ "$with" = 1 ]; then printf '\n'; cat "$CARD"; fi; } > "$tmp"
+chmod 0644 "$tmp"
+mv -f "$tmp" "$OUT"
+echo "${0##*/}: sdcard network share $([ "$with" = 1 ] && echo listed || echo hidden)" >&2
+
+if [ "${2:-}" = --reload ]; then
+    systemctl --no-block try-reload-or-restart ksmbd.service 2>/dev/null || true
+fi
