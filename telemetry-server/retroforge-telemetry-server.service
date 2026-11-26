@@ -1,0 +1,23 @@
+# systemd unit for the telemetry server. Install: see README.md "Deploy".
+[Unit]
+Description=RetroForge telemetry server
+After=network.target
+
+[Service]
+User=telemetry
+Group=telemetry
+WorkingDirectory=/var/lib/retroforge-telemetry
+EnvironmentFile=-/etc/retroforge-telemetry.env
+Environment=TELEMETRY_DB=/var/lib/retroforge-telemetry/telemetry.db
+Environment=TELEMETRY_LISTEN=127.0.0.1:8080
+Environment=TELEMETRY_TRUST_PROXY=1
+ExecStart=/opt/retroforge-telemetry/venv/bin/python /opt/retroforge-telemetry/server.py
+Restart=on-failure
+StateDirectory=retroforge-telemetry
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

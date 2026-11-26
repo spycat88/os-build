@@ -1,0 +1,17 @@
+# Caddy gets and renews the TLS certificate on its own. Point telemetry.retroforge.org's DNS at the
+# host, put this in /etc/caddy/Caddyfile, `systemctl reload caddy`.
+telemetry.retroforge.org {
+	# Only the device API is public. /v1/stats is reachable too (it needs the bearer token);
+	# drop this matcher's /v1/stats to keep it localhost-only.
+	@api path /v1/report /v1/stats /healthz
+	handle @api {
+		reverse_proxy 127.0.0.1:8080
+	}
+	handle {
+		respond 404
+	}
+	log {
+		# Caddy's access log records client IPs; keep it off so the server's "no IPs stored" holds.
+		output discard
+	}
+}

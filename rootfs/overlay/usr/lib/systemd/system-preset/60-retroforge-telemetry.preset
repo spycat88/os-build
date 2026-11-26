@@ -1,0 +1,3 @@
+# Once-per-boot anonymous device report. The opt-out is a setting the program reads, not the unit's
+# enablement, so a user's choice survives preset-all and every OTA (it lives on /home).
+enable retroforge-telemetry.service

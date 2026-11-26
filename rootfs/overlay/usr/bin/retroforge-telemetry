@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+# retroforge-telemetry — report this device's identity and a handful of system facts, once per boot.
+#
+#   retroforge-telemetry run        what the boot unit runs: up to 3 attempts, 5 minutes apart, then exit
+#   retroforge-telemetry show       print the exact JSON that would be sent, and send nothing
+#   retroforge-telemetry status     enabled or not, and why; the device ID; the last result
+#   retroforge-telemetry disable    opt out (writes the user setting; survives OTA)
+#   retroforge-telemetry enable     opt back in
+#
+# exit 0 = reported, or telemetry is off (an opt-out is not a failure)
+# exit 1 = every attempt failed
+# exit 2 = usage
+#
+# WHAT IS SENT. One JSON object (see collect()): a device ID, OS name/version/build, SoC, device model,
+# and a few coarse facts — kernel release, RAM, the size of the disk we booted from, whether that disk
+# is internal (UFS/eMMC) or the SD card, the OTA channel, the booted A/B slot, CPU count, uptime.
+# No IP address is stored by the server (it derives the country and drops the address), no user
+# files, no hostnames, no MAC addresses, no list of games. `show` prints the payload byte for byte.
+#
+# THE DEVICE ID. md5 of /sys/devices/soc0/serial_number, exactly as `md5sum` hashes the file (the
+# raw bytes, trailing newline included), keeping the first 20 of its 32 hex digits:
+#     md5sum /sys/devices/soc0/serial_number | cut -c1-20
+# Stable for the life of the SoC — it survives reflashing, a new card and a factory reset, which is
+# what makes "returning device" mean something — and not the serial itself, which the server never
+# sees. A board whose socinfo reports no serial sends no report at all rather than an ID that would
+# collide with every other such board.
+#
+# OPTING OUT. Any one of these turns it off; the unit then exits 0 without touching the network:
+#   /home/player/.config/retroforge/telemetry.conf  TELEMETRY=off   (the user's switch; `disable` writes it)
+#   /etc/retroforge/telemetry.conf                  TELEMETRY=off   (the image/operator's switch)
+#   retroforge.telemetry=0 on the kernel command line
+#   RETROFORGE_TELEMETRY=off in the environment
+# The user file lives on /home, which both A/B slots share, so an opt-out survives every OTA.
+#
+# RETRY POLICY. Attempt 1 as soon as the unit starts (after network-online.target, which NM gives up
+# on after its own timeout, so a device with no Wi-Fi still gets here). On failure, wait 5 minutes and
+# try again; after the third failure, exit 1 and wait for the next boot. A success exits at once.
+# The unit is Restart=no: the three attempts ARE the retry policy, and systemd must not add a fourth.
+import hashlib
+import json
+import os
+import platform
+import re
+import ssl
+import sys
+import time
+import urllib.error
+import urllib.request
+
+VERSION = 1  # payload schema version; the server accepts this and refuses what it does not know
+
+_env = os.environ.get
+
+SERIAL_FILE = _env("RETROFORGE_TELEMETRY_SERIAL", "/sys/devices/soc0/serial_number")
+SOCINFO_DIR = _env("RETROFORGE_TELEMETRY_SOCINFO", "/sys/devices/soc0")
+DT_MODEL = _env("RETROFORGE_TELEMETRY_DT_MODEL", "/sys/firmware/devicetree/base/model")
+OS_RELEASE = _env("RETROFORGE_TELEMETRY_OS_RELEASE", "/etc/os-release")
+RF_RELEASE = _env("RETROFORGE_TELEMETRY_RF_RELEASE", "/etc/retroforge-release")
+CMDLINE = _env("RETROFORGE_TELEMETRY_CMDLINE", "/proc/cmdline")
+MEMINFO = _env("RETROFORGE_TELEMETRY_MEMINFO", "/proc/meminfo")
+UPTIME = _env("RETROFORGE_TELEMETRY_UPTIME", "/proc/uptime")
+BOOTINFO = _env("RETROFORGE_TELEMETRY_BOOTINFO", "/run/retroforge/boot")
+SYSBLOCK = _env("RETROFORGE_TELEMETRY_SYSBLOCK", "/sys/class/block")
+DEVICE_ENV = _env("RETROFORGE_TELEMETRY_DEVICE_ENV", "/usr/lib/retroforge/device-env")
+CONFIG_FILE = _env("RETROFORGE_TELEMETRY_CONFIG", "/etc/retroforge/telemetry.conf")
+USER_CONFIG_FILE = _env(
+    "RETROFORGE_TELEMETRY_USER_CONFIG", "/home/player/.config/retroforge/telemetry.conf"
+)
+OTA_CONFIG = _env("RETROFORGE_OTA_CONFIG", "/etc/retroforge/ota.conf")
+OTA_USER_CONFIG = _env("RETROFORGE_OTA_USER_CONFIG", "/home/player/.config/retroforge/ota.conf")
+STATE_FILE = _env("RETROFORGE_TELEMETRY_STATE", "/var/lib/retroforge/telemetry.json")
+
+DEFAULT_URL = "https://telemetry.retroforge.org/v1/report"
+ATTEMPTS = int(_env("RETROFORGE_TELEMETRY_ATTEMPTS", "3"))
+INTERVAL = int(_env("RETROFORGE_TELEMETRY_INTERVAL", "300"))  # seconds between attempts
+TIMEOUT = 20
+
+OFF_WORDS = {"0", "off", "no", "false", "disabled"}
+
+
+def log(msg):
+    # stderr goes to the journal under this unit's name; no timestamps, journald adds them.
+    print(f"retroforge-telemetry: {msg}", file=sys.stderr, flush=True)
+
+
+def read(path, binary=False):
+    try:
+        with open(path, "rb" if binary else "r") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def read_env_file(path):
+    """KEY=value lines, shell-style quotes stripped. Missing file = {}."""
+    values = {}
+    text = read(path) or ""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+# --- opt-out ---------------------------------------------------------------------------------------
+
+def enabled():
+    """(on?, reason). The first source that says anything decides; silence everywhere = on."""
+    env = _env("RETROFORGE_TELEMETRY")
+    if env:
+        return env.lower() not in OFF_WORDS, "RETROFORGE_TELEMETRY"
+    m = re.search(r"(?:^|\s)retroforge\.telemetry=(\S+)", read(CMDLINE) or "")
+    if m:
+        return m.group(1).lower() not in OFF_WORDS, "kernel command line"
+    for path in (USER_CONFIG_FILE, CONFIG_FILE):
+        value = read_env_file(path).get("TELEMETRY")
+        if value:
+            return value.lower() not in OFF_WORDS, path
+    return True, "default"
+
+
+def set_user_setting(on):
+    os.makedirs(os.path.dirname(USER_CONFIG_FILE), exist_ok=True)
+    tmp = USER_CONFIG_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        f.write("# Written by `retroforge-telemetry enable|disable`. TELEMETRY=off stops the boot report.\n")
+        f.write(f"TELEMETRY={'on' if on else 'off'}\n")
+    os.replace(tmp, USER_CONFIG_FILE)
+    # Root writing into the player's home must not leave a file the player cannot change back.
+    try:
+        st = os.stat(os.path.dirname(USER_CONFIG_FILE))
+        os.chown(USER_CONFIG_FILE, st.st_uid, st.st_gid)
+    except OSError:
+        pass
+
+
+# --- collection ------------------------------------------------------------------------------------
+
+def device_id():
+    raw = read(SERIAL_FILE, binary=True)
+    if raw is None or not raw.replace(b"\x00", b"").strip():
+        return None
+    return hashlib.md5(raw).hexdigest()[:20]
+
+
+def dt_model():
+    raw = read(DT_MODEL, binary=True)
+    return raw.replace(b"\x00", b"").decode("utf-8", "replace").strip() if raw else None
+
+
+def soc():
+    """qcom socinfo's `machine` (e.g. SM8550); the device profile's SoC class when socinfo is silent."""
+    for name in ("machine", "soc_id"):
+        value = (read(os.path.join(SOCINFO_DIR, name)) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def device_profile():
+    """RETROFORGE_DEVICE_ID / RETROFORGE_SOC_CLASS from device-env, best effort."""
+    import subprocess
+    try:
+        out = subprocess.run([DEVICE_ENV], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    values = {}
+    for line in out.splitlines():
+        m = re.match(r"^(RETROFORGE_DEVICE_ID|RETROFORGE_SOC_CLASS)=(.*)$", line)
+        if m:
+            values[m.group(1)] = m.group(2).strip("'\"")
+    return values
+
+
+def mem_mb():
+    m = re.search(r"^MemTotal:\s+(\d+)\s+kB", read(MEMINFO) or "", re.M)
+    return int(m.group(1)) // 1024 if m else None
+
+
+def uptime_s():
+    try:
+        return int(float((read(UPTIME) or "").split()[0]))
+    except (IndexError, ValueError):
+        return None
+
+
+def boot_disk():
+    """(target, size_gb) of the disk the running root lives on. target is ufs / sd / emmc / usb /
+    nvme / unknown. The initramfs writes the resolved root device to /run/retroforge/boot (the same
+    handoff on-boot-disk reads); its parent in /sys/class/block is the whole disk."""
+    m = re.search(r"^root=(\S+)", read(BOOTINFO) or "", re.M)
+    if not m:
+        return "unknown", None
+    part = os.path.basename(os.path.realpath(m.group(1)))
+    part_dir = os.path.join(SYSBLOCK, part)
+    if not os.path.exists(os.path.join(part_dir, "partition")):
+        return "unknown", None
+    disk_dir = os.path.realpath(os.path.join(part_dir, ".."))
+    disk = os.path.basename(disk_dir)
+    size_gb = None
+    try:
+        size_gb = round(int((read(os.path.join(disk_dir, "size")) or "0").strip()) * 512 / 1e9)
+    except ValueError:
+        pass
+    path = disk_dir  # the real sysfs path names the bus: .../ufshc/... , .../mmc_host/mmc0/...
+    if disk.startswith("mmcblk"):
+        # SD and eMMC are both mmcblk; the card's own `type` says which.
+        card_type = (read(os.path.join(disk_dir, "device", "type")) or "").strip()
+        target = "emmc" if card_type == "MMC" else "sd"
+    elif disk.startswith("nvme"):
+        target = "nvme"
+    elif "/usb" in path:
+        target = "usb"
+    elif disk.startswith("sd"):
+        target = "ufs"  # scsi disks on these boards are the UFS LUNs
+    else:
+        target = "unknown"
+    return target, size_gb
+
+
+def ota_channel():
+    for path in (OTA_CONFIG, OTA_USER_CONFIG):
+        value = read_env_file(path).get("OTA_CHANNEL")
+        if value:
+            return value
+    return "stable"
+
+
+def boot_slot():
+    m = re.search(r"(?:^|\s)rauc\.slot=(\S+)", read(CMDLINE) or "")
+    return m.group(1) if m else None
+
+
+def clip(value, n=128):
+    return value[:n] if isinstance(value, str) else value
+
+
+def collect():
+    osr = read_env_file(OS_RELEASE)
+    rfr = read_env_file(RF_RELEASE)
+    prof = device_profile()
+    target, size_gb = boot_disk()
+    payload = {
+        "schema": VERSION,
+        "device_id": device_id(),
+        "os_name": osr.get("NAME"),
+        "os_version_id": osr.get("VERSION_ID") or rfr.get("RETROFORGE_VERSION"),
+        "os_version": osr.get("VERSION"),
+        "os_build_id": osr.get("BUILD_ID") or rfr.get("RETROFORGE_BUILD"),
+        "os_variant": osr.get("VARIANT_ID") or rfr.get("RETROFORGE_VARIANT"),
+        "os_git": rfr.get("RETROFORGE_GIT"),
+        "build_mode": rfr.get("RETROFORGE_MODE"),
+        "soc": soc() or prof.get("RETROFORGE_SOC_CLASS"),
+        "device_model": dt_model(),
+        "device_profile": prof.get("RETROFORGE_DEVICE_ID"),
+        "kernel": platform.release(),
+        "arch": platform.machine(),
+        "cpu_count": os.cpu_count(),
+        "ram_mb": mem_mb(),
+        "storage_gb": size_gb,
+        "install_target": target,
+        "ota_channel": ota_channel(),
+        "boot_slot": boot_slot(),
+        "uptime_s": uptime_s(),
+    }
+    return {k: clip(v) for k, v in payload.items()}
+
+
+# --- sending ---------------------------------------------------------------------------------------
+
+def report_url():
+    return _env("RETROFORGE_TELEMETRY_URL") or read_env_file(CONFIG_FILE).get("TELEMETRY_URL") or DEFAULT_URL
+
+
+def send(payload):
+    url = report_url()
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": f"retroforge-telemetry/{VERSION}"},
+    )
+    ctx = ssl.create_default_context() if url.startswith("https:") else None
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as resp:
+            if 200 <= resp.status < 300:
+                return True, f"HTTP {resp.status}"
+            return False, f"HTTP {resp.status}"
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP {e.code}"
+    except (urllib.error.URLError, OSError) as e:
+        return False, str(getattr(e, "reason", e))
+
+
+def save_state(result, detail):
+    try:
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        with open(STATE_FILE + ".tmp", "w") as f:
+            json.dump({"result": result, "detail": detail, "time": int(time.time())}, f)
+        os.replace(STATE_FILE + ".tmp", STATE_FILE)
+    except OSError:
+        pass
+
+
+def run():
+    on, why = enabled()
+    if not on:
+        log(f"off ({why}); nothing sent")
+        return 0
+    payload = collect()
+    if not payload["device_id"]:
+        log(f"no SoC serial at {SERIAL_FILE}; nothing sent")
+        save_state("skipped", "no serial")
+        return 0
+    for attempt in range(1, ATTEMPTS + 1):
+        # Re-read the opt-out each round: a user who switches it off during the wait is obeyed.
+        if not enabled()[0]:
+            log("switched off while waiting; nothing sent")
+            return 0
+        payload["uptime_s"] = uptime_s()
+        ok, detail = send(payload)
+        if ok:
+            log(f"reported on attempt {attempt} ({detail})")
+            save_state("ok", detail)
+            return 0
+        log(f"attempt {attempt}/{ATTEMPTS} failed: {detail}")
+        if attempt < ATTEMPTS:
+            time.sleep(INTERVAL)
+    save_state("failed", detail)
+    log(f"giving up until next boot after {ATTEMPTS} attempts")
+    return 1
+
+
+def status():
+    on, why = enabled()
+    print(f"telemetry: {'on' if on else 'off'} ({why})")
+    print(f"device id: {device_id() or 'none (no SoC serial)'}")
+    print(f"server:    {report_url()}")
+    state = read(STATE_FILE)
+    if state:
+        try:
+            s = json.loads(state)
+            print(f"last run:  {s.get('result')} ({s.get('detail')}) at "
+                  f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(s.get('time', 0)))}")
+        except ValueError:
+            pass
+    return 0
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "run"
+    if cmd == "run":
+        return run()
+    if cmd == "show":
+        print(json.dumps(collect(), indent=2))
+        return 0
+    if cmd == "status":
+        return status()
+    if cmd in ("enable", "disable"):
+        set_user_setting(cmd == "enable")
+        print(f"telemetry {cmd}d ({USER_CONFIG_FILE})")
+        return 0
+    print("usage: retroforge-telemetry [run|show|status|enable|disable]", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

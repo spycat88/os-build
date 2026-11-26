@@ -1,0 +1,33 @@
+# Once-per-boot device report (usr/bin/retroforge-telemetry; docs/telemetry.md).
+#
+# Up to three attempts, five minutes apart, then the process exits: on the first success, or after
+# the third failure until the next boot. The retry loop lives in the program, so Restart=no — systemd
+# must not add attempts the policy does not have. Type=exec rather than oneshot so the unit is
+# "active" while it waits and never holds up multi-user.target (a oneshot would block boot for up to
+# ten minutes on a device with no network).
+#
+# Opt-out is checked by the program (TELEMETRY=off in ~player/.config/retroforge/telemetry.conf or
+# /etc/retroforge/telemetry.conf, or retroforge.telemetry=0 on the cmdline); off = exit 0 at once.
+[Unit]
+Description=RetroForge anonymous device report
+Wants=network-online.target
+After=network-online.target time-sync.target home.mount
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/retroforge-telemetry run
+Restart=no
+Nice=10
+# Reads /sys, /proc and two config files, writes one state file. Nothing else.
+StateDirectory=retroforge
+ProtectSystem=strict
+ReadWritePaths=/var/lib/retroforge
+ProtectHome=read-only
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
