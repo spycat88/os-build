@@ -42,7 +42,7 @@ dead card. That is a setting, not a fault.
 
 | # | Partition | Size | FS | Label |
 |---|---|---|---|---|
-| 1 | `esp` | 256M | vfat | `RETROFORGE-ESP` |
+| 1 | `esp` | 128M | vfat | `RETROFORGE-ESP` |
 | 2 | `efi-a` | 128M | vfat | `retroforge-efi-A` |
 | 3 | `efi-b` | 128M | vfat | `retroforge-efi-B` |
 | 4 | `rootfs-a` | 2G | btrfs | `retroforge-root-A` |

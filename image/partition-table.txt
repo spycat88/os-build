@@ -85,7 +85,8 @@
 # with different logical sector sizes:
 #
 #                       512-byte sectors        4096-byte sectors
-#   esp  256M           516190 clusters  FAT32   65376 clusters  too few for FAT32
+#   esp  256M (was)     516190 clusters  FAT32   65376 clusters  too few for FAT32
+#   esp  128M           258078 clusters  FAT32   32672 clusters  too few for FAT32
 #   efi  128M           258078 clusters  FAT32   32672 clusters  too few for FAT32
 #   efi   64M (was)     129022 clusters  FAT32   16320 clusters  too few for FAT32
 #
@@ -109,10 +110,14 @@
 # clusters above the FAT12 boundary, which is a margin decided by mkfs.fat's reserved-sector
 # arithmetic rather than by us. 128M gives 8188 -- twice the floor. The content is ~2.3M either way.
 #
+# esp IS 128M (was 256M, 2026-11-26): the same geometry as efi-a/b, so the same FAT16-at-4Kn /
+# FAT32-at-512e outcome and the same margins. Its content is the ESP GRUB, grubenv, parts.env, the
+# DTBs and the factory-reset request -- a few MiB -- so 256M was space taken from /home for nothing.
+#
 # tests/test-partition-table.sh asserts all of this against the table alone, at both sector sizes.
 #
 # name      size  typecode  fs        label            attrs
-esp         256M  ef00      vfat      RETROFORGE-ESP     63
+esp         128M  ef00      vfat      RETROFORGE-ESP     63
 efi-a       128M  0700      vfat      retroforge-efi-A   -
 efi-b       128M  0700      vfat      retroforge-efi-B   -
 rootfs-a    2G    8300      btrfs     retroforge-root-A  -
