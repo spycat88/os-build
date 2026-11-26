@@ -82,6 +82,12 @@ LimitMEMLOCK=infinity
 ExecStartPre=-+/usr/lib/retroforge/splash-progress Starting RetroForge
 ExecStartPre=-+/bin/sh -c 'mkdir -p /run/retroforge/splash && echo retroforge-session >/run/retroforge/splash/takeover'
 ExecStart=/bin/bash --login -c 'exec /usr/bin/retroforge-session'
+# A shell stopped while its idle dim is on (a reboot over SSH, a crash) never undoes the dim, and
+# systemd-backlight@ saved that 10% at shutdown and restored it at every boot. Put the player's
+# level back first: this unit is After=sysinit.target and systemd-backlight@ is Before= it, so at
+# shutdown this runs before the save. `+` for root (the backlight is not the player's to write),
+# `-` so it cannot fail the stop. See /usr/lib/retroforge/undim-backlight.
+ExecStopPost=-+/usr/lib/retroforge/undim-backlight
 # A stop is SIGTERM to retroforge-session, which stops the shell and gamescope and exits 128+15; that is
 # the requested outcome, not a failure.
 SuccessExitStatus=143

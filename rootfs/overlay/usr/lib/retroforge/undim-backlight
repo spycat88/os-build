@@ -1,0 +1,39 @@
+#!/bin/sh
+# retroforge undim-backlight — put the panel back to the brightness the shell's idle dim replaced.
+#
+# OpenGamepadUI's PowerSaver dims the backlight to 10% after 5 minutes without input and undoes it
+# on the next input. A shell that stops while dimmed never undoes it: a reboot or power-off over
+# SSH, a crash, any session stop. systemd-backlight@ then saved 10% at shutdown and restored it at
+# every boot, so the brightness came back as 10 whatever the player had set (user, 2026-11-26).
+#
+# PowerSaver (opengamepadui patch 0058) keeps the brightness from before the dim in
+# ~player/.local/share/opengamepadui/undim-brightness while dimmed, one "<backlight>\t<fraction>"
+# line per backlight. retroforge-session.service runs this as ExecStopPost, as root, so the
+# backlight holds the player's level again before systemd-backlight@ saves it: the session is
+# After=sysinit.target, systemd-backlight@ is Before= it, so at shutdown the session stops first.
+# The file stays: the next start of the shell restores from it too (covering a power cut, where no
+# stop runs) and removes it.
+#
+# The file is the player's, so nothing in it is trusted: a backlight name is only ever looked up
+# under /sys/class/backlight, and a fraction outside 0-1 is skipped. Exits 0 on every path; a stop
+# hook must never fail the session's stop. The paths are seams for tests/test-undim-backlight.sh.
+: "${RETROFORGE_UNDIM_FILE:=/home/player/.local/share/opengamepadui/undim-brightness}"
+: "${RETROFORGE_BACKLIGHT_DIR:=/sys/class/backlight}"
+
+[ -f "$RETROFORGE_UNDIM_FILE" ] && [ ! -L "$RETROFORGE_UNDIM_FILE" ] || exit 0
+
+tab=$(printf '\t')
+while IFS="$tab" read -r name frac; do
+  case $name in ''|.|..|*[!A-Za-z0-9_.:-]*) continue ;; esac
+  bl=$RETROFORGE_BACKLIGHT_DIR/$name
+  [ -w "$bl/brightness" ] && [ -r "$bl/max_brightness" ] || continue
+  max=$(cat "$bl/max_brightness" 2>/dev/null) || continue
+  case $max in ''|*[!0-9]*) continue ;; esac
+  val=$(awk -v f="$frac" -v m="$max" 'BEGIN {
+          if (f !~ /^[0-9]*\.?[0-9]+$/ || f + 0 > 1) exit 1
+          printf "%d", f * m + 0.5 }') || continue
+  if echo "$val" > "$bl/brightness" 2>/dev/null; then
+    echo "undim-backlight: $name brightness $val of $max (the shell stopped while dimmed)"
+  fi
+done < "$RETROFORGE_UNDIM_FILE"
+exit 0

@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: retroforge <retroforge@invalid>
+Date: Thu, 26 Nov 2026 20:30:00 +0000
+Subject: [PATCH] fix(PowerSaver): a dim the shell never undid is undone at the
+ next start
+
+PowerSaver dims the backlight to 10% after 5 minutes without input and
+puts the old level back on the next input. When the shell stopped while
+dimmed (a reboot or power-off over SSH, a crash, the session restarting)
+nothing put it back, systemd-backlight saved 10% at shutdown, and every
+boot came up at 10% whatever brightness the player had set (user,
+2026-11-26).
+
+The level from before the dim is now kept in
+user://undim-brightness while the screen is dimmed, one
+"<backlight>\t<fraction>" line per backlight, and removed when input
+undoes the dim. The next start of PowerSaver restores from it and
+removes it. RetroForge's session stop hook (undim-backlight) reads the
+same file so the backlight is back at the player's level before
+systemd-backlight saves it.
+
+---
+diff --git a/core/systems/power/power_saver.gd b/core/systems/power/power_saver.gd
+index 3b5635a..2417d20 100644
+--- a/core/systems/power/power_saver.gd
++++ b/core/systems/power/power_saver.gd
+@@ -10,6 +10,14 @@ var power_manager := load("res://core/systems/power/power_manager.tres") as UPow
+ var gamescope := load("res://core/systems/gamescope/gamescope.tres") as GamescopeInstance
+ 
+ const MINUTE := 60
++## The brightness from before a dim, one "<backlight>\t<fraction>" line per
++## backlight, kept while the screen is dimmed. A dim is undone by input, so a
++## shell that stops while dimmed (a reboot or power-off from SSH, a crash, the
++## session restarting) never undoes it: systemd-backlight then saved the dim
++## level and restored it at every boot. The next start undoes the dim from this
++## file, and retroforge-session.service's ExecStopPost writes it back to the
++## backlight before systemd-backlight saves.
++const UNDIM_FILE := "user://undim-brightness"
+ 
+ @export_category("Dim Screen")
+ @export var dim_screen_enabled := true
+@@ -46,6 +54,8 @@ func _ready() -> void:
+ 	if display_device:
+ 		has_battery = display_device.is_present
+ 	
++	if supports_brightness:
++		_undim_from_file.call_deferred()
+ 	if dim_screen_enabled and supports_brightness:
+ 		dim_timer.timeout.connect(_on_dim_timer_timeout)
+ 		dim_timer.start(dim_after_inactivity_mins * MINUTE)
+@@ -69,6 +79,7 @@ func _on_dim_timer_timeout() -> void:
+ 	var backlights := display.get_backlight_paths()
+ 	for backlight in backlights:
+ 		prev_brightness[backlight] = display.get_brightness(backlight)
++	_write_undim_file()
+ 
+ 	# Set the brightness
+ 	logger.debug("Dimming screen due to inactivty")
+@@ -115,6 +126,7 @@ func _on_activity() -> void:
+ 			for percent in prev_brightness.values():
+ 				display.set_brightness(percent)
+ 				break
++			DirAccess.remove_absolute(UNDIM_FILE)
+ 			# Set the FPS limit
+ 			logger.debug("Reverting FPS from activity")
+ 			Engine.max_fps = settings.get_value("general", "max_fps", 60) as int
+@@ -123,6 +135,40 @@ func _on_activity() -> void:
+ 		suspend_timer.start(suspend_after_inactivity_mins * MINUTE)
+ 
+ 
++## Keeps the brightness from before the dim where the next start, and the
++## session's stop, can find it.
++func _write_undim_file() -> void:
++	var lines := PackedStringArray()
++	for backlight in prev_brightness:
++		var percent: float = prev_brightness[backlight]
++		if percent >= 0.0:
++			lines.append("%s\t%f" % [backlight, percent])
++	if lines.is_empty():
++		return
++	var file := FileAccess.open(UNDIM_FILE, FileAccess.WRITE)
++	if not file:
++		logger.warn("Unable to save the brightness from before the dim: " + str(FileAccess.get_open_error()))
++		return
++	file.store_string("\n".join(lines) + "\n")
++
++
++## Undoes a dim the last run of the shell left in place.
++func _undim_from_file() -> void:
++	if not FileAccess.file_exists(UNDIM_FILE):
++		return
++	var text := FileAccess.get_file_as_string(UNDIM_FILE)
++	DirAccess.remove_absolute(UNDIM_FILE)
++	for line in text.split("\n", false):
++		var parts := line.split("\t")
++		if parts.size() != 2 or not parts[1].is_valid_float():
++			continue
++		var percent := parts[1].to_float()
++		if percent < 0.0 or percent > 1.0:
++			continue
++		logger.info("Restoring brightness " + str(percent) + " on " + parts[0] + " from before the last run's dim")
++		display.set_brightness(percent, DisplayManager.VALUE.ABSOLUTE, parts[0])
++
++
+ ## Called at a regular interval to check if gamescope input counters have changed.
+ ## Gamepad inputs will be routed to all running applications (including OpenGamepadUI)
+ ## which can be used to check for inactivity, but keyboard/mouse inputs will not.
