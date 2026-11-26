@@ -1,0 +1,331 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: retroforge <retroforge@invalid>
+Date: Thu, 26 Nov 2026 22:40:00 +0000
+Subject: [PATCH] feat(DisksMenu): only RetroForge's partitions and the SD card
+ are shown
+
+The Disks settings menu listed every partition of every drive udisks2
+did not consider protected: on a handheld that is ~85 vendor partitions
+of the internal storage, while RetroForge's own partitions, on the same
+drive as /, were never shown. It now shows only the partitions mounted
+at /, /var, /efi, /esp and /home, and the SD card at
+/run/retroforge/sdcard, each when mounted. The device behind each mount
+point is read from /proc/self/mountinfo and sysfs (for btrfs, whose
+device number is anonymous, from the mount's source, following a /dev
+symlink), and each drive's card lists only those partitions. "No storage
+mounted" shows when none is. UDisks2Instance signals devices added and
+removed but not mounts and unmounts, so the cards are rebuilt each time
+the menu is shown.
+
+Sizes are shown as df shows them: a partition card the mounted
+filesystem's size and free space in binary units, from df, and a drive
+card the drive's size in binary units from sysfs. udisks2's readable
+size is the partition's in decimal units: a 256 MiB /var showed as
+"268.44 MB" where df shows "224M".
+---
+ core/ui/card_ui/settings/disks_settings_menu.gd   | 136 +++++++++++++++++++---
+ core/ui/card_ui/settings/disks_settings_menu.tscn |   3 +-
+ core/ui/components/drive_card.gd                  |  32 +++++
+ core/ui/components/partition_card.gd              |  23 ++++
+ 4 files changed, 173 insertions(+), 21 deletions(-)
+
+diff --git a/core/ui/card_ui/settings/disks_settings_menu.gd b/core/ui/card_ui/settings/disks_settings_menu.gd
+index 9dfef94..14373c0 100644
+--- a/core/ui/card_ui/settings/disks_settings_menu.gd
++++ b/core/ui/card_ui/settings/disks_settings_menu.gd
+@@ -11,10 +11,16 @@ var logger := Log.get_logger("DisksMenu", Log.LEVEL.INFO)
+ @onready var focus_group: FocusGroup = $%FocusGroup
+ @onready var no_drive_label: Label = $%NoDisksLabel
+ 
+-## Whether the drive cards are out of date. They are built only while the menu is shown: a
+-## handheld's internal storage alone is ~85 vendor partitions, a card each, and listing and
+-## building them (twice, as udisks2 settles) held the shell's first frame back ~2 s at boot.
+-var _stale := true
++## The only mount points the menu shows, each on its drive's card when mounted: RetroForge's own
++## partitions (the btrfs root, the slot's /var and /efi, the shared ESP, the player's /home) and
++## its SD card (the [sdcard] share's bind of the card's own mount). Everything else, a handheld's
++## ~85 vendor partitions among it, is left out.
++const SHOWN_MOUNTS: PackedStringArray = ["/", "/var", "/efi", "/esp", "/home", "/run/retroforge/sdcard"]
++
++# The drive cards are built only while the menu is shown: a handheld's internal storage alone is
++# ~85 vendor partitions, and listing them (twice, as udisks2 settles) held the shell's first frame
++# back ~2 s at boot. They are rebuilt each time it is shown, as UDisks2Instance signals a device
++# added or removed but not a mount or an unmount, and the SD card is mounted after it is added.
+ 
+ 
+ # Called when the node enters the scene tree for the first time.
+@@ -27,22 +33,20 @@ func _ready():
+ 	_refresh()
+ 
+ 
+-func _on_devices_updated(devices: Array[BlockDevice]) -> void:
++func _on_devices_updated(_devices: Array[BlockDevice]) -> void:
+ 	if is_visible_in_tree():
+-		_on_drives_updated(devices)
+-	else:
+-		_stale = true
++		_refresh()
+ 
+ 
+ func _refresh() -> void:
+-	if not _stale or not is_visible_in_tree():
++	if not is_visible_in_tree():
+ 		return
+-	_on_drives_updated(udisks2.get_unprotected_devices())
++	_on_drives_updated()
+ 
+ 
+-func _on_drives_updated(devices: Array[BlockDevice]) -> void:
+-	_stale = false
++func _on_drives_updated() -> void:
+ 	logger.debug("Got updated drives")
++	var drives := _get_shown_drives()
+ 
+ 	# Clear the current grid of items
+ 	var keep_nodes := [focus_group]
+@@ -53,7 +57,7 @@ func _on_drives_updated(devices: Array[BlockDevice]) -> void:
+ 		child.queue_free()
+ 
+ 	# Show a label if no drives are available
+-	if devices.size() == 0:
++	if drives.is_empty():
+ 		no_drive_label.visible = true
+ 		container.visible = false
+ 		return
+@@ -63,16 +67,13 @@ func _on_drives_updated(devices: Array[BlockDevice]) -> void:
+ 
+ 	# Poplulate drives
+ 	var last_focus: FocusGroup
+-	for drive in devices:
+-		var drive_type = drive.dbus_path.trim_prefix(steam_disks.BLOCK_PREFIX)
+-
+-		# Ignore loop devices
+-		if drive_type.contains("loop"):
+-			continue
++	for disk_path in drives:
++		var drive := load("dbus://org.freedesktop.UDisks2" + disk_path) as BlockDevice
+ 
+ 		# Create Drive Card
+ 		var drive_card := drive_card_scene.instantiate() as DriveCard
+ 		container.add_child(drive_card)
++		drive_card.shown_partitions = drives[disk_path]
+ 		drive_card.setup(drive)
+ 		drive_card.visible = true
+ 
+@@ -82,3 +83,100 @@ func _on_drives_updated(devices: Array[BlockDevice]) -> void:
+ 			last_focus.focus_neighbor_bottom = drive_focus
+ 			drive_focus.focus_neighbor_top = last_focus
+ 		last_focus = drive_focus
++
++
++## Returns the drives that hold a mounted SHOWN_MOUNTS, as {disk dbus path: PackedStringArray of
++## the dbus paths of its partitions to show}, in SHOWN_MOUNTS order. A drive without a partition
++## table (a card formatted whole) has no partitions to list.
++func _get_shown_drives() -> Dictionary:
++	var drives := {}
++	var devices := _get_mount_devices()
++	for mount in SHOWN_MOUNTS:
++		if not (mount in devices):
++			continue
++		var uevent := _get_block_uevent(devices[mount])
++		var dev_name: String = uevent.get("DEVNAME", "")
++		if dev_name.is_empty():
++			logger.debug("No block device for " + mount)
++			continue
++
++		# A partition's disk is its name without the partition number, and the "p" the kernel
++		# puts before it when the disk's name ends in a digit (mmcblk0p1, nvme0n1p3, sda1).
++		var disk := dev_name
++		var partition := ""
++		var partn: String = uevent.get("PARTN", "")
++		if uevent.get("DEVTYPE", "") == "partition" and not partn.is_empty() and dev_name.ends_with(partn):
++			disk = dev_name.substr(0, dev_name.length() - partn.length())
++			if disk.length() > 2 and disk.ends_with("p") and disk[disk.length() - 2].is_valid_int():
++				disk = disk.substr(0, disk.length() - 1)
++			partition = steam_disks.BLOCK_PREFIX + "/" + dev_name
++
++		# UDisks2Instance holds a BlockDevice for every block device, cached under this path
++		var disk_path := steam_disks.BLOCK_PREFIX + "/" + disk
++		if not ResourceLoader.exists("dbus://org.freedesktop.UDisks2" + disk_path):
++			logger.debug("UDisks2 has no block device " + disk_path + " for " + mount)
++			continue
++
++		# Packed arrays are copied out of a Dictionary, so the list is put back after the append
++		var partitions: PackedStringArray = drives.get(disk_path, PackedStringArray())
++		if not partition.is_empty() and not partitions.has(partition):
++			partitions.append(partition)
++		drives[disk_path] = partitions
++
++	return drives
++
++
++## Returns the uevent of the block device behind a mountinfo entry, [major:minor, source]: by its
++## device number, or for btrfs (whose device number is an anonymous 0:N) by its source, a /dev
++## node or a symlink to one (/dev/retroforge/*, /dev/disk/by-*). Empty when neither is a block device.
++func _get_block_uevent(entry: PackedStringArray) -> Dictionary:
++	var uevent := _read_uevent("/sys/dev/block/%s/uevent" % entry[0])
++	if not uevent.is_empty():
++		return uevent
++
++	var source := entry[1]
++	if not source.begins_with("/dev/"):
++		return uevent
++	for _i in 8:
++		var dir := DirAccess.open(source.get_base_dir())
++		if not dir or not dir.is_link(source):
++			break
++		var target := dir.read_link(source)
++		if not target.is_absolute_path():
++			target = source.get_base_dir().path_join(target)
++		source = target.simplify_path()
++	return _read_uevent("/sys/class/block/%s/uevent" % source.get_file())
++
++
++## Returns {mount point: [major:minor, source]} for the mount points in SHOWN_MOUNTS, from this
++## process's mount table (the last, topmost, mount at a path wins).
++func _get_mount_devices() -> Dictionary:
++	var devices := {}
++	# Read line by line: /proc files report a length of 0, so a read by length gets nothing.
++	var file := FileAccess.open("/proc/self/mountinfo", FileAccess.READ)
++	if not file:
++		return devices
++	while not file.eof_reached():
++		# 36 35 179:5 / /home rw,relatime shared:12 - ext4 /dev/mmcblk0p5 rw
++		var fields := file.get_line().split(" ", false)
++		var separator := fields.find("-", 6)
++		if separator < 0 or fields.size() < separator + 3:
++			continue
++		var mount_point := fields[4]
++		if mount_point in SHOWN_MOUNTS:
++			devices[mount_point] = PackedStringArray([fields[2], fields[separator + 2]])
++	return devices
++
++
++## Returns a sysfs uevent file's KEY=value lines as a Dictionary
++func _read_uevent(path: String) -> Dictionary:
++	var uevent := {}
++	var file := FileAccess.open(path, FileAccess.READ)
++	if not file:
++		return uevent
++	while not file.eof_reached():
++		var line := file.get_line()
++		var eq := line.find("=")
++		if eq > 0:
++			uevent[line.left(eq)] = line.substr(eq + 1)
++	return uevent
+diff --git a/core/ui/card_ui/settings/disks_settings_menu.tscn b/core/ui/card_ui/settings/disks_settings_menu.tscn
+index ee78e6d..d0062c2 100644
+--- a/core/ui/card_ui/settings/disks_settings_menu.tscn
++++ b/core/ui/card_ui/settings/disks_settings_menu.tscn
+@@ -50,8 +50,7 @@ size_flags_horizontal = 3
+ [node name="NoDisksLabel" type="Label" parent="MarginContainer"]
+ unique_name_in_owner = true
+ layout_mode = 2
+-text = "No formattable drives available
+-Verify your media device is plugged in and that it is not mounted to a protected mount point"
++text = "No storage mounted"
+ horizontal_alignment = 1
+ uppercase = true
+ 
+diff --git a/core/ui/components/drive_card.gd b/core/ui/components/drive_card.gd
+index 7bca717..01998a2 100644
+--- a/core/ui/components/drive_card.gd
++++ b/core/ui/components/drive_card.gd
+@@ -13,6 +13,8 @@ const usb_icon = preload("res://assets/icons/interface-usb.svg")
+ 
+ var block_device: BlockDevice
+ var device_path: String
++## The DBus paths of the partitions to list, set before setup(); empty lists them all
++var shown_partitions := PackedStringArray()
+ var highlight_tween: Tween
+ 
+ signal pressed
+@@ -46,6 +48,12 @@ func setup(device: BlockDevice) -> void:
+ 	logger.debug("Setup Drive Card")
+ 	drive_name_label.text = self.device_path
+ 	drive_size_label.text = device.get_readable_size()
++	# The drive's size in the binary units df and lsblk use (udisks2's readable size is decimal)
++	var sectors := FileAccess.open("/sys/class/block/%s/size" % self.device_path.get_file(), FileAccess.READ)
++	if sectors:
++		var line := sectors.get_line().strip_edges()
++		if line.is_valid_int():
++			drive_size_label.text = human_size(line.to_int() * 512)
+ 	_set_icon()
+ 	_populate_partitions()
+ 
+@@ -170,6 +178,27 @@ func _clear_partitions() -> void:
+ 		child.queue_free()
+ 
+ 
++## Returns a size in bytes as `df -h` writes it: powers of 1024, rounded up, one decimal below
++## 10 (224M, 9.6G, 1.0T).
++static func human_size(bytes: int) -> String:
++	const UNITS: PackedStringArray = ["K", "M", "G", "T", "P", "E"]
++	if bytes < 1024:
++		return str(bytes)
++	var value := float(bytes)
++	var unit := -1
++	while value >= 1024.0 and unit < UNITS.size() - 1:
++		value /= 1024.0
++		unit += 1
++	if value < 10.0:
++		value = ceilf(value * 10.0) / 10.0
++		if value < 10.0:
++			return "%.1f%s" % [value, UNITS[unit]]
++	value = ceilf(value)
++	if value >= 1024.0 and unit < UNITS.size() - 1:
++		return "1.0" + UNITS[unit + 1]
++	return "%d%s" % [int(value), UNITS[unit]]
++
++
+ ## Populates the partition grid with an item for every PartitionDevice on this BlockDevice
+ func _populate_partitions() -> void:
+ 	_clear_partitions()
+@@ -180,6 +209,9 @@ func _populate_partitions() -> void:
+ 		if partition.partition_name.contains("/dev/loop"):
+ 			continue
+ 
++		if not shown_partitions.is_empty() and not shown_partitions.has(partition.dbus_path):
++			continue
++
+ 		logger.debug("Drive has partition to set up:", partition.dbus_path)
+ 		var partition_card := partition_card_scene.instantiate() as PartitionCard
+ 		partitions_container.add_child(partition_card)
+diff --git a/core/ui/components/partition_card.gd b/core/ui/components/partition_card.gd
+index 09c594b..bcf6821 100644
+--- a/core/ui/components/partition_card.gd
++++ b/core/ui/components/partition_card.gd
+@@ -30,6 +30,7 @@ func setup(device: PartitionDevice) -> void:
+ 	filesystem_label.text = self.partition_device.get_filesystem_type()
+ 	size_label.text = partition_device.get_readable_size()
+ 	_populate_mounts()
++	_show_filesystem_size()
+ 
+ 	# Setup SteamRemovableMedia interfaces
+ 	if steam_disks.init_capable:
+@@ -85,3 +86,25 @@ func _populate_mounts() -> void:
+ 		fs_label.text = mount
+ 		mounts_container.add_child(fs_label)
+ 		fs_label.visible = true
++
++
++## Shows the mounted filesystem's size and free space as `df -h` does (binary units), instead
++## of the partition's size in decimal units (a 256 MiB /var showed as "268.44 MB", df "224M").
++func _show_filesystem_size() -> void:
++	var filesystem := partition_device.get_filesystem()
++	if not filesystem:
++		return
++	var mounts := filesystem.get_mounts()
++	if mounts.is_empty():
++		return
++	var output := []
++	if OS.execute("df", ["-B1", "--output=size,avail", "--", mounts[0]], output) != 0 or output.is_empty():
++		return
++	# "     1B-blocks        Avail\n     234620928    190115840\n"
++	var lines := (output[0] as String).split("\n", false)
++	if lines.size() < 2:
++		return
++	var fields := lines[1].split(" ", false)
++	if fields.size() < 2 or not fields[0].is_valid_int() or not fields[1].is_valid_int():
++		return
++	size_label.text = "%s (%s free)" % [DriveCard.human_size(fields[0].to_int()), DriveCard.human_size(fields[1].to_int())]
