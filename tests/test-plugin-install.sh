@@ -11,7 +11,8 @@
 #     update brings a newer plugin, and a beta -> stable channel switch an OLDER one that must win
 #     too (the image is the plugin's only source; a newer copy left behind calls tools the stable
 #     image does not have);
-#   - never rewrite a copy of the same version;
+#   - replace a same-version copy whose bytes differ (plugin changes land without a version bump),
+#     but never rewrite a byte-identical one;
 #   - an unreadable installed zip counts as missing (it would never load);
 #   - the copy is atomic: OGUI must never find a half-written retroforge.zip;
 #   - a broken image copy is an error, not an install.
@@ -57,10 +58,10 @@ cmp -s "$SRC" "$DST" && ok "the installed zip is byte-identical to the image's" 
 [ "$(ls -A "$DST_DIR")" = retroforge.zip ] && ok "no temporary file left beside it" || bad "left: $(ls -A "$DST_DIR")"
 [ "$(stat -c %a "$DST")" = 644 ] && ok "mode 644" || bad "mode $(stat -c %a "$DST")"
 
-CASE="same version"
+CASE="identical copy"
 touch -d '2001-01-01' "$DST"; before="$(stat -c %Y "$DST")"
 run
-[ "$RC" = 0 ] && [ "$(stat -c %Y "$DST")" = "$before" ] && ok "same version: left alone" || bad "rewritten (rc=$RC)"
+[ "$RC" = 0 ] && [ "$(stat -c %Y "$DST")" = "$before" ] && ok "byte-identical: left alone" || bad "rewritten (rc=$RC)"
 
 CASE="OS update brings a newer plugin"
 mkzip "$SRC" 0.10.0
@@ -94,6 +95,17 @@ mkzip "$SRC" 0.12.0; rm -rf "$DST_DIR"
 run
 [ -z "$OUT" ] && ok "prints nothing on stdout (the session's log gets stderr)" || bad "stdout: $OUT"
 [ -f "$DST" ] && ok "creates the plugins folder when OGUI has not yet" || bad "no plugins folder created"
+
+CASE="same version, other contents"
+mkzip "$SRC" 0.12.0
+python3 -c 'import sys,zipfile; zipfile.ZipFile(sys.argv[1],"a").writestr("plugins/retroforge/extra.gd","# edit\n")' "$SRC"
+run
+[ "$RC" = 0 ] && cmp -s "$SRC" "$DST" && ok "a same-version copy with other bytes is replaced" || bad "kept (rc=$RC)"
+[ "$(ls -A "$DST_DIR")" = retroforge.zip ] && ok "no temporary file left beside it" || bad "left: $(ls -A "$DST_DIR")"
+case "$ERR" in *"contents changed"*) ok "the log says why";; *) bad "log: $ERR";; esac
+touch -d '2001-01-01' "$DST"; before="$(stat -c %Y "$DST")"
+run
+[ "$RC" = 0 ] && [ "$(stat -c %Y "$DST")" = "$before" ] && [ -z "$ERR" ] && ok "... and left alone on the next start" || bad "rewritten (rc=$RC err=$ERR)"
 
 echo
 echo "$PASS passed, $FAIL failed"
