@@ -1,3 +1,0 @@
-# Optional: only needed for GeoIP country lookup. Without it the server runs and stores country = NULL
-# (or takes it from a trusted proxy's CF-IPCountry header, see README).
-maxminddb>=2.0

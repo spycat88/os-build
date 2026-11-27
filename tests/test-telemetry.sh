@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # Offline check for the device report: the REAL client (rootfs/overlay/usr/bin/retroforge-telemetry)
-# against the REAL server (telemetry-server/server.py) on localhost, over a fabricated sysfs.
+# against the REAL server (telemetry-server/, PHP's built-in web server) on localhost, over a fabricated sysfs.
 #
 #   tests/test-telemetry.sh
 #
 # Asserts: the device ID is md5sum(serial) cut to 20; nothing is sent without a recorded yes (no
 # answer, or "off" from the consent screen) and every off source beats a yes; a first report inserts
-# and a second updates (report_count, first_seen kept, last_seen moved, version history row per build); a dead server costs exactly ATTEMPTS tries and exit 1; the server refuses
-# malformed IDs and never stores an IP. Runs on the host with no root and no device.
+# and a second updates (report_count, first_seen kept, last_seen moved, version history row per build);
+# a dead server costs exactly ATTEMPTS tries and exit 1; the server refuses malformed IDs and never
+# stores an IP; the stats page needs its password and then shows the device. Runs on the host with no
+# root and no device; needs php-cli with pdo_sqlite (skipped without it).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLIENT="$ROOT/rootfs/overlay/usr/bin/retroforge-telemetry"
-SERVER="$ROOT/telemetry-server/server.py"
+SERVER="$ROOT/telemetry-server"
+command -v php >/dev/null && php -m | grep -qi pdo_sqlite || { echo "test-telemetry: SKIP (php-cli with pdo_sqlite not installed)"; exit 0; }
 TMP=$(mktemp -d)
 export PYTHONPYCACHEPREFIX="$TMP/pycache"
 PASS=0; FAIL=0
@@ -45,7 +48,7 @@ export RETROFORGE_TELEMETRY_SERIAL=$F/soc0/serial_number RETROFORGE_TELEMETRY_SO
   RETROFORGE_TELEMETRY_DEVICE_ENV=$F/device-env RETROFORGE_TELEMETRY_CONFIG=$F/etc/telemetry.conf \
   RETROFORGE_TELEMETRY_USER_CONFIG=$F/home/telemetry.conf RETROFORGE_OTA_CONFIG=$F/etc/ota.conf \
   RETROFORGE_OTA_USER_CONFIG=$F/home/ota.conf RETROFORGE_TELEMETRY_STATE=$F/state.json \
-  RETROFORGE_TELEMETRY_URL=http://127.0.0.1:$PORT/v1/report RETROFORGE_TELEMETRY_INTERVAL=1
+  RETROFORGE_TELEMETRY_URL=http://127.0.0.1:$PORT/report.php RETROFORGE_TELEMETRY_INTERVAL=1
 
 # --- payload -----------------------------------------------------------------------------------
 want_id=$(md5sum "$F/soc0/serial_number" | cut -c1-20)
@@ -79,10 +82,14 @@ check "dead server exits 1"            '[[ $rc == 1 ]]'
 check "dead server tried 3 times"      '[[ $(grep -c "failed" <<<"$out") == 3 ]]'
 
 # --- live server -------------------------------------------------------------------------------
-DB=$TMP/t.db
-TELEMETRY_DB=$DB TELEMETRY_LISTEN=127.0.0.1:$PORT TELEMETRY_STATS_TOKEN=s3cret python3 "$SERVER" 2>"$TMP/server.log" &
+DB=$TMP/www/data/telemetry.db
+cp -a "$SERVER" "$TMP/www"
+cat >"$TMP/www/config.php" <<PHPEOF
+<?php return ['db' => '$DB', 'geoip_db' => '', 'trust_proxy' => false, 'stats_password' => 's3cret', 'stats_public' => false];
+PHPEOF
+php -S 127.0.0.1:$PORT -t "$TMP/www" >"$TMP/server.log" 2>&1 &
 SPID=$!; trap 'kill $SPID 2>/dev/null; rm -rf "$TMP"' EXIT
-for _ in $(seq 50); do curl -fs "http://127.0.0.1:$PORT/healthz" >/dev/null && break; sleep 0.1; done
+for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$PORT/report.php" >/dev/null && break; sleep 0.1; done
 
 python3 "$CLIENT" run 2>"$TMP/c1"; rc=$?
 check "first report exits 0"           '[[ $rc == 0 ]]'
@@ -101,7 +108,6 @@ check "version updated"                '[[ $(q "select os_version_id from device
 check "first version kept"             '[[ $(q "select first_version_id from devices") == 1.2.0 ]]'
 check "two builds in history"          '[[ $(q "select count(*) from device_builds") == 2 ]]'
 check "no IP in database"              '! strings "$DB" | grep -q 127.0.0.1'
-check "no IP in server log"            '! grep -v "^listening" "$TMP/server.log" | grep -q 127.0.0.1'
 
 # --- consent withdrawn, and offs that beat a yes ----------------------------------------------
 n() { q "select report_count from devices"; }
@@ -121,11 +127,20 @@ python3 "$CLIENT" enable >/dev/null; python3 "$CLIENT" run 2>/dev/null
 check "enable gives consent"           '[[ $(n) == $((before+1)) ]]'
 
 # --- server validation -------------------------------------------------------------------------
-post() { curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d "$1" "http://127.0.0.1:$PORT/v1/report"; }
+post() { curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d "$1" "http://127.0.0.1:$PORT/report.php"; }
 check "bad id refused"                 '[[ $(post "{\"schema\":1,\"device_id\":\"ZZ\"}") == 400 ]]'
 check "unknown schema refused"         '[[ $(post "{\"schema\":9,\"device_id\":\"0123456789abcdef0123\"}") == 400 ]]'
-check "stats needs token"              '[[ $(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/v1/stats) == 401 ]]'
-check "stats with token"               'curl -fs -H "Authorization: Bearer s3cret" http://127.0.0.1:$PORT/v1/stats | grep -q "\"devices\": 1"'
+check "GET refused"                    '[[ $(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/report.php) == 405 ]]'
+S=http://127.0.0.1:$PORT/stats.php; J=$TMP/cookies
+check "stats asks for the password"    'curl -fs "$S" | grep -q "type=\"password\""'
+check "stats: no data without it"      '! curl -fs "$S" | grep -q "AYN Odin 2"'
+check "stats: wrong password refused"  'curl -fs -d password=nope "$S" | grep -q "Wrong password"'
+curl -fs -c "$J" -b "$J" -d password=s3cret "$S" -o /dev/null
+page=$(curl -fs -c "$J" -b "$J" "$S?days=7")
+check "stats: signed in shows model"   'grep -q "AYN Odin 2" <<<"$page"'
+check "stats: shows the device"        'grep -q "$want_id" <<<"$page"'
+check "stats: active-per-day chart"    'grep -q "<rect" <<<"$page"'
+check "stats: no PHP warnings"         '! grep -qiE "warning|notice|deprecated|fatal" <<<"$page"'
 
 echo "test-telemetry: $PASS passed, $FAIL failed"
 [[ $FAIL == 0 ]]

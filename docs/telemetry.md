@@ -1,7 +1,7 @@
 # Device telemetry
 
 Every boot, `retroforge-telemetry.service` sends one small anonymous report to
-`https://telemetry.retroforge.org/v1/report`, so the project knows which devices, SoCs and releases
+`https://telemetry.retroforge.org/report.php`, so the project knows which devices, SoCs and releases
 are in use and how fast an update rolls out. **Only if the user said yes**: first-boot setup asks,
 after the Wi-Fi step, with a toggle that starts on. Without a recorded yes the service never runs.
 
@@ -12,7 +12,7 @@ after the Wi-Fi step, with a toggle that starts on. Without a recorded yes the s
 | Consent trigger | `retroforge-telemetry.path`: starts the service when the answer is written, so a yes reports in the same boot |
 | Consent screen | OpenGamepadUI patch `packages/opengamepadui/patches/0060-first-boot-asks-for-telemetry-consent.patch` |
 | Image setting | `rootfs/overlay/etc/retroforge/telemetry.conf` |
-| Server, schema, deploy notes | `telemetry-server/` (not part of the image) |
+| Server, schema, deploy notes | `telemetry-server/` (PHP + SQLite, with a stats page; not part of the image) |
 | Test | `tests/test-telemetry.sh` (client against the real server on localhost, fake sysfs) |
 
 ## When it runs

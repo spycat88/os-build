@@ -1,4 +1,4 @@
--- retroforge telemetry database (SQLite 3.24+ for UPSERT). server.py applies this on start;
+-- retroforge telemetry database (SQLite 3.24+ for UPSERT). lib/common.php applies it on every request;
 -- every statement is idempotent, so it is safe to run against a live database.
 --
 -- Timestamps are UTC, ISO 8601 text ('2026-11-26T23:45:16Z'): sortable, readable in the sqlite3
@@ -52,3 +52,12 @@ CREATE TABLE IF NOT EXISTS device_builds (
     first_seen    TEXT NOT NULL,
     PRIMARY KEY (device_id, os_build_id)
 );
+
+-- Which devices reported on which UTC day: one row per (day, device), however many boots. It is what
+-- the stats page's "active devices per day" chart counts, which last_seen alone cannot answer for any
+-- day but today. Grows by (active devices x days); prune with the DELETE in README.md if it matters.
+CREATE TABLE IF NOT EXISTS device_days (
+    day       TEXT NOT NULL,                      -- 'YYYY-MM-DD', UTC
+    device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    PRIMARY KEY (day, device_id)
+) WITHOUT ROWID;

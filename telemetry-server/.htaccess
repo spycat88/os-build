@@ -1,0 +1,6 @@
+# Apache: only report.php and stats.php are served from this folder.
+Options -Indexes
+<FilesMatch "^(config\.php|config\.sample\.php|schema\.sql|README\.md|geoip-update\.sh)$">
+    Require all denied
+</FilesMatch>
+DirectoryIndex stats.php

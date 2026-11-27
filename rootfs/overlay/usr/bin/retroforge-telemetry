@@ -75,7 +75,7 @@ OTA_CONFIG = _env("RETROFORGE_OTA_CONFIG", "/etc/retroforge/ota.conf")
 OTA_USER_CONFIG = _env("RETROFORGE_OTA_USER_CONFIG", "/home/player/.config/retroforge/ota.conf")
 STATE_FILE = _env("RETROFORGE_TELEMETRY_STATE", "/var/lib/retroforge/telemetry.json")
 
-DEFAULT_URL = "https://telemetry.retroforge.org/v1/report"
+DEFAULT_URL = "https://telemetry.retroforge.org/report.php"
 ATTEMPTS = int(_env("RETROFORGE_TELEMETRY_ATTEMPTS", "3"))
 INTERVAL = int(_env("RETROFORGE_TELEMETRY_INTERVAL", "300"))  # seconds between attempts
 TIMEOUT = 20
