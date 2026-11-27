@@ -1,3 +1,5 @@
-# Once-per-boot anonymous device report. The opt-out is a setting the program reads, not the unit's
-# enablement, so a user's choice survives preset-all and every OTA (it lives on /home).
+# Once-per-boot anonymous device report, and its start on a change of consent. Enabled everywhere:
+# whether it may send is the user's recorded answer (the unit's ExecCondition), not the unit's
+# enablement, so the answer survives preset-all and every OTA (it lives on /home).
 enable retroforge-telemetry.service
+enable retroforge-telemetry.path

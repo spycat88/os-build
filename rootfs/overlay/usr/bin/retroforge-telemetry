@@ -4,10 +4,11 @@
 #   retroforge-telemetry run        what the boot unit runs: up to 3 attempts, 5 minutes apart, then exit
 #   retroforge-telemetry show       print the exact JSON that would be sent, and send nothing
 #   retroforge-telemetry status     enabled or not, and why; the device ID; the last result
-#   retroforge-telemetry disable    opt out (writes the user setting; survives OTA)
-#   retroforge-telemetry enable     opt back in
+#   retroforge-telemetry consented  exit 0 only if the user said yes (the unit's ExecCondition)
+#   retroforge-telemetry disable    withdraw consent (writes the user setting; survives OTA)
+#   retroforge-telemetry enable     give consent
 #
-# exit 0 = reported, or telemetry is off (an opt-out is not a failure)
+# exit 0 = reported, or telemetry is off (no consent is not a failure)
 # exit 1 = every attempt failed
 # exit 2 = usage
 #
@@ -25,12 +26,16 @@
 # sees. A board whose socinfo reports no serial sends no report at all rather than an ID that would
 # collide with every other such board.
 #
-# OPTING OUT. Any one of these turns it off; the unit then exits 0 without touching the network:
-#   /home/player/.config/retroforge/telemetry.conf  TELEMETRY=off   (the user's switch; `disable` writes it)
-#   /etc/retroforge/telemetry.conf                  TELEMETRY=off   (the image/operator's switch)
+# CONSENT. Nothing is sent unless the user said yes: TELEMETRY=on in
+#   /home/player/.config/retroforge/telemetry.conf
+# which the first-boot setup's consent screen writes (OpenGamepadUI patch 0060; its toggle starts on,
+# and a "no" writes TELEMETRY=off). Until then there is no file, and no file is a no. The unit's
+# ExecCondition runs `consented` first, so without a yes the report is skipped before it starts.
+# `retroforge-telemetry enable|disable` rewrites the same file. Any of these turn it off even over a yes:
+#   /etc/retroforge/telemetry.conf                  TELEMETRY=off   (an image that never reports)
 #   retroforge.telemetry=0 on the kernel command line
 #   RETROFORGE_TELEMETRY=off in the environment
-# The user file lives on /home, which both A/B slots share, so an opt-out survives every OTA.
+# The user file lives on /home, which both A/B slots share, so the answer survives every OTA.
 #
 # RETRY POLICY. Attempt 1 as soon as the unit starts (after network-online.target, which NM gives up
 # on after its own timeout, so a device with no Wi-Fi still gets here). On failure, wait 5 minutes and
@@ -104,28 +109,34 @@ def read_env_file(path):
     return values
 
 
-# --- opt-out ---------------------------------------------------------------------------------------
+# --- consent ---------------------------------------------------------------------------------------
 
 def enabled():
-    """(on?, reason). The first source that says anything decides; silence everywhere = on."""
+    """(on?, reason). CONSENT, NOT OPT-OUT: on only when the user said yes — TELEMETRY=on in the user
+    file, which the first-boot consent screen (OpenGamepadUI patch 0060) or `enable` writes. No file
+    (setup not finished, or a device set up before the screen existed) is a no. Any off anywhere wins
+    over that yes, so the image, the cmdline and the environment can only ever turn it off."""
     env = _env("RETROFORGE_TELEMETRY")
-    if env:
-        return env.lower() not in OFF_WORDS, "RETROFORGE_TELEMETRY"
+    if env and env.lower() in OFF_WORDS:
+        return False, "RETROFORGE_TELEMETRY"
     m = re.search(r"(?:^|\s)retroforge\.telemetry=(\S+)", read(CMDLINE) or "")
-    if m:
-        return m.group(1).lower() not in OFF_WORDS, "kernel command line"
-    for path in (USER_CONFIG_FILE, CONFIG_FILE):
-        value = read_env_file(path).get("TELEMETRY")
-        if value:
-            return value.lower() not in OFF_WORDS, path
-    return True, "default"
+    if m and m.group(1).lower() in OFF_WORDS:
+        return False, "kernel command line"
+    if (read_env_file(CONFIG_FILE).get("TELEMETRY") or "").lower() in OFF_WORDS:
+        return False, CONFIG_FILE
+    value = (read_env_file(USER_CONFIG_FILE).get("TELEMETRY") or "").lower()
+    if value == "on":
+        return True, USER_CONFIG_FILE
+    if value:
+        return False, f"declined ({USER_CONFIG_FILE})"
+    return False, "not asked yet (no answer in " + USER_CONFIG_FILE + ")"
 
 
 def set_user_setting(on):
     os.makedirs(os.path.dirname(USER_CONFIG_FILE), exist_ok=True)
     tmp = USER_CONFIG_FILE + ".tmp"
     with open(tmp, "w") as f:
-        f.write("# Written by `retroforge-telemetry enable|disable`. TELEMETRY=off stops the boot report.\n")
+        f.write("# Written by `retroforge-telemetry enable|disable`. Only TELEMETRY=on lets the boot report run.\n")
         f.write(f"TELEMETRY={'on' if on else 'off'}\n")
     os.replace(tmp, USER_CONFIG_FILE)
     # Root writing into the player's home must not leave a file the player cannot change back.
@@ -314,7 +325,7 @@ def run():
         save_state("skipped", "no serial")
         return 0
     for attempt in range(1, ATTEMPTS + 1):
-        # Re-read the opt-out each round: a user who switches it off during the wait is obeyed.
+        # Re-read the consent each round: a user who switches it off during the wait is obeyed.
         if not enabled()[0]:
             log("switched off while waiting; nothing sent")
             return 0
@@ -357,11 +368,17 @@ def main(argv):
         return 0
     if cmd == "status":
         return status()
+    if cmd == "consented":
+        # The unit's ExecCondition: exit 0 = go, exit 1 = systemd skips the unit (not a failure).
+        on, why = enabled()
+        if not on:
+            log(f"off: {why}")
+        return 0 if on else 1
     if cmd in ("enable", "disable"):
         set_user_setting(cmd == "enable")
         print(f"telemetry {cmd}d ({USER_CONFIG_FILE})")
         return 0
-    print("usage: retroforge-telemetry [run|show|status|enable|disable]", file=sys.stderr)
+    print("usage: retroforge-telemetry [run|show|status|consented|enable|disable]", file=sys.stderr)
     return 2
 
 

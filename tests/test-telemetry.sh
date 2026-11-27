@@ -4,9 +4,9 @@
 #
 #   tests/test-telemetry.sh
 #
-# Asserts: the device ID is md5sum(serial) cut to 20; a first report inserts and a second updates
-# (report_count, first_seen kept, last_seen moved, version history row per build); every opt-out
-# source stops the send; a dead server costs exactly ATTEMPTS tries and exit 1; the server refuses
+# Asserts: the device ID is md5sum(serial) cut to 20; nothing is sent without a recorded yes (no
+# answer, or "off" from the consent screen) and every off source beats a yes; a first report inserts
+# and a second updates (report_count, first_seen kept, last_seen moved, version history row per build); a dead server costs exactly ATTEMPTS tries and exit 1; the server refuses
 # malformed IDs and never stores an IP. Runs on the host with no root and no device.
 set -uo pipefail
 
@@ -60,6 +60,19 @@ check "boot slot"                      '[[ $(get boot_slot) == B ]]'
 check "default channel stable"         '[[ $(get ota_channel) == stable ]]'
 check "ram"                            '[[ $(get ram_mb) == 15625 ]]'
 
+# --- consent: no answer yet = nothing at all --------------------------------------------------
+out=$(python3 "$CLIENT" run 2>&1); rc=$?
+check "no answer: exits 0"             '[[ $rc == 0 ]]'
+check "no answer: no attempt"          '! grep -q attempt <<<"$out"'
+python3 "$CLIENT" consented 2>/dev/null; rc=$?
+check "no answer: condition fails"     '[[ $rc == 1 ]]'
+echo TELEMETRY=off >"$F/home/telemetry.conf"   # what the consent screen writes for "no"
+python3 "$CLIENT" consented 2>/dev/null; rc=$?
+check "declined: condition fails"      '[[ $rc == 1 ]]'
+echo TELEMETRY=on >"$F/home/telemetry.conf"    # ... and for "yes"
+python3 "$CLIENT" consented 2>/dev/null; rc=$?
+check "consented: condition passes"    '[[ $rc == 0 ]]'
+
 # --- dead server: 3 tries then exit 1 ----------------------------------------------------------
 out=$(python3 "$CLIENT" run 2>&1); rc=$?
 check "dead server exits 1"            '[[ $rc == 1 ]]'
@@ -90,21 +103,22 @@ check "two builds in history"          '[[ $(q "select count(*) from device_buil
 check "no IP in database"              '! strings "$DB" | grep -q 127.0.0.1'
 check "no IP in server log"            '! grep -v "^listening" "$TMP/server.log" | grep -q 127.0.0.1'
 
-# --- opt-outs ----------------------------------------------------------------------------------
+# --- consent withdrawn, and offs that beat a yes ----------------------------------------------
 n() { q "select report_count from devices"; }
 before=$(n)
 RETROFORGE_TELEMETRY=off python3 "$CLIENT" run 2>/dev/null
-check "env opt-out"                    '[[ $(n) == $before ]]'
+check "env off beats yes"              '[[ $(n) == $before ]]'
 echo 'root=x retroforge.telemetry=0' >"$F/cmdline"; python3 "$CLIENT" run 2>/dev/null
-check "cmdline opt-out"                '[[ $(n) == $before ]]'
+check "cmdline off beats yes"          '[[ $(n) == $before ]]'
 echo 'root=x' >"$F/cmdline"
 echo TELEMETRY=off >"$F/etc/telemetry.conf"; python3 "$CLIENT" run 2>/dev/null
-check "image opt-out"                  '[[ $(n) == $before ]]'
+check "image off beats yes"            '[[ $(n) == $before ]]'
+rm "$F/etc/telemetry.conf"
+RETROFORGE_TELEMETRY=on python3 "$CLIENT" disable >/dev/null; RETROFORGE_TELEMETRY=on python3 "$CLIENT" run 2>/dev/null; rc=$?
+check "withdrawn: env cannot force on" '[[ $(n) == $before ]]'
+check "withdrawn: exits 0"             '[[ $rc == 0 ]]'
 python3 "$CLIENT" enable >/dev/null; python3 "$CLIENT" run 2>/dev/null
-check "user opt-in beats image off"    '[[ $(n) == $((before+1)) ]]'
-python3 "$CLIENT" disable >/dev/null; python3 "$CLIENT" run 2>/dev/null; rc=$?
-check "user opt-out"                   '[[ $(n) == $((before+1)) ]]'
-check "opt-out exits 0"                '[[ $rc == 0 ]]'
+check "enable gives consent"           '[[ $(n) == $((before+1)) ]]'
 
 # --- server validation -------------------------------------------------------------------------
 post() { curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d "$1" "http://127.0.0.1:$PORT/v1/report"; }

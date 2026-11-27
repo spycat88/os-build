@@ -1,0 +1,14 @@
+# Starts retroforge-telemetry.service when the user's consent is written (first-boot screen,
+# OpenGamepadUI patch 0060, or `retroforge-telemetry enable|disable`), so a "yes" given during setup
+# reports in that same boot. The service's ExecCondition still decides: a "no" written here starts
+# nothing past the condition. PathChanged fires on a finished write, not on the file merely existing,
+# so this adds no start at boot beyond the service's own.
+[Unit]
+Description=RetroForge device report on a change of consent
+
+[Path]
+PathChanged=/home/player/.config/retroforge/telemetry.conf
+Unit=retroforge-telemetry.service
+
+[Install]
+WantedBy=paths.target

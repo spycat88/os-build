@@ -6,8 +6,13 @@
 # "active" while it waits and never holds up multi-user.target (a oneshot would block boot for up to
 # ten minutes on a device with no network).
 #
-# Opt-out is checked by the program (TELEMETRY=off in ~player/.config/retroforge/telemetry.conf or
-# /etc/retroforge/telemetry.conf, or retroforge.telemetry=0 on the cmdline); off = exit 0 at once.
+# CONSENT GATE. It runs only after the user said yes on the first-boot consent screen (OpenGamepadUI
+# patch 0060), which writes TELEMETRY=on|off to ~player/.config/retroforge/telemetry.conf. The
+# ExecCondition asks the program, which also honours an off in /etc/retroforge/telemetry.conf or
+# retroforge.telemetry=0 on the cmdline: without a yes systemd skips the unit and nothing else runs.
+#
+# Started at boot (multi-user.target) and by retroforge-telemetry.path when the answer is written,
+# so the first report follows the setup screen instead of waiting for the second boot.
 [Unit]
 Description=RetroForge anonymous device report
 Wants=network-online.target
@@ -15,6 +20,7 @@ After=network-online.target time-sync.target home.mount
 
 [Service]
 Type=exec
+ExecCondition=/usr/bin/retroforge-telemetry consented
 ExecStart=/usr/bin/retroforge-telemetry run
 Restart=no
 Nice=10

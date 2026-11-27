@@ -1,0 +1,263 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: retroforge <retroforge@invalid>
+Date: Fri, 27 Nov 2026 00:30:00 +0000
+Subject: [PATCH] first boot: ask for consent to the anonymous device report
+
+A new first-boot step, after the network one, asks whether RetroForge may send its anonymous
+once-per-boot device report (rootfs retroforge-telemetry, docs/telemetry.md). It says what is
+sent, and has one toggle, on to start with. Next writes the answer, TELEMETRY=on or off, to
+~/.config/retroforge/telemetry.conf, which the report reads: with no file, or off, it never runs.
+
+The step is never skipped: language select goes to it when there is no networking or the device is
+online already (where it used to go to the end, or to the plugin step 0039 skips), and the network
+step's Next always goes to it. Its Next goes on to the end. B goes back, as on every step.
+---
+diff -ruN a/assets/state/states/first_boot_telemetry.tres b/assets/state/states/first_boot_telemetry.tres
+--- /dev/null
++++ b/assets/state/states/first_boot_telemetry.tres
+@@ -0,0 +1,8 @@
++[gd_resource type="Resource" script_class="State" load_steps=2 format=3]
++
++[ext_resource type="Script" uid="uid://dxut26n2hvlp6" path="res://core/systems/state/state.gd" id="1_rftel"]
++
++[resource]
++script = ExtResource("1_rftel")
++name = "Telemetry"
++data = {}
+diff -ruN a/core/ui/card_ui/ootbe/first_boot_menu.tscn b/core/ui/card_ui/ootbe/first_boot_menu.tscn
+--- a/core/ui/card_ui/ootbe/first_boot_menu.tscn
++++ b/core/ui/card_ui/ootbe/first_boot_menu.tscn
+@@ -1,4 +1,4 @@
+-[gd_scene load_steps=14 format=3 uid="uid://b30stcxjwk3od"]
++[gd_scene load_steps=15 format=3 uid="uid://b30stcxjwk3od"]
+ 
+ [ext_resource type="Script" uid="uid://cnkkdycxgokbw" path="res://core/ui/card_ui/ootbe/first_boot_menu.gd" id="1_37dam"]
+ [ext_resource type="PackedScene" uid="uid://cwdf3dyj7grrk" path="res://core/ui/card_ui/ootbe/language_select.tscn" id="2_djjvb"]
+@@ -13,6 +13,7 @@
+ [ext_resource type="PackedScene" uid="uid://cx0pugv62qwkw" path="res://core/ui/card_ui/ootbe/plugin_setup.tscn" id="6_jawcd"]
+ [ext_resource type="PackedScene" uid="uid://bw8113ocotx2r" path="res://core/systems/effects/fade_effect.tscn" id="7_4d0j5"]
+ [ext_resource type="PackedScene" uid="uid://lbf0ycha2pav" path="res://core/ui/card_ui/ootbe/finished_menu.tscn" id="12_5m0q4"]
++[ext_resource type="PackedScene" path="res://core/ui/card_ui/ootbe/telemetry_select.tscn" id="13_rftel"]
+ 
+ [node name="FirstBootMenu" type="Control"]
+ layout_mode = 3
+@@ -64,6 +65,10 @@ layout_mode = 2
+ visible = false
+ layout_mode = 2
+ 
++[node name="TelemetrySelect" parent="ContentContainer" instance=ExtResource("13_rftel")]
++visible = false
++layout_mode = 2
++
+ [node name="FinishMenu" parent="ContentContainer" instance=ExtResource("12_5m0q4")]
+ unique_name_in_owner = true
+ visible = false
+diff -ruN a/core/ui/card_ui/ootbe/language_select.gd b/core/ui/card_ui/ootbe/language_select.gd
+--- a/core/ui/card_ui/ootbe/language_select.gd
++++ b/core/ui/card_ui/ootbe/language_select.gd
+@@ -33,13 +33,15 @@ func _on_button_up(locale: String) -> void:
+ 	TranslationServer.set_locale(locale)
+ 	settings_manager.set_value("general", "locale", locale)
+ 
+-	# Determine the next state to go to
++	# Determine the next state to go to. RetroForge: the telemetry question is never skipped, so
++	# without networking or already online it comes next, and after the network step otherwise.
++	var telemetry_state := load("res://assets/state/states/first_boot_telemetry.tres") as State
+ 	if not network_manager.is_running():
+-		state_machine.push_state(no_networking_state)
++		state_machine.push_state(telemetry_state)
+ 		return
+ 	var next_state: State
+ 	if network_manager.state >= network_manager.NM_STATE_CONNECTED_GLOBAL:
+-		next_state = load("res://assets/state/states/first_boot_plugin_select.tres") as State
++		next_state = telemetry_state
+ 	else:
+ 		next_state = load("res://assets/state/states/first_boot_network.tres") as State
+ 	state_machine.push_state(next_state)
+diff -ruN a/core/ui/card_ui/ootbe/network_select.gd b/core/ui/card_ui/ootbe/network_select.gd
+--- a/core/ui/card_ui/ootbe/network_select.gd
++++ b/core/ui/card_ui/ootbe/network_select.gd
+@@ -55,16 +55,9 @@ func _ready() -> void:
+ 
+ 
+ func _on_next_button() -> void:
+-	# Determine the next state to go to
+-	if not network_manager.is_running():
+-		state_machine.push_state(no_networking_state)
+-		return
+-	var next_state: State
+-	if network_manager.state >= network_manager.NM_STATE_CONNECTED_GLOBAL:
+-		next_state = load("res://assets/state/states/first_boot_plugin_select.tres") as State
+-	else:
+-		next_state = load("res://assets/state/states/first_boot_finished.tres") as State
+-	state_machine.push_state(next_state)
++	# RetroForge: the telemetry question follows the network step whatever came of it (connected,
++	# skipped, or no networking at all); it is the one step a user may not miss.
++	state_machine.push_state(load("res://assets/state/states/first_boot_telemetry.tres") as State)
+ 
+ 
+ # If a wifi password is needed, this method will be called. The callback
+diff -ruN a/core/ui/card_ui/ootbe/telemetry_select.gd b/core/ui/card_ui/ootbe/telemetry_select.gd
+--- /dev/null
++++ b/core/ui/card_ui/ootbe/telemetry_select.gd
+@@ -0,0 +1,55 @@
++extends MarginContainer
++## RetroForge: first-boot consent to the anonymous device report (retroforge-telemetry).
++##
++## The answer is written to the file the report reads, TELEMETRY=on or TELEMETRY=off in
++## ~/.config/retroforge/telemetry.conf, when Next is pressed, and only then. Until a user has
++## answered here (or with `retroforge-telemetry enable`) there is no file and nothing is ever sent:
++## the report needs a recorded yes, not the absence of a no. The toggle starts on.
++
++const CONSENT_KEY := "TELEMETRY"
++
++var state_machine := load("res://assets/state/state_machines/first_boot_state_machine.tres") as StateMachine
++var finished_state := load("res://assets/state/states/first_boot_finished.tres") as State
++
++var logger := Log.get_logger("TelemetrySelect")
++
++@onready var toggle := $%TelemetryToggle as Toggle
++@onready var next_button := $%NextButton as CardButton
++
++
++func _ready() -> void:
++	toggle.button_pressed = true
++	next_button.button_up.connect(_on_next_button)
++
++
++func _on_next_button() -> void:
++	save_consent(toggle.button_pressed)
++	state_machine.push_state(finished_state)
++
++
++## Where the answer is kept: the user's half of /home, which both A/B slots share, so it survives
++## every update. RETROFORGE_TELEMETRY_USER_CONFIG is the client's own override of the same path.
++static func consent_path() -> String:
++	var path := OS.get_environment("RETROFORGE_TELEMETRY_USER_CONFIG")
++	if path.is_empty():
++		path = OS.get_environment("HOME").path_join(".config/retroforge/telemetry.conf")
++	return path
++
++
++static func save_consent(on: bool) -> bool:
++	var path := consent_path()
++	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
++	var tmp := path + ".tmp"
++	var file := FileAccess.open(tmp, FileAccess.WRITE)
++	if file == null:
++		Log.get_logger("TelemetrySelect").error("cannot write " + tmp + ": " + str(FileAccess.get_open_error()))
++		return false
++	file.store_string("# Written by the first-boot setup. TELEMETRY=off stops the boot report; `retroforge-telemetry enable|disable` changes it.\n")
++	file.store_string(CONSENT_KEY + "=" + ("on" if on else "off") + "\n")
++	file.close()
++	var err := DirAccess.rename_absolute(tmp, path)
++	if err != OK:
++		Log.get_logger("TelemetrySelect").error("cannot replace " + path + ": " + str(err))
++		return false
++	Log.get_logger("TelemetrySelect").info("Telemetry " + ("allowed" if on else "declined"))
++	return true
+diff -ruN a/core/ui/card_ui/ootbe/telemetry_select.tscn b/core/ui/card_ui/ootbe/telemetry_select.tscn
+--- /dev/null
++++ b/core/ui/card_ui/ootbe/telemetry_select.tscn
+@@ -0,0 +1,101 @@
++[gd_scene load_steps=13 format=3]
++
++[ext_resource type="Script" path="res://core/ui/card_ui/ootbe/telemetry_select.gd" id="1_rftel"]
++[ext_resource type="Resource" uid="uid://bj8aa7rky3u36" path="res://assets/state/state_machines/first_boot_state_machine.tres" id="2_8r7jx"]
++[ext_resource type="PackedScene" uid="uid://c6fg6uvng0ovi" path="res://core/systems/input/input_watcher.tscn" id="2_lfjkx"]
++[ext_resource type="Resource" path="res://assets/state/states/first_boot_telemetry.tres" id="3_rftel"]
++[ext_resource type="PackedScene" uid="uid://uljtdvmuol3l" path="res://core/systems/input/focus_group_setter.tscn" id="4_byts3"]
++[ext_resource type="PackedScene" uid="uid://shvyhrv5sx3v" path="res://core/systems/state/state_watcher.tscn" id="5_svc26"]
++[ext_resource type="PackedScene" uid="uid://d0u3rsa5qpj57" path="res://core/ui/components/subsection_label.tscn" id="6_mn0iu"]
++[ext_resource type="PackedScene" uid="uid://c71ayw7pcw6u6" path="res://core/ui/components/card_button.tscn" id="7_4pfh5"]
++[ext_resource type="PackedScene" uid="uid://bw8113ocotx2r" path="res://core/systems/effects/fade_effect.tscn" id="7_6yapm"]
++[ext_resource type="PackedScene" uid="uid://b76dvfuouhlwd" path="res://core/systems/state/state_updater.tscn" id="8_7mmqh"]
++[ext_resource type="PackedScene" uid="uid://8m20p2s0v5gb" path="res://core/systems/input/focus_group.tscn" id="9_di8uy"]
++[ext_resource type="PackedScene" uid="uid://d1qb7euwlu7bh" path="res://core/ui/components/toggle.tscn" id="10_tgl"]
++
++[node name="TelemetrySelect" type="MarginContainer"]
++anchors_preset = 15
++anchor_right = 1.0
++anchor_bottom = 1.0
++grow_horizontal = 2
++grow_vertical = 2
++theme_override_constants/margin_left = 100
++theme_override_constants/margin_right = 20
++script = ExtResource("1_rftel")
++
++[node name="InputWatcher" parent="." instance=ExtResource("2_lfjkx")]
++stop_propagation = true
++process_input_mode = 1
++action = "ogui_east"
++
++[node name="StateUpdater" parent="InputWatcher" instance=ExtResource("8_7mmqh")]
++state_machine = ExtResource("2_8r7jx")
++action = 2
++on_signal = "input_released"
++
++[node name="StateWatcher" parent="." instance=ExtResource("5_svc26")]
++state = ExtResource("3_rftel")
++
++[node name="FadeEffect" parent="StateWatcher" node_paths=PackedStringArray("target") instance=ExtResource("7_6yapm")]
++target = NodePath("../..")
++on_signal = "state_entered"
++fade_out_signal = "state_exited"
++on_signal = "state_entered"
++
++[node name="FocusGroupSetter" parent="StateWatcher/FadeEffect" node_paths=PackedStringArray("target") instance=ExtResource("4_byts3")]
++target = NodePath("../../../HBoxContainer/MarginContainer/VBoxContainer/FocusGroup")
++on_signal = "effect_finished"
++
++[node name="FocusGroupSetter" parent="StateWatcher" node_paths=PackedStringArray("target") instance=ExtResource("4_byts3")]
++target = NodePath("../../HBoxContainer/MarginContainer/VBoxContainer/FocusGroup")
++on_signal = "state_refreshed"
++
++[node name="HBoxContainer" type="HBoxContainer" parent="."]
++layout_mode = 2
++
++[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer"]
++custom_minimum_size = Vector2(300, 0)
++layout_mode = 2
++alignment = 1
++
++[node name="SubsectionLabel" parent="HBoxContainer/VBoxContainer" instance=ExtResource("6_mn0iu")]
++layout_mode = 2
++text = "Help improve RetroForge"
++
++[node name="MarginContainer" type="MarginContainer" parent="HBoxContainer"]
++layout_mode = 2
++size_flags_horizontal = 3
++size_flags_vertical = 3
++theme_override_constants/margin_left = 40
++theme_override_constants/margin_top = 80
++theme_override_constants/margin_right = 40
++theme_override_constants/margin_bottom = 80
++
++[node name="VBoxContainer" type="VBoxContainer" parent="HBoxContainer/MarginContainer"]
++layout_mode = 2
++theme_override_constants/separation = 40
++
++[node name="FocusGroup" parent="HBoxContainer/MarginContainer/VBoxContainer" node_paths=PackedStringArray("current_focus") instance=ExtResource("9_di8uy")]
++current_focus = NodePath("../TelemetryToggle")
++
++[node name="Explanation" type="Label" parent="HBoxContainer/MarginContainer/VBoxContainer"]
++layout_mode = 2
++size_flags_vertical = 3
++text = "Each time it starts, RetroForge can send an anonymous report: an ID made from a one-way hash of the chip's serial number, your device model and chip, the RetroForge version and update channel, memory and storage size, and whether it runs from the SD card or internal storage. Your country is worked out from the connection and the address is not kept. No games, files, accounts or network names are ever sent.
++
++It tells us which devices and versions to support."
++autowrap_mode = 3
++
++[node name="TelemetryToggle" parent="HBoxContainer/MarginContainer/VBoxContainer" instance=ExtResource("10_tgl")]
++unique_name_in_owner = true
++layout_mode = 2
++text = "Send anonymous device statistics"
++button_pressed = true
++
++[node name="NextButton" parent="HBoxContainer/MarginContainer/VBoxContainer" instance=ExtResource("7_4pfh5")]
++unique_name_in_owner = true
++layout_mode = 2
++size_flags_horizontal = 8
++size_flags_vertical = 8
++text = "Next"
++click_focuses = false
