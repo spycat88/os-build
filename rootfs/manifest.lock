@@ -61,6 +61,7 @@ duktape 2.7.0-7 aarch64 snapshot 24807fc3fa8d08db6ae5b8fd262ffcbb957a2380ed6113e
 e2fsprogs 1.47.4-1 aarch64 snapshot 3b00f47b84219d26d3425e9c433b80d290d85afe0be948e95dcaf87cb7e65c4b
 earlyoom 1.9.0-1 aarch64 snapshot 165191291c9da18a4b08b51c07f5c22f81fbcaf220348a22ab5c336c1a687f3d
 elfutils 0.195-1 aarch64 snapshot cdb6e40f5362b90d0690f147b08589d20323c9b03cf96f328bacff17eea46b80
+exfatprogs 1.4.2-1 aarch64 snapshot 61dec814d3eaf38b6c16aebd2caae0c30388cbf37f60556515ee593b3429f18e
 expat 2.8.2-1 aarch64 snapshot b8e7cb3ec8029e2a41de29fdbe47cb378b529fd19ab7b4a4165a81adc888cdb0
 f3 10.0-1.1 aarch64 retroforge f266a61651f5f86c6d00c4dc3a8e08b6fe2affa6276cc92061e86be8f563cec3
 fftw 3.3.11-1 aarch64 snapshot a59c2d2ecd0ee3a82d5eec3eb05df338d60e2df8f502ba378c3afd90005f153f

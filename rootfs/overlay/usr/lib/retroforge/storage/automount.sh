@@ -120,15 +120,15 @@ esac
 # (steam://system/devicemountresult); there is no client to tell here, so the read-only mount and
 # the journal line are the whole answer.
 #
-# PER FILESYSTEM. fsck.ext4 -y and fsck.fat -a (dosfstools, in the base) both answer 0 for clean and
-# 1 for corrected. exFAT has no checker on the image (exfatprogs does not ship): it mounts unchecked,
-# and udisks' own exfat default, errors=remount-ro, is what turns damage found later into a
-# read-only card rather than a worse one.
+# PER FILESYSTEM. fsck.ext4 -y, fsck.fat -a (dosfstools) and fsck.exfat -p (exfatprogs) all answer 0
+# for clean and 1 for corrected; anything else mounts read-only. udisks' own exfat default,
+# errors=remount-ro, covers damage found later.
 OPTS="noatime"
 fsck_rc=0
 case "$FSTYPE" in
     ext4)  FSCK=(fsck.ext4 -y) ;;
     vfat)  FSCK=(fsck.fat -a -w) ;;
+    exfat) FSCK=(fsck.exfat -p) ;;
     *)     FSCK=() ;;
 esac
 if [ "${#FSCK[@]}" = 0 ]; then

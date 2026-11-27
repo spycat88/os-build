@@ -122,6 +122,8 @@ BOOTSTRAP_PKGS=(base)
 #   rsync               the post-install hook copies the running /var into the new slot's /var.
 #   gptfdisk            sgdisk: the internal installer reads and writes the GPT with it.
 #   dosfstools          mkfs.vfat: the installer's ESP and both efi partitions.
+#   exfatprogs          mkfs.exfat and fsck.exfat: Settings > Disks formats an SD card as exFAT (what
+#                       every PC and other handheld reads), and automount.sh checks one before mounting.
 #   mtools              mdir: reads a foreign ESP's content, which is how select-target.sh recognises
 #                       another distribution's install. It refuses to run without it.
 #   parted              partprobe: re-reads the table after the carve; recon() requires it outright.
@@ -218,7 +220,7 @@ BOOTSTRAP_PKGS=(base)
 #                       default): someone remote attaches to a shell on the device through an
 #                       outbound connection, no port forward. Overlay (packages/upterm): not in the
 #                       snapshot. One static Go binary, client only; nothing starts it.
-PKGS=(wpa_supplicant wireless-regdb openssh vulkan-icd-loader vulkan-freedreno vulkan-mesa-layers vulkan-tools retroforge-gpu-priority mesa gamescope seatd mangohud bluez bluez-utils networkmanager alsa-ucm-conf pipewire wireplumber pipewire-pulse pipewire-alsa rtkit e2fsprogs xorg-xwayland noto-fonts noto-fonts-emoji python python-gobject scx-scheds rauc btrfs-progs rsync gptfdisk dosfstools mtools parted earlyoom zram-generator udisks2 f3 upower libinput-tools brightnessctl opengamepadui powerstation inputplumber which fuse3 ksmbd-tools avahi sdl2_ttf sdl2_image sdl2_mixer squashfuse mesa-utils unzip openal libtheora rmtfs msm-firmware-loader hexagonrpcd xxhash fuse-overlayfs gtk2 libibus lsof tailscale zlib-ng-compat upterm)
+PKGS=(wpa_supplicant wireless-regdb openssh vulkan-icd-loader vulkan-freedreno vulkan-mesa-layers vulkan-tools retroforge-gpu-priority mesa gamescope seatd mangohud bluez bluez-utils networkmanager alsa-ucm-conf pipewire wireplumber pipewire-pulse pipewire-alsa rtkit e2fsprogs xorg-xwayland noto-fonts noto-fonts-emoji python python-gobject scx-scheds rauc btrfs-progs rsync gptfdisk dosfstools exfatprogs mtools parted earlyoom zram-generator udisks2 f3 upower libinput-tools brightnessctl opengamepadui powerstation inputplumber which fuse3 ksmbd-tools avahi sdl2_ttf sdl2_image sdl2_mixer squashfuse mesa-utils unzip openal libtheora rmtfs msm-firmware-loader hexagonrpcd xxhash fuse-overlayfs gtk2 libibus lsof tailscale zlib-ng-compat upterm)
 
 # Dev-only packages — installed ONLY under RETROFORGE_DEV=1, NEVER in a release base.
 # On-device bring-up tools: evtest reads raw /dev/input events; usbutils provides lsusb.

@@ -1,0 +1,63 @@
+#!/bin/bash
+# retroforge-sdcard-info — what is in the SD card slot, for Settings > Disks (the plugin's
+# sdcard_settings.gd). Unprivileged: lsblk and findmnt read everything it needs.
+#
+# stdout: key=value lines, one per key, values never quoted:
+#   state       card | none | system (RetroForge runs from the card: it is never mounted or formatted)
+#               | several (more than one SD card: none is "the" card, as for retroforge-format-sdcard)
+#   disk size   the card: /dev/<disk>, its size in bytes
+#   partition   the partition shown: the one mounted for the player, else the first ("" if none)
+#   fstype label
+#   mountpoint  where udisks mounted it for the player ("" when not mounted)
+#   fssize fsused fsavail   bytes, from the mounted filesystem ("" when not mounted)
+#
+# "The card" is storage_target_sd's answer (lib-storage.sh), the one retroforge-format-sdcard formats,
+# so the details shown are always those of the card the Format button erases.
+set -uo pipefail
+
+. /usr/lib/retroforge/storage/lib-storage.sh
+
+out() { printf '%s=%s\n' "$1" "${2//$'\n'/ }"; }
+
+disk="$(storage_target_sd)"
+if [ -z "$disk" ]; then
+    sds=0; system=0
+    for d in /sys/block/mmcblk*; do
+        [ -e "$d" ] || continue
+        storage_is_sd "${d##*/}" || continue
+        sds=$((sds + 1))
+        storage_is_system_disk "${d##*/}" && system=1
+    done
+    if [ "$sds" = 0 ]; then out state none
+    elif [ "$system" = 1 ] && [ "$sds" = 1 ]; then out state system
+    else out state several
+    fi
+    exit 0
+fi
+
+out state card
+out disk "$disk"
+out size "$(lsblk -bdno SIZE "$disk" 2>/dev/null | tr -d ' ')"
+
+part="" mnt=""
+while read -r name; do
+    [ -n "$name" ] || continue
+    m="$(findmnt -rn -o TARGET -S "/dev/$name" 2>/dev/null | grep -m1 '^/run/media/' || true)"
+    if [ -n "$m" ]; then part="/dev/$name"; mnt="$m"; break; fi
+    [ -n "$part" ] || part="/dev/$name"
+done < <(lsblk -lno NAME,TYPE "$disk" 2>/dev/null | awk '$2 == "part" {print $1}')
+
+out partition "$part"
+if [ -n "$part" ]; then
+    out fstype "$(lsblk -no FSTYPE "$part" 2>/dev/null | head -n1)"
+    out label "$(lsblk -no LABEL "$part" 2>/dev/null | head -n1)"
+else
+    out fstype ""; out label ""
+fi
+out mountpoint "$mnt"
+if [ -n "$mnt" ]; then
+    read -r fssize fsused fsavail < <(df -B1 --output=size,used,avail "$mnt" 2>/dev/null | tail -n1)
+    out fssize "${fssize:-}"; out fsused "${fsused:-}"; out fsavail "${fsavail:-}"
+else
+    out fssize ""; out fsused ""; out fsavail ""
+fi

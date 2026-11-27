@@ -53,6 +53,7 @@ var _buttons: RefCounted  # button_layout.gd
 var _pause: RefCounted  # pause_on_menu.gd
 var _time_zone: RefCounted  # time_zone_settings.gd
 var _scraper: RefCounted  # scraper_settings.gd
+var _sdcard: RefCounted  # sdcard_settings.gd: Settings > Disks > SD card
 var _psn: RefCounted  # psn_settings.gd
 var _cheevos: RefCounted  # cheevos_settings.gd
 var _tailscale: RefCounted  # tailscale_settings.gd: Settings > Network > VPN
@@ -132,6 +133,9 @@ func _ready() -> void:
 	# Until here no card fetches (allowed unset): the setting lives in the Settings section.
 	_art_fetch.other = _scraper.runner
 	_art_fetch.allowed = _scraper.can_fetch
+	_sdcard = load(plugin_base.path_join("sdcard_settings.gd")).new().setup(get_tree())
+	if not _sdcard.attach():
+		logger.warn("OGUI disks settings layout not found; no SD card section")
 	_tailscale = load(plugin_base.path_join("tailscale_settings.gd")).new().setup(get_tree())
 	if not _tailscale.attach():
 		logger.warn("no tailscale, or OGUI network settings layout not found; no VPN section")
@@ -184,6 +188,8 @@ func unload() -> void:
 		_time_zone.detach()
 	if _scraper:
 		_scraper.detach()
+	if _sdcard:
+		_sdcard.detach()
 	if _psn:
 		_psn.detach()
 	if _cheevos:

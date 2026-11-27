@@ -390,6 +390,7 @@ const RomWatch := preload("$SRC/rom_watch.gd")
 const Credits := preload("$SRC/credits.gd")
 const GameDirs := preload("$SRC/game_dirs.gd")
 const RomRoots := preload("$SRC/rom_roots.gd")
+const SDCardText := preload("$SRC/sdcard_text.gd")
 const EmuOptions := preload("$SRC/emu_options.gd")
 const EmuState := preload("$SRC/emu_state.gd")
 const ArtPaths := preload("$SRC/art_paths.gd")
@@ -496,6 +497,7 @@ func _init() -> void:
 	test_rom_watch()
 	test_game_dirs()
 	test_sd_cards()
+	test_sdcard_text()
 	test_credits()
 	test_emu_options()
 	test_emu_state()
@@ -795,6 +797,21 @@ func test_sd_cards() -> void:
 	watch.mark_loaded()
 	write(mounts + "/GAMES/roms/psx/A.chd", "a")
 	check("sd: the same file name on the card as in ~/roms is still a change", [watch.poll(false), watch.poll(false)], [false, true])
+
+## Settings > Disks > SD card, from retroforge-sdcard-info's key=value lines.
+func test_sdcard_text() -> void:
+	var info := SDCardText.parse_info("state=card\ndisk=/dev/mmcblk0\nsize=63864569856\nlabel=RETROFORGE\nfstype=exfat\nmountpoint=/run/media/player/RETROFORGE\nfsused=1048576\nfsavail=63812141056\nodd=a=b\n")
+	check("sdcard: key=value lines, a value may hold =", [info["state"], info["odd"]], ["card", "a=b"])
+	check("sdcard: the card is named by its label and device", SDCardText.describe_card(info), "RETROFORGE, /dev/mmcblk0")
+	check("sdcard: no label, the device alone", SDCardText.describe_card({"disk": "/dev/mmcblk0"}), "/dev/mmcblk0")
+	check("sdcard: sizes for a person, nothing is Unknown",
+		[SDCardText.size_text("63864569856"), SDCardText.size_text("536870912"), SDCardText.size_text("512"), SDCardText.size_text(""), SDCardText.size_text("x")],
+		["59.5 GB", "512 MB", "512 B", "Unknown", "Unknown"])
+	check("sdcard: filesystems by the names people know",
+		[SDCardText.fstype_text("exfat"), SDCardText.fstype_text("vfat"), SDCardText.fstype_text(""), SDCardText.fstype_text("ntfs")],
+		["exFAT", "FAT32", "None (not formatted)", "ntfs"])
+	check("sdcard: used and free", SDCardText.usage_text({"fsused": "1048576", "fsavail": "1073741824"}), "1.0 MB used, 1.0 GB free")
+	check("sdcard: not mounted, usage unknown", SDCardText.usage_text({"fsused": "", "fsavail": ""}), "Unknown")
 
 ## Attribution the emulators' licences ask for (DuckStation: CC BY-NC-ND, link duckstation.org).
 func test_credits() -> void:

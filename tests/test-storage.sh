@@ -402,12 +402,15 @@ code "$AUTO" | grep -qE 'ntfs|btrfs|f2fs' \
 sed -n '/only those cards are automounted/,+1p' "$AUTO" | grep -q 'exit 0' \
   && ok "and stands down with exit 0 rather than leaving a failed unit" \
   || bad "a foreign card leaves a failed unit — that is a fault report for a normal action"
-# The fat checker ships (dosfstools is in PKGS); exfatprogs does not, so an exFAT card mounts
-# unchecked and says so rather than calling a fsck.exfat that is not there.
+# Both checkers ship: dosfstools and exfatprogs are in PKGS.
 code "$AUTO" | grep -q 'fsck.fat -a' \
   && ok "a vfat card is checked with fsck.fat" || bad "a vfat card mounts unchecked"
-code "$AUTO" | grep -q 'fsck.exfat' \
-  && bad "fsck.exfat is called, but exfatprogs is not on the image" || ok "no fsck.exfat (not on the image)"
+code "$AUTO" | grep -q 'fsck.exfat -p' \
+  && ok "an exfat card is checked with fsck.exfat" || bad "an exfat card mounts unchecked"
+for p in dosfstools exfatprogs; do
+  grep -qE "[( ]$p[) ]" "$PKGSRC" && grep -qE "^$p " "$LOCK" \
+    && ok "$p is in PKGS and manifest.lock" || bad "$p is not both declared and locked"
+done
 # The ROM folders: a card we formatted gets roms/, any card with roms/ gets the missing system folders.
 code "$AUTO" | grep -q 'mkdir "\$card_roms"' \
   && ok "every card mounted read-write gets a roms folder" || bad "a card gets no roms folder"
@@ -533,18 +536,23 @@ done
   && ok "and an argument we really do not know is still refused" \
   || bad "an unknown argument no longer refuses — the parser accepts anything"
 
-# THE OPTION SET IS UPSTREAM'S, WITH NOTHING ADDED. A helper whose CLI matches the one it was ported
-# from can be diffed against it in one glance; every option we bolt on is one the comparison no
-# longer makes. --auto lived here and moved to retroforge-format-sdcard, where our divergence belongs.
+# THE OPTION SET IS UPSTREAM'S PLUS ONE. A helper whose CLI matches the one it was ported from can be
+# diffed against it in one glance; every option we bolt on is one the comparison no longer makes.
+# --auto lived here and moved to retroforge-format-sdcard, where our divergence belongs. The one
+# addition is --exfat (VERSION_NUMBER 2): Settings > Disks formats a ROM card as exFAT, and the
+# filesystem is the privileged script's decision, so it cannot live in the wrapper.
 opts="$(sed -n 's/^ *\(--[a-z|-]*\)).*/\1/p' "$FMT" | tr '|' '\n' | grep -c .)"
 for o in --version --force --skip-validation --full --quick --owner --device --label; do
   sed -n 's/^ *\(--[a-z|-]*\)).*/\1/p' "$FMT" | tr '|' '\n' | grep -qx -- "$o" \
     && ok "handles $o, as upstream does" \
     || bad "$o is missing — upstream's getopt has it"
 done
-[ "$opts" = 8 ] \
-  && ok "and handles nothing else (8 long options, upstream's exact set)" \
-  || bad "$opts long options handled, upstream has 8 — something was added to a copied contract"
+sed -n 's/^ *\(--[a-z|-]*\)).*/\1/p' "$FMT" | tr '|' '\n' | grep -qx -- --exfat \
+  && ok "handles --exfat, ours (Settings > Disks)" || bad "--exfat is missing"
+grep -q '^VERSION_NUMBER=2$' "$FMT" && ok "and --version says 2, so a caller can tell" || bad "--exfat added without bumping VERSION_NUMBER"
+[ "$opts" = 9 ] \
+  && ok "and handles nothing else (upstream's 8 long options plus --exfat)" \
+  || bad "$opts long options handled, upstream's 8 plus --exfat is 9 — something else was added"
 
 # =================================================================================================
 CASE="which-card-is-resolved-in-our-wrapper"
@@ -583,8 +591,8 @@ code "$FMT" | grep -q 'failed the counterfeit test' \
   || bad "a failed probe does not refuse the format"
 # CODE LINES ONLY — the comment above the probe names f3fix in order to explain what we do NOT do,
 # and a whole-file grep matched that prose. Fifth time in this suite.
-code "$FMT" | grep -qE 'f3fix|mkfs\.exfat' \
-  && bad "the exFAT rescue is being attempted — that needs parted and exfatprogs, neither of which ships" \
+code "$FMT" | grep -qE 'f3fix' \
+  && bad "the f3fix rescue is being attempted — a counterfeit card is refused, not repaired" \
   || ok "no rescue path: a counterfeit card is refused, not repartitioned"
 # 14 is not a number we picked: it is what the upstream helper returns for a card that failed the
 # probe, and it is how the client knows to show its bad-card error rather than a generic one.

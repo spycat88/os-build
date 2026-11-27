@@ -45,7 +45,9 @@ F3PROBE="${RETROFORGE_F3PROBE:-/usr/bin/f3probe}"
 VALIDATE=1
 DISCARD="nodiscard"
 # Bumped whenever an option is added here — the caller-visible way to tell what this understands.
-VERSION_NUMBER=1
+VERSION_NUMBER=2
+# --exfat (version 2): Settings > Disks formats a ROM card as exFAT (sdcard_settings.gd).
+FSTYPE=ext4
 
 # TO THE JOURNAL AND TO STDERR, one line at a time, synchronously.
 #
@@ -90,6 +92,9 @@ while [ $# -gt 0 ]; do
         # mkfs -E discard vs nodiscard. nodiscard is the default because the disk was just wiped.
         --full)    DISCARD="discard"; shift ;;
         --quick)   DISCARD="nodiscard"; shift ;;
+        # exFAT instead of ext4+casefold, on an MBR table: the ROM card Settings > Disks makes, which
+        # every PC, phone and other handheld reads. Ownership comes from udisks' uid= at mount time.
+        --exfat)   FSTYPE=exfat; shift ;;
         # "Increase the version number every time a new option is added" — the upstream helper's
         # own words. It is how a caller can tell which options this script understands, and it costs
         # one line to answer honestly.
@@ -100,7 +105,7 @@ while [ $# -gt 0 ]; do
         # option, and the strings immediately after them are steamos-update's path and
         # "steamos-update: using duplicate detection: %d" — duplicate BLOCK detection, the
         # adaptive-OTA feature. Adjacency in .rodata is not a call site.
-        -h|--help) printf 'usage: %s --device <dev> [--label L] [--owner uid:gid] [--force|--skip-validation] [--full|--quick]\n' "$PROG"; exit 0 ;;
+        -h|--help) printf 'usage: %s --device <dev> [--label L] [--owner uid:gid] [--force|--skip-validation] [--full|--quick] [--exfat]\n' "$PROG"; exit 0 ;;
         *)         die "unknown argument: $1" 22 ;;
     esac
 done
@@ -137,6 +142,13 @@ storage_lock "$PARTBASE" || die "refusing to format $DEVICE: something else is a
 #
 # Deepest first, and a failure here is fatal: umount refusing means something is still using the
 # filesystem, and erasing it anyway is precisely the damage this replaces.
+# The [sdcard] network share's bind of this card first, through its unit, so the share is taken out
+# of ksmbd's list as it goes (retroforge-sdcard-share.service is bound to it) rather than left
+# pointing at a card being erased.
+if findmnt -rn -o SOURCE --mountpoint /run/retroforge/sdcard 2>/dev/null | grep -q "^/dev/${DISK}p"; then
+    log "taking the sdcard network share down before formatting"
+    systemctl stop run-retroforge-sdcard.mount 2>/dev/null || umount -l /run/retroforge/sdcard 2>/dev/null || true
+fi
 while read -r mnt; do
     [ -n "$mnt" ] || continue
     log "unmounting $mnt before formatting"
@@ -198,7 +210,7 @@ echo "stage=formatting"
 PART="/dev/$PARTBASE"
 [ -n "$LABEL" ] || LABEL="SDCARD"
 
-log "formatting $DEVICE (label '$LABEL', owner $OWNER)"
+log "formatting $DEVICE as $FSTYPE (label '$LABEL', owner $OWNER)"
 
 # WIPE THE OLD SIGNATURES FIRST. A card that carried our own image still has a GPT naming
 # retroforge-root-A and friends; leaving those in place gives the device two disks answering to one
@@ -208,9 +220,14 @@ log "formatting $DEVICE (label '$LABEL', owner $OWNER)"
 for p in "/dev/${DISK}"p*; do [ -b "$p" ] && wipefs --all --force "$p" >/dev/null 2>&1 || true; done
 wipefs --all --force "$DEVICE" >/dev/null 2>&1 || true
 
-# sfdisk comes with util-linux and is always there.
-printf 'label: gpt\nname=retroforge-library, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4\n' \
-    | sfdisk --quiet --wipe always "$DEVICE" >/dev/null
+# sfdisk comes with util-linux and is always there. exFAT: one MBR partition of type 7 over the whole
+# card, the layout the SD Association's own formatter writes and every other device expects.
+if [ "$FSTYPE" = exfat ]; then
+    printf 'label: dos\ntype=7\n' | sfdisk --quiet --wipe always "$DEVICE" >/dev/null
+else
+    printf 'label: gpt\nname=retroforge-library, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4\n' \
+        | sfdisk --quiet --wipe always "$DEVICE" >/dev/null
+fi
 
 partprobe "$DEVICE" >/dev/null 2>&1 || true
 udevadm settle --timeout=10 >/dev/null 2>&1 || true
@@ -225,12 +242,22 @@ udevadm settle --timeout=10 >/dev/null 2>&1 || true
 # this script is in the middle of formatting, each emitting its own udev events on the partition
 # the automounter is watching. One mkfs option replaces all of it and cannot race anything, because
 # the filesystem does not exist yet when the option is read.
+#
+# exFAT: mkfs.exfat (exfatprogs). A label is at most 11 characters there; longer is cut, not refused.
 mkfs_rc=0
-mkfs_out="$(mkfs.ext4 -m 0 -O casefold -E "$DISCARD,root_owner=$OWNER" -L "$LABEL" -F "$PART" 2>&1)" || mkfs_rc=$?
+if [ "$FSTYPE" = exfat ]; then
+    mkfs_out="$(mkfs.exfat -L "${LABEL:0:11}" "$PART" 2>&1)" || mkfs_rc=$?
+else
+    mkfs_out="$(mkfs.ext4 -m 0 -O casefold -E "$DISCARD,root_owner=$OWNER" -L "$LABEL" -F "$PART" 2>&1)" || mkfs_rc=$?
+fi
 printf '%s\n' "$mkfs_out" | while IFS= read -r l; do [ -n "$l" ] && log "mkfs: $l"; done
-[ "$mkfs_rc" = 0 ] || die "mkfs.ext4 failed on $PART (status $mkfs_rc)" 1
+[ "$mkfs_rc" = 0 ] || die "mkfs.$FSTYPE failed on $PART (status $mkfs_rc)" 1
 
-log "formatted $PART as ext4+casefold, label '$LABEL', owned by $OWNER"
+if [ "$FSTYPE" = exfat ]; then
+    log "formatted $PART as exfat, label '${LABEL:0:11}'"
+else
+    log "formatted $PART as ext4+casefold, label '$LABEL', owned by $OWNER"
+fi
 
 # MOUNT IT FROM HERE, because this is the only place that knows a filesystem was just created.
 # The udev rule matches add|remove and nothing else: a formatted-in-place card emits its signature

@@ -136,7 +136,13 @@ On an internal install the card slot is free, and a card in it is a second ROM l
   has, where missing, each time it is mounted read-write, so a new card is ready to fill. Ports stay
   in `~/roms/ports`: a port does not run from a card.
 - **Filesystems.** ext4, exFAT and FAT32 are mounted (`/usr/lib/retroforge/storage/automount.sh`),
-  ext4 and FAT32 checked first. exFAT mounts unchecked: the image has no `fsck.exfat`.
+  each checked first (`fsck.ext4`, `fsck.exfat`, `fsck.fat`); one that cannot be repaired mounts
+  read-only.
+- **Settings > Disks > SD card** shows the card's total size, filesystem, mount point, and used and
+  free space (`retroforge-sdcard-info`), and updates as a card goes in or out. **Format** asks first,
+  then takes the share down, unmounts the card, deletes every partition, writes one exFAT partition
+  (MBR, label `RETROFORGE`) and mounts it again with `roms/` and the system folders
+  (`retroforge-format-sdcard --exfat`, through polkit: only from the device's own screen).
 - **Hot swap.** The library looks at the card every 5 seconds (the plugin's `rom_watch.gd`), so its
   games appear 5 to 10 seconds after the card goes in and disappear the same way after it comes out.
   Not while a game runs: the rescan waits for the game to exit. Starting a card's game after the
